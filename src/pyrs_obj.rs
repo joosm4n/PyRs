@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::process::{ExitCode, Termination};
 
-use crate::pyrs_userclass::UserClass;
+use crate::{
+    pyrs_userclass::{UserClass},
+    pyrs_error::{PyException, PyError},
+};
 
 /*
 macro_rules! dbg {
@@ -436,47 +439,6 @@ impl std::fmt::Display for Obj {
 impl Termination for Obj {
     fn report(self) -> std::process::ExitCode {
         ExitCode::SUCCESS
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PyException
-{
-    pub error: PyError,
-    pub msg: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum PyError 
-{
-    ArithmeticError,
-    IndexError,
-    KeyError,
-    IndentationError,
-    TypeError,
-    NotImplementedError,
-    ZeroDivisionError,
-    UndefinedVariableError,
-}
-
-impl PyException
-{
-    pub fn print(&self) {
-        println!("{self}");   
-    }
-}
-
-impl std::fmt::Display for PyException
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}: {}", self.error, self.msg)
-    }
-}
-
-impl Termination for PyException
-{
-    fn report(self) -> std::process::ExitCode {
-        ExitCode::from(self.error as u8)
     }
 }
 
