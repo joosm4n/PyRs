@@ -14,6 +14,10 @@ use crate::{
     pyrs_std::{FnPtr, Funcs}
 };
 
+use std::{
+    collections::HashMap
+};
+
 fn main() {
 
     let args = std::env::args();
@@ -33,62 +37,83 @@ fn main() {
     }
 }
 
+
+
 #[cfg(test)]
 mod tests {
     use std::ops::Index;
+    use pretty_assertions::{assert_eq};
 
     use super::*;
 
-    #[test]
-    fn test_1() {
-        let s = Expression::from_line("1");
-        assert_eq!(s.to_string(), "Atom(1)");
+    struct EqTester
+    {
+        vars: HashMap<String, Obj>,
+        funcs: HashMap<String, FnPtr>,
+    }
+
+    impl EqTester 
+    {
+        fn new() -> Self {
+            EqTester { 
+                vars: Obj::new_map(), 
+                funcs: Funcs::get_std_map() 
+            }
+        }
+
+        fn eval_eq(&mut self, expr: &Expression, result: &str)
+        {
+            let res = match expr.eval(&mut self.vars, &mut self.funcs) {
+                Ok(val) => val,
+                Err(e) => panic!("{e}"),
+            };
+            assert_eq!(res.to_string(), result);
+        }
+    }
+
+    fn join_expr_strings(exprs: Vec<&Expression>) -> String
+    {
+        let mut res = String::new();
+        for e in exprs {
+            res.push_str(&e.to_string().as_str());
+            res.push_str(" | ");
+        }
+        res.pop();
+        res.pop();
+        res.pop();
+        res
     }
 
     #[test]
-    fn test_2() {
-        let s = Expression::from_line("1 + 2 * 3");
-        assert_eq!(s.to_string(), "Op[+ Atom(1) Op[* Atom(2) Atom(3)]]");
+    fn parse() 
+    {
+        let s1 = Expression::from_line("1");
+        let s2 = Expression::from_line("1 + 2 * 3");
+        let s3 = Expression::from_line("(1 + 2) * 3");
+        let s4 = Expression::from_line("print(100)");
+        
+        let final_str = join_expr_strings(vec![&s1, &s2, &s3, &s4]);
+        let res_str = "Atom(1) | Op[+ Atom(1) Op[* Atom(2) Atom(3)]] | Op[* Op[+ Atom(1) Atom(2)] Atom(3)] | Func[print args[ Atom(100)]]";
+        assert_eq!(final_str, res_str);
     }
 
     #[test]
-    fn test_3() {
-        let s = Expression::from_line("(1 + 2) * 3");
-        assert_eq!(s.to_string(), "Op[* Op[+ Atom(1) Atom(2)] Atom(3)]");
-    }
+    fn strlit_parse_eval() 
+    {
+        let s1 = Expression::from_line("\"smelly\"");
+        assert_eq!(s1.to_string(), "Atom(smelly)");
+        let s2 = Expression::from_line("\"smelly\" + \"poop\"");
+        assert_eq!(s2.to_string(), "Op[+ Atom(smelly) Atom(poop)]");
 
-    #[test]
-    fn test_4() {
-        let s = Expression::from_line("print(100)");
-        assert_eq!(s.to_string(), "Func[print, args[ Atom(100)]]");
-    }
-
-    #[test]
-    fn test_5() -> Result<Obj, PyException> {
-        let s = Expression::from_line("\"smelly\"");
-        assert_eq!(s.to_string(), "Atom(smelly)");
-        let mut vars = Obj::new_map();
-        let mut funcs = Funcs::get_std_map();
-        let res = s.eval(&mut vars, &mut funcs)?;
-        assert_eq!(res.to_string(), "smelly");
-        Ok(res)
-    }
-
-    #[test]
-    fn test_6() -> Result<Obj, PyException> {
-        let s = Expression::from_line("\"smelly\" + \"poop\"");
-        assert_eq!(s.to_string(), "Op[+ Atom(smelly) Atom(poop)]");
-        let mut vars = Obj::new_map();
-        let mut funcs = Funcs::get_std_map();
-        let res = s.eval(&mut vars, &mut funcs)?;
-        assert_eq!(res.to_string(), "smellypoop");
-        Ok(res)
+        let mut eq = EqTester::new();
+        eq.eval_eq(&s1, "smelly");
+        eq.eval_eq(&s2, "smellypoop");
     }
 
     #[test]
     fn test_7() {
         let s = Expression::from_line(" print(\" y = \", 5) ");
-        assert_eq!(s.to_string(), "Func[print, args[ Atom( y = ) Atom(5)]]");
+        assert_eq!(s.to_string(), "Func[print args[ Atom( y = ) Atom(5)]]");
     }
 
     #[test]
@@ -98,35 +123,31 @@ mod tests {
     }
 
     #[test]
-    fn test_9() -> Result<Obj, PyException> {
+    fn test_9() {
         let s = Expression::from_line("print_ret(10, 100)");
         assert_eq!(
             s.to_string(),
-            "Func[print_ret, args[ Atom(10) Atom(100)]]"
+            "Func[print_ret args[ Atom(10) Atom(100)]]"
         );
-        let mut vars = Obj::new_map();
-        let mut funcs = Funcs::get_std_map();
-        let res = s.eval(&mut vars, &mut funcs)?;
-        assert_eq!(res.to_string(), "10 100 ");
-        Ok(res)
+
+        let mut eq = EqTester::new();
+        eq.eval_eq(&s, "10 100 ");
     }
 
     #[test]
-    fn test_10() -> Result<Obj, PyException> {
+    fn test_10() {
         let s = Expression::from_line(" \"la\" * 3");
         assert_eq!(s.to_string(), "Op[* Atom(la) Atom(3)]");
-        let mut vars = Obj::new_map();
-        let mut funcs = Funcs::get_std_map();
-        let res = s.eval(&mut vars, &mut funcs)?;
-        assert_eq!(res.to_string(), "lalala");
-        Ok(res)
+
+        let mut eq = EqTester::new();
+        eq.eval_eq(&s, "lalala");
     }
 
     #[test]
     fn test_11() {
         let exprs = Expression::from_multiline("if 1:\n\t print(1) ");
         assert_eq!(exprs.len(), 2);
-        let expr_results = vec!["Keyword[if conds[ Atom(1)] args[]]", "Func[print, args[ Atom(1)]]"];
+        let expr_results = vec!["Keyword[if conds[ Atom(1)] args[]]", "Func[print args[ Atom(1)]]"];
         for (idx, expr) in exprs.iter().enumerate() {
             assert_eq!(expr.to_string(), expr_results.index(idx).to_string());
         }
@@ -140,7 +161,7 @@ mod tests {
 
         let mut vars = Obj::new_map();
         let mut funcs = Funcs::get_std_map();
-        let expr_results = vec!["Op[= Ident(x) Atom(2)]","Keyword[if conds[ Ident(x)] args[]]", "Func[print_ret, args[ Ident(x)]]"];
+        let expr_results = vec!["Op[= Ident(x) Atom(2)]","Keyword[if conds[ Ident(x)] args[]]", "Func[print_ret args[ Ident(x)]]"];
         let obj_results: Vec<Obj> = vec![Obj::Int(2), Obj::Bool(true), Obj::from_str("2 ")];
         
         for (idx, expr) in exprs.iter().enumerate() {
@@ -158,33 +179,24 @@ mod tests {
     fn equality() -> Result<Obj, PyException> 
     {
         let s1 = Expression::from_line("1 < 0");
-        assert_eq!(s1.to_string(), "Op[< Atom(1) Atom(0)]");
         let s2 = Expression::from_line("1 > 0");
-        assert_eq!(s2.to_string(), "Op[> Atom(1) Atom(0)]");
         let s3 = Expression::from_line("\"poop\" != 0");
-        assert_eq!(s3.to_string(), "Op[!= Atom(poop) Atom(0)]");
         let s4 = Expression::from_line("1 == 0");
-        assert_eq!(s4.to_string(), "Op[== Atom(1) Atom(0)]");
         let s5 = Expression::from_line("1.0 <= 0");
-        assert_eq!(s5.to_string(), "Op[<= Atom(1.0) Atom(0)]");
         let s6 = Expression::from_line("1 >= 0.0");
-        assert_eq!(s6.to_string(), "Op[>= Atom(1) Atom(0.0)]");
 
-        let mut vars = Obj::new_map();
-        let mut funcs = Funcs::get_std_map();
+        let expr_str = join_expr_strings(vec![&s1, &s2, &s3, &s4, &s5, &s6]);
+        let res_str = "Op[< Atom(1) Atom(0)] | Op[> Atom(1) Atom(0)] | Op[!= Atom(poop) Atom(0)] | Op[== Atom(1) Atom(0)] | Op[<= Atom(1.0) Atom(0)] | Op[>= Atom(1) Atom(0.0)]";
 
-        let res1 = s1.eval(&mut vars, &mut funcs)?;
-        assert_eq!(res1.to_string(), "false");
-        let res2 = s2.eval(&mut vars, &mut funcs)?;
-        assert_eq!(res2.to_string(), "true");
-        let res3 = s3.eval(&mut vars, &mut funcs)?;
-        assert_eq!(res3.to_string(), "true");
-        let res4 = s4.eval(&mut vars, &mut funcs)?;
-        assert_eq!(res4.to_string(), "false");
-        let res5 = s5.eval(&mut vars, &mut funcs)?;
-        assert_eq!(res5.to_string(), "false");
-        let res6 = s6.eval(&mut vars, &mut funcs)?;
-        assert_eq!(res6.to_string(), "true");
+        assert_eq!(expr_str, res_str);
+
+        let mut eq = EqTester::new();
+        eq.eval_eq(&s1, "false");
+        eq.eval_eq(&s2, "true");
+        eq.eval_eq(&s3, "true");
+        eq.eval_eq(&s4, "false");
+        eq.eval_eq(&s5,"false");
+        eq.eval_eq(&s6, "true");
         Ok(Obj::None)
     }
 
@@ -192,19 +204,119 @@ mod tests {
     fn assign() -> Result<Obj, PyException> 
     {
         let s1 = Expression::from_line("x = 2");
-        assert_eq!(s1.to_string(), "Op[= Ident(x) Atom(2)]");
         let s2 = Expression::from_line("six = 6");
-        assert_eq!(s2.to_string(), "Op[= Ident(six) Atom(6)]");
-        let s3 = Expression::from_line("x = y");
-        assert_eq!(s3.to_string(), "Op[= Ident(x) Ident(y)]");
+        let s3 = Expression::from_line("y = x");
+        let s4 = Expression::from_line("z = 20 * 4");
+
+        let expr_strs = join_expr_strings(vec![&s1, &s2, &s3, &s4]);
+        let res_strs = "Op[= Ident(x) Atom(2)] | Op[= Ident(six) Atom(6)] | Op[= Ident(y) Ident(x)] | Op[= Ident(z) Op[* Atom(20) Atom(4)]]";
+        assert_eq!(expr_strs, res_strs);
+
+        let mut eq = EqTester::new();
+        eq.eval_eq(&s1, "2");
+        eq.eval_eq(&s2, "6");
+        eq.eval_eq(&s3, "2");
+        eq.eval_eq(&s4, "80");
+
+        Ok(Obj::None)
+    }
+
+    #[test]
+    fn while_test() -> Result<Obj, PyException> 
+    {   
+        let expr = Expression::from_multiline
+        (r#"
+        i = 0
+        n1 = 0
+        n2 = 1
+        n3 = 0
+        print("Fibbonacci: ")
+        while i < 20:
+            n3 = n1 + n2
+            print("(", i, ") ", n3)
+            n1 = n2
+            n2 = n3
+            i = i + 1
+        "#);
+
+        let ret_strs = vec![
+            "None", 
+            "Op[= Ident(i) Atom(0)]",
+            "Op[= Ident(n1) Atom(0)]",
+            "Op[= Ident(n2) Atom(1)]",
+            "Op[= Ident(n3) Atom(0)]",
+            "Func[print args[ Atom(Fibbonacci: )]]",
+            "Keyword[while conds[ Op[< Ident(i) Atom(20)]] args[]]",
+            "Op[= Ident(n3) Op[+ Ident(n1) Ident(n2)]]",
+            "Func[print args[ Atom(() Ident(i) Atom() ) Ident(n3)]]",
+            "Op[= Ident(n1) Ident(n2)]",
+            "Op[= Ident(n2) Ident(n3)]",
+            "Op[= Ident(i) Op[+ Ident(i) Atom(1)]]",
+            "None"
+        ];
+        
+        let mut vars = Obj::new_map();
+        let mut funcs = Funcs::get_std_map();
+
+        let idx_err= "[Bad Index]";
+
+        let mut ret_objs: Vec<Obj> = vec![];
+        let mut idx = 0;
+        for e in expr {
+            let obj = e.eval(&mut vars, &mut funcs)?;
+            assert_eq!(e.to_string(), ret_strs.get(idx).unwrap_or(&idx_err).to_string());
+            ret_objs.push(obj);
+            idx += 1;
+        }
+        Ok(Obj::None)
+
+    }
+
+    #[test]
+    fn nested_ifs() -> Result<Obj, PyException> 
+    {
+        assert!(false, "Test broken: looping??");
+
+        let expr = Expression::from_multiline
+        (r#"
+        if True:
+            print_ret("a: good")
+            if False:
+                print_ret("b: bad")
+            if True:
+                print_ret("c: good)
+        print("d: good)
+        "#);
+
+        let ret_strs = vec![
+            "None",
+            "Keyword[while conds[ Atom(True)] args[]]",
+            "Func[print_ret args[ Atom(a: good)]]",
+            "Keyword[while conds[ Atom(False)] args[]]",
+            "Func[print_ret args[ Atom(b: bad)]]",
+            "Keyword[while conds[ Atom(True)] args[]]",
+            "Func[print_ret args[ Atom(c: bad)]]",
+            "Func[print_ret args[ Atom(d: good)]]",
+            "None"
+        ];
 
         let mut vars = Obj::new_map();
         let mut funcs = Funcs::get_std_map();
 
+        let idx_err= "[Bad Index]";
 
-
+        let mut ret_objs: Vec<Obj> = vec![];
+        let mut idx = 0;
+        for e in expr {
+            let obj = e.eval(&mut vars, &mut funcs)?;
+            assert_eq!(e.to_string(), ret_strs.get(idx).unwrap_or(&idx_err).to_string());
+            ret_objs.push(obj);
+            idx += 1;
+        }
         Ok(Obj::None)
+
     }
+
     // TODO: 
     // - Nested if statements
     // - while loops
