@@ -1,6 +1,9 @@
-use crate::pyrs_obj::{Obj, PyError, PyException, PyObj, ToObj};
-use crate::pyrs_std::{FnPtr, Funcs, Import};
-use crate::pyrs_utils as Utils;
+use crate::{
+    pyrs_obj::{Obj, PyObj, ToObj},
+    pyrs_std::{FnPtr, Funcs, Import},
+    pyrs_utils as Utils,
+    pyrs_error::{PyException, PyError},
+};
 
 use std::collections::HashMap;
 

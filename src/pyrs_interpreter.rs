@@ -3,10 +3,13 @@ use std::collections::HashMap;
 use std::fs::{File};
 use std::io::{self, BufRead, BufReader, Write};
 
-use crate::pyrs_obj::{Obj, PyException, PyObj};
-use crate::pyrs_parsing::{Expression, Keyword};
-use crate::pyrs_std::{FnPtr, Funcs};
-use crate::pyrs_utils::{get_indent};
+use crate::{
+    pyrs_obj::{Obj, PyObj},
+    pyrs_parsing::{Expression, Keyword},
+    pyrs_std::{FnPtr, Funcs},
+    pyrs_utils::{get_indent},
+    pyrs_error::{PyException},
+};
 
 /*
 */

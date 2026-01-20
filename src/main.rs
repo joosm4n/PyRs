@@ -2,6 +2,7 @@
 pub mod pyrs_obj;
 pub mod pyrs_parsing;
 pub mod pyrs_std;
+pub mod pyrs_error;
 pub mod pyrs_userclass;
 pub mod pyrs_utils;
 pub mod pyrs_interpreter;
@@ -9,13 +10,10 @@ pub mod pyrs_interpreter;
 #[allow(unused_imports)]
 use crate::{
     pyrs_interpreter::{Interpreter, InterpreterCommand},
-    pyrs_obj::{Obj, PyException}, 
+    pyrs_obj::{Obj},
+    pyrs_error::{PyException}, 
     pyrs_parsing::{Expression},
     pyrs_std::{FnPtr, Funcs}
-};
-
-use std::{
-    collections::HashMap
 };
 
 fn main() {
@@ -41,8 +39,13 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Index;
-    use pretty_assertions::{assert_eq};
+    use std::{
+        ops::Index,
+        collections::HashMap,
+    };
+    use pretty_assertions::{
+        assert_eq
+    };
 
     use super::*;
 

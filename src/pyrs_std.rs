@@ -1,4 +1,7 @@
-use crate::pyrs_obj::Obj;
+use crate::{
+    pyrs_obj::{Obj},
+    pyrs_error::{PyException, PyError}
+};
 use std::collections::HashMap;
 
 pub trait Import {
@@ -78,6 +81,31 @@ impl Funcs {
             _ => unimplemented!(),
         };
         Obj::Str(s)
+    }
+
+    pub fn float(obj: &Obj) -> Result<Obj, PyException> {
+        let ret = match obj {
+            Obj::Float(_) => obj.clone(),
+            Obj::Int(i) => Obj::Float(*i as f64),
+            Obj::Str(s) => {
+                match s.parse::<f64>() {
+                    Ok(f) => Obj::Float(f),
+                    Err(e) => {
+                        return Err(PyException{
+                            error: PyError::FloatParseError,
+                            msg: format!("Failed to parse \"{s}\" to float. {e}"),
+                        });
+                    }
+                }
+            }
+            _ => { 
+                return Err(PyException {
+                    error: PyError::FloatParseError,
+                    msg: format!("Unable to convert {obj} to float"),
+                });
+            }
+        };
+        Ok(ret)
     }
 
     // TODO: Implement -
