@@ -387,7 +387,7 @@ impl Default for Expression {
 }
 
 impl Expression {
-    pub fn get_string(&self) -> String {
+    pub fn get_value_string(&self) -> String {
         match self {
             Expression::Ident(ident) => ident.clone(),
             Expression::Atom(atom) => atom.clone(),
@@ -400,11 +400,7 @@ impl Expression {
         let line_list = Utils::split_to_lines(&file);
 
         for line in line_list {
-            let word_list = Utils::split_to_words(&line);
-            let mut token_list = Lexer::from(&word_list);
-
-            let expr = token_list.parse_expression(0f32);
-            dbg!("Parsed expr: {:?}", &expr);
+            let expr = Expression::from_line(line);
             expr_list.push(expr);
         }
         return expr_list;
@@ -470,22 +466,23 @@ impl Expression {
             }
             Expression::Operation(operator, operands) => {
                 
-                // unary
+                // assign
                 let first = operands.first().unwrap();
+                if *operator == Op::Equals {
+                    let value = operands.get(1).unwrap().eval(&mut *variables, &mut *funcs)?; 
+                    let var_name = first.get_value_string();
+                    variables.insert(var_name, value.clone());
+                    return Ok(value);
+                }
+
+                // unary
+                let rhs = operands.get(1).unwrap().eval(&mut *variables, &mut *funcs)?;
                 let lhs = first.eval(&mut *variables, &mut *funcs)?;
                 match operator {
                     Op::Pos => return Obj::__pos__(&lhs),
                     Op::Neg => return Obj::__neg__(&lhs),
                     _ => {}
                 };
-
-                // assign
-                let rhs = operands.get(1).unwrap().eval(&mut *variables, &mut *funcs)?;
-                if *operator == Op::Equals {
-                    let var_name = first.get_string();
-                    variables.insert(var_name, rhs.clone());
-                    return Ok(rhs);
-                }
 
                 // binary
                 let val = match operator {
@@ -556,7 +553,7 @@ impl std::fmt::Display for Expression {
                 write!(f, "]]")
             }
             Expression::Func(func, args) => {
-                write!(f, "Func[{}, args[", func)?;
+                write!(f, "Func[{} args[", func)?;
                 for a in args {
                     write!(f, " {}", a)?;
                 }
