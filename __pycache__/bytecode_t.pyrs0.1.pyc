@@ -1,0 +1,15 @@
+(0) 		LoadConst(Int(0))
+(1) 		StoreName("x")
+(2) 		NOP
+(3) 		LoadName("x")
+(4) 		LoadConst(Int(3))
+(5) 		CompareOp(LessThan)
+(6) 		PopJumpIfFalse(8)
+(7) 		LoadName("x")
+(8) 		CallInstrinsic1(Print)
+(9) 		LoadName("x")
+(10) 		LoadConst(Int(1))
+(11) 		BinaryAdd
+(12) 		StoreName("x")
+(13) 		NOP
+(14) 		JumpBackward(12)

@@ -1,7 +1,14 @@
 [package]
-name = "learnrust"
+name = "Pyrs"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 pretty_assertions = "1.4.1"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(_YES_)'] }
+
+[features]
+default = ["_YES_"]
+_YES_ = []

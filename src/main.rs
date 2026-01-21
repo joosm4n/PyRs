@@ -6,24 +6,26 @@ pub mod pyrs_error;
 pub mod pyrs_userclass;
 pub mod pyrs_utils;
 pub mod pyrs_interpreter;
+pub mod pyrs_bytecode;
 
 #[allow(unused_imports)]
 use crate::{
     pyrs_interpreter::{Interpreter, InterpreterCommand},
     pyrs_obj::{Obj},
     pyrs_error::{PyException}, 
-    pyrs_parsing::{Expression},
-    pyrs_std::{FnPtr, Funcs}
+    pyrs_parsing::{Expression, Token, Op},
+    pyrs_std::{FnPtr, Funcs},
+    pyrs_bytecode::{PyBytecode, PyVM, IntrinsicFunc},
 };
 
-fn main() {
+fn main() -> std::io::Result<()> {
 
     let args = std::env::args();
     let mut argv: Vec<String> = vec![];
     for a in args {
         argv.push(a);
     }
-
+    
     let mut interp = Interpreter::new();
     let cmd = Interpreter::parse_args(&argv);
     match cmd {
@@ -32,26 +34,32 @@ fn main() {
         InterpreterCommand::PyFile(py) => interp.interpret_file(py),
         InterpreterCommand::FromString(words) => interp.interpret_line(words),
         InterpreterCommand::Error(msg) => println!("{}", msg),
+        InterpreterCommand::CompileFile(filepath) => { 
+            let bytecode = Interpreter::compile_file(filepath);
+            Interpreter::seralize_bytecode(filepath, &bytecode)?;
+        }
     }
+    Ok(())
 }
-
-
 
 #[cfg(test)]
 mod tests {
+
     use std::{
         ops::Index,
         collections::HashMap,
+        mem::size_of,
+        sync::Arc,
     };
+
     use pretty_assertions::{
         assert_eq
     };
-
     use super::*;
 
     struct EqTester
     {
-        vars: HashMap<String, Obj>,
+        vars: HashMap<String, Arc<Obj>>,
         funcs: HashMap<String, FnPtr>,
     }
 
@@ -88,15 +96,25 @@ mod tests {
     }
 
     #[test]
+    fn memory_size()
+    {
+        assert_eq!(40, size_of::<Obj>(), "Obj size not 24 bytes");
+        assert_eq!(24, size_of::<Token>(), "Token size not 24 bytes");
+        assert_eq!(64, size_of::<Expression>(), "Expression size not 64 bytes");
+        assert_eq!(40, size_of::<PyBytecode>(), "Bytecode size not 32 bytes");
+    }
+
+    #[test]
     fn parse() 
     {
         let s1 = Expression::from_line("1");
         let s2 = Expression::from_line("1 + 2 * 3");
         let s3 = Expression::from_line("(1 + 2) * 3");
         let s4 = Expression::from_line("print(100)");
+        let s5 = Expression::from_line("print(1, 2, \"5\")");
         
-        let final_str = join_expr_strings(vec![&s1, &s2, &s3, &s4]);
-        let res_str = "Atom(1) | Op[+ Atom(1) Op[* Atom(2) Atom(3)]] | Op[* Op[+ Atom(1) Atom(2)] Atom(3)] | Func[print args[ Atom(100)]]";
+        let final_str = join_expr_strings(vec![&s1, &s2, &s3, &s4, &s5]);
+        let res_str = "Atom(1) | Op[+ Atom(1) Op[* Atom(2) Atom(3)]] | Op[* Op[+ Atom(1) Atom(2)] Atom(3)] | Func[print args[ Atom(100)]] | Func[print args[ Atom(1) Atom(2) Atom(5)]]";
         assert_eq!(final_str, res_str);
     }
 
@@ -149,8 +167,9 @@ mod tests {
     #[test]
     fn test_11() {
         let exprs = Expression::from_multiline("if 1:\n\t print(1) ");
-        assert_eq!(exprs.len(), 2);
-        let expr_results = vec!["Keyword[if conds[ Atom(1)] args[]]", "Func[print args[ Atom(1)]]"];
+        dbg!(&exprs);
+        assert_eq!(exprs.len(), 1);
+        let expr_results = vec!["Keyword[if conds[ Atom(1)] args[ Func[print args[ Atom(1)]]]]"];
         for (idx, expr) in exprs.iter().enumerate() {
             assert_eq!(expr.to_string(), expr_results.index(idx).to_string());
         }
@@ -159,13 +178,13 @@ mod tests {
     #[test]
     fn test_12() -> Result<Obj, PyException> {
         let exprs = Expression::from_multiline("x = 2\n if x:\n\t print_ret(x) ");
-        assert_eq!(exprs.len(), 3);
+        assert_eq!(exprs.len(), 2);
         println!("Exprs: {:?}", exprs);
 
         let mut vars = Obj::new_map();
         let mut funcs = Funcs::get_std_map();
-        let expr_results = vec!["Op[= Ident(x) Atom(2)]","Keyword[if conds[ Ident(x)] args[]]", "Func[print_ret args[ Ident(x)]]"];
-        let obj_results: Vec<Obj> = vec![Obj::Int(2), Obj::Bool(true), Obj::from_str("2 ")];
+        let expr_results = vec!["Op[= Ident(x) Atom(2)]","Keyword[if conds[ Ident(x)] args[ Func[print_ret args[ Ident(x)]]]]"];
+        let obj_results: Vec<Arc<Obj>> = vec![Obj::from(2usize), Obj::from(true), Obj::from("2 ")];
         
         for (idx, expr) in exprs.iter().enumerate() {
             println!("Evaluating: {expr}");
@@ -243,18 +262,18 @@ mod tests {
         "#);
 
         let ret_strs = vec![
-            "None", 
+            
             "Op[= Ident(i) Atom(0)]",
             "Op[= Ident(n1) Atom(0)]",
             "Op[= Ident(n2) Atom(1)]",
             "Op[= Ident(n3) Atom(0)]",
             "Func[print args[ Atom(Fibbonacci: )]]",
-            "Keyword[while conds[ Op[< Ident(i) Atom(20)]] args[]]",
-            "Op[= Ident(n3) Op[+ Ident(n1) Ident(n2)]]",
-            "Func[print args[ Atom(() Ident(i) Atom() ) Ident(n3)]]",
-            "Op[= Ident(n1) Ident(n2)]",
-            "Op[= Ident(n2) Ident(n3)]",
-            "Op[= Ident(i) Op[+ Ident(i) Atom(1)]]",
+            "Keyword[while conds[ Op[< Ident(i) Atom(20)]] args[ \
+            Op[= Ident(n3) Op[+ Ident(n1) Ident(n2)]] \
+            Func[print args[ Atom(() Ident(i) Atom() ) Ident(n3)]] \
+            Op[= Ident(n1) Ident(n2)] \
+            Op[= Ident(n2) Ident(n3)] \
+            Op[= Ident(i) Op[+ Ident(i) Atom(1)]]]]",
             "None"
         ];
         
@@ -263,7 +282,7 @@ mod tests {
 
         let idx_err= "[Bad Index]";
 
-        let mut ret_objs: Vec<Obj> = vec![];
+        let mut ret_objs: Vec<Arc<Obj>> = vec![];
         let mut idx = 0;
         for e in expr {
             let obj = e.eval(&mut vars, &mut funcs)?;
@@ -278,29 +297,19 @@ mod tests {
     #[test]
     fn nested_ifs() -> Result<Obj, PyException> 
     {
-        assert!(false, "Test broken: looping??");
-
-        let expr = Expression::from_multiline
-        (r#"
-        if True:
-            print_ret("a: good")
-            if False:
-                print_ret("b: bad")
-            if True:
-                print_ret("c: good)
-        print("d: good)
-        "#);
+        //panic!();
+        let expr = Expression::from_multiline(
+        "if True:\n\
+         \tprint_ret(\"a: good\")\n\
+         \tif False:\n\
+         \t\tprint_ret(\"b: bad\")\n\
+         \tif True:\n\
+         \t\tprint_ret(\"c: good\")\n\
+         \tprint(\"d: good\")"
+    );
 
         let ret_strs = vec![
-            "None",
-            "Keyword[while conds[ Atom(True)] args[]]",
-            "Func[print_ret args[ Atom(a: good)]]",
-            "Keyword[while conds[ Atom(False)] args[]]",
-            "Func[print_ret args[ Atom(b: bad)]]",
-            "Keyword[while conds[ Atom(True)] args[]]",
-            "Func[print_ret args[ Atom(c: bad)]]",
-            "Func[print_ret args[ Atom(d: good)]]",
-            "None"
+            r#"Keyword[if conds[ Keyword[True conds[] args[]]] args[ Func[print_ret args[ Atom(a: good)]] Keyword[if conds[ Keyword[False conds[] args[]]] args[ Func[print_ret args[ Atom(b: bad)]]]] Keyword[if conds[ Keyword[True conds[] args[]]] args[ Func[print_ret args[ Atom(c: good)]]]] Func[print args[ Atom(d: good)]]]]"#
         ];
 
         let mut vars = Obj::new_map();
@@ -308,7 +317,7 @@ mod tests {
 
         let idx_err= "[Bad Index]";
 
-        let mut ret_objs: Vec<Obj> = vec![];
+        let mut ret_objs: Vec<Arc<Obj>> = vec![];
         let mut idx = 0;
         for e in expr {
             let obj = e.eval(&mut vars, &mut funcs)?;
@@ -318,6 +327,132 @@ mod tests {
         }
         Ok(Obj::None)
 
+    }
+
+    #[test]
+    fn bytecode() 
+    {
+        let code = vec![
+            PyBytecode::LoadConst(Obj::Int(5)),
+            PyBytecode::StoreFast("x".to_string()),
+            PyBytecode::LoadFast("x".to_string()),
+            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
+        ];
+        println!("Instruction Queue: ");
+        println!("{}", PyBytecode::to_string(&code));
+        let mut vm = PyVM::new();
+        vm.execute(code);
+
+    }
+
+    #[test]
+    fn expr_to_bytecode()
+    {
+        let expr = Expression::from_multiline("x = 2\n if x:\n\t print(x) ");
+        let mut code = vec![];
+        for e in expr {
+            PyBytecode::from_expr(e, &mut code);
+        }
+        println!("Instructions:\n{}", PyBytecode::to_string(&code));
+        assert_eq!(format!("{:?}", code), r#"[LoadConst(Int(2)), StoreName("x"), NOP, LoadName("x"), LoadName("x"), CallInstrinsic1(Print), PopJumpIfFalse(2)]"#);
+        
+        let mut vm = PyVM::new();
+        vm.execute(code);
+    }
+
+    #[test]
+    fn while_loop_bytecode()
+    {
+        let code = PyBytecode::from_str
+        (r#"x = 0
+        while x < 3:
+	        print(x)
+	        x = x + 1
+        "#);
+        println!("Instructions:\n{}", PyBytecode::to_string(&code));
+        assert_eq!(format!("{:?}", code), r#"[LoadConst(Int(0)), StoreName("x"), NOP, LoadName("x"), LoadConst(Int(3)), CompareOp(LessThan), PopJumpIfFalse(8), LoadName("x"), CallInstrinsic1(Print), LoadName("x"), LoadConst(Int(1)), BinaryAdd, StoreName("x"), NOP, JumpBackward(12)]"#.to_string());
+        
+        /*
+        let mut vm = PyVM::new();
+        vm.execute(code);
+        */
+
+    }
+
+    #[test]
+    fn handwritten_bytecode()
+    {
+        let code = vec![
+            PyBytecode::LoadConst(Obj::Int(0)),
+            PyBytecode::StoreName("x".to_string()),
+            PyBytecode::NOP,
+            PyBytecode::LoadName("x".to_string()), 
+            PyBytecode::LoadConst(Obj::Int(3)), 
+            PyBytecode::CompareOp(Op::LessThan), 
+            PyBytecode::PopJumpIfFalse(7),
+            PyBytecode::LoadName("x".to_string()),
+            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
+            PyBytecode::LoadName("x".to_string()),
+            PyBytecode::LoadConst(Obj::Int(1)),
+            PyBytecode::BinaryAdd,
+            PyBytecode::StoreName("x".to_string()),
+            PyBytecode::JumpBackward(11),
+            PyBytecode::NOP,
+        ];
+        let mut vm = PyVM::new();
+        vm.execute(code);
+    }
+
+    #[test]
+    fn file_to_bytecode()
+    {
+        let code = Interpreter::compile_file("bytecode_test.py");
+        println!("Bytecode from file:\n{}", PyBytecode::to_string(&code));
+        let mut vm = PyVM::new();
+        vm.execute(code);
+    }
+
+    use std::{
+        time::Instant,
+        process::Command,
+    };    
+
+    #[test]
+    fn speed_test()
+    {
+        let pyrs_start = Instant::now();
+        let pyrs_output = Command::new("Pyrs.exe")
+        .arg("speed.py")
+        .output()
+        .expect("Failed to run \"Pyrs.exe speed.py\" ");
+        let pyrs_duration = pyrs_start.elapsed();
+        {
+            let pyrs_stdout = str::from_utf8(&pyrs_output.stdout).expect("Not valid UTF-8");
+            println!("Status Pyrs: success");
+            println!("Stdout Pyrs: \n{}", pyrs_stdout);
+        }
+
+        let cpython_start = Instant::now();
+        let cpython_output = Command::new("python3")
+        .arg("speed.py")
+            .output()
+            .expect("Failed to run \"python3 speed.py\" ");
+        
+        let cpython_duration = cpython_start.elapsed();
+        {
+            let cpython_stdout = str::from_utf8(&cpython_output.stdout).expect("Not valid UTF-8");
+            println!("Status CPython: success");
+            println!("Stdout CPython: \n{}", cpython_stdout);
+        }
+        
+        println!("pyrs: ");
+        println!("Time elapsed: {:?}", pyrs_duration);
+        println!("ms: {}", pyrs_duration.as_millis());
+        
+        println!("cpython: ");
+        println!("ms: {}", cpython_duration.as_millis());
+        println!("Time elapsed: {:?}", cpython_duration);
+        
     }
 
     // TODO: 

@@ -1,93 +1,11 @@
-use std::collections::HashMap;
-use std::process::{ExitCode, Termination};
-
-use crate::{
-    pyrs_userclass::{UserClass},
-    pyrs_error::{PyException, PyError},
+use std::{
+    collections::HashMap, process::{ExitCode, Termination}, sync::Arc
 };
-
-/*
-macro_rules! dbg {
-    ($($tt:tt)*) => {};
-}
-*/
-
-pub trait PyObj: std::fmt::Debug + Clone {
-    type Lhs: std::fmt::Debug;
-    type Rhs: std::fmt::Debug;
-
-    fn __bool__(&self) -> bool {
-        false
-    }
-    fn __len__(&self) -> usize {
-        unimplemented!();
-    }
-    fn __lt__(_lhs: &Self::Lhs, _rhs: &Self::Rhs) -> bool {
-        false
-    }
-    fn __gt__(_lhs: &Self::Lhs, _rhs: &Self::Rhs) -> bool {
-        false
-    }
-    fn __le__(_lhs: &Self::Lhs, _rhs: &Self::Rhs) -> bool {
-        false
-    }
-    fn __ge__(_lhs: &Self::Lhs, _rhs: &Self::Rhs) -> bool {
-        false
-    }
-    fn __eq__(_lhs: &Self::Lhs, _rhs: &Self::Rhs) -> bool {
-        false
-    }
-    fn __ne__(_lhs: &Self::Lhs, _rhs: &Self::Rhs) -> bool {
-        false
-    }
-
-    fn __add__(lhs: &Self::Lhs, rhs: &Self::Rhs) -> Result<Obj, PyException> {
-        Err(PyException{
-            error: PyError::TypeError,
-            msg: format!(
-                "Unable to add the two PyObj types : {:?}, {:?}",
-                lhs, rhs
-            ),
-        })
-    }
-    fn __sub__(lhs: &Self::Lhs, rhs: &Self::Rhs) -> Result<Obj, PyException> {
-        Err(PyException{
-            error: PyError::TypeError,
-            msg: format!(
-                "Unable to subtract the two PyObj types : {:?}, {:?}",
-                lhs, rhs
-            ),
-        })
-    }
-    fn __mul__(lhs: &Self::Lhs, rhs: &Self::Rhs) -> Result<Obj, PyException> {
-        Err(PyException{
-            error: PyError::TypeError,
-            msg: format!(
-                "Unable to multiply the two PyObj types : {:?}, {:?}",
-                lhs, rhs
-            ),
-        })
-    }
-    fn __div__(lhs: &Self::Lhs, rhs: &Self::Rhs) -> Result<Obj, PyException> {
-        Err(PyException{
-            error: PyError::TypeError,
-            msg: format!(
-                "Unable to divide the two PyObj types : {:?}, {:?}",
-                lhs, rhs
-            ),
-        })
-    }
-
-    fn __pos__(obj: &Obj) -> Result<Obj, PyException> {
-        Ok(obj.clone())
-    }
-    fn __neg__(obj: &Obj) -> Result<Obj, PyException> {
-        Err(PyException{
-            error: PyError::TypeError,
-            msg: format!(" __neg__: not implemented for {:?}", obj),
-        })
-    }
-}
+use crate::{
+    pyrs_error::{PyException, PyError},
+    pyrs_std::{FnPtr},
+    pyrs_parsing::{Op},
+};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[allow(dead_code)]
@@ -97,7 +15,11 @@ pub enum Obj {
     Float(f64),
     Str(String),
     Int(i64),
-    User(UserClass),
+
+    Function(FnPtr),
+
+    Except(PyException)
+    //User(UserClass),
 
     // Numeric
     // - Int (Unlimited precision)
@@ -131,8 +53,127 @@ pub enum Obj {
     // - dict (HashMap)
 }
 
+
+pub trait PyObj: std::fmt::Debug + Clone 
+{
+
+    fn compare_op(lhs: &Arc<Self>, rhs: &Arc<Self>, op: &Op) -> bool
+    {
+        let ret = match op {
+            Op::Eq => Self::__eq__(lhs, rhs),
+            Op::Neq => Self::__ne__(lhs, rhs),
+            Op::LessThan => Self::__lt__(lhs, rhs),
+            Op::GreaterThan => Self::__gt__(lhs, rhs),
+            Op::LessEq => Self::__le__(lhs, rhs),
+            Op::GreaterEq => Self::__ge__(lhs, rhs),
+            _ => return Self::__default__().__bool__(),
+        };
+        ret
+    }
+
+    fn __default__() -> Self {
+        panic!()
+    }
+
+    fn __bool__(&self) -> bool {
+        false
+    }
+    fn __len__(&self) -> usize {
+        unimplemented!();
+    }
+    fn __lt__(_lhs: &Arc<Self>, _rhs: &Arc<Self>) -> bool {
+        false
+    }
+    fn __gt__(_lhs: &Arc<Self>, _rhs: &Arc<Self>) -> bool {
+        false
+    }
+    fn __le__(_lhs: &Arc<Self>, _rhs: &Arc<Self>) -> bool {
+        false
+    }
+    fn __ge__(_lhs: &Arc<Self>, _rhs: &Arc<Self>) -> bool {
+        false
+    }
+    fn __eq__(_lhs: &Arc<Self>, _rhs: &Arc<Self>) -> bool {
+        false
+    }
+    fn __ne__(_lhs: &Arc<Self>, _rhs: &Arc<Self>) -> bool {
+        false
+    }
+
+    fn __add__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+        Err(PyException{
+            error: PyError::TypeError,
+            msg: format!(
+                "Unable to add the two PyObj types : {:?}, {:?}",
+                lhs, rhs
+            ),
+        })
+    }
+    fn __sub__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+        Err(PyException{
+            error: PyError::TypeError,
+            msg: format!(
+                "Unable to subtract the two PyObj types : {:?}, {:?}",
+                lhs, rhs
+            ),
+        })
+    }
+    fn __mul__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+        Err(PyException{
+            error: PyError::TypeError,
+            msg: format!(
+                "Unable to multiply the two PyObj types : {:?}, {:?}",
+                lhs, rhs
+            ),
+        })
+    }
+    fn __div__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+        Err(PyException{
+            error: PyError::TypeError,
+            msg: format!(
+                "Unable to divide the two PyObj types : {:?}, {:?}",
+                lhs, rhs
+            ),
+        })
+    }
+
+    fn __pos__(obj: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+        Ok(obj.clone())
+    }
+
+    fn __neg__(obj: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+        Err(PyException{
+            error: PyError::TypeError,
+            msg: format!(" __neg__: not implemented for {:?}", obj),
+        })
+    }
+
+    fn __call__(&self, objs: &Vec<Arc<Self>>) -> Result<Arc<Self>, PyException>
+    {
+        Err(PyException{
+            error: PyError::TypeError,
+            msg: format!(" __call__: not implemented for {:?}", objs),
+        })
+    }
+}
+
 impl Obj {
-    pub fn new_map() -> HashMap<String, Obj> {
+
+    pub fn from<T: ToObj>(arg: T) -> Arc<Obj> {
+        arg.to_arc()
+    }
+
+    pub fn new_vec() -> Vec<Obj>
+    {
+        return vec![];
+    }
+    
+    pub fn new_arc_vec() -> Vec<Arc<Obj>>
+    {
+        return vec![];
+    }
+
+    pub fn new_map() -> HashMap<String, Arc<Obj>> {
         return HashMap::new();
     }
 
@@ -160,11 +201,16 @@ impl Obj {
             Obj::Str(c.to_string())
         }
     }
+
+    
+
 }
 
 impl PyObj for Obj {
-    type Lhs = Self;
-    type Rhs = Self;
+
+    fn __default__() -> Self {
+        Obj::None
+    }
 
     fn __bool__(&self) -> bool {
         let ret = match self {
@@ -181,8 +227,8 @@ impl PyObj for Obj {
         unimplemented!();
     }
 
-    fn __lt__(lhs: &Self, rhs: &Self) -> bool {
-        let ret = match (&lhs, &rhs) {
+    fn __lt__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
+        let ret = match (lhs.as_ref(), rhs.as_ref()) {
             (Obj::Float(flt), other) => match other {
                 Obj::Float(same) => *flt < *same,
                 Obj::Int(i) => *flt < (*i as f64),
@@ -206,8 +252,8 @@ impl PyObj for Obj {
         ret
     }
 
-    fn __gt__(lhs: &Self, rhs: &Self) -> bool {
-        let ret = match (&lhs, &rhs) {
+    fn __gt__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
+        let ret = match (lhs.as_ref(), rhs.as_ref()) {
             (Obj::Float(flt), other) => match other {
                 Obj::Float(same) => *flt > *same,
                 Obj::Int(i) => *flt > (*i as f64),
@@ -231,15 +277,15 @@ impl PyObj for Obj {
         ret
     }
 
-    fn __le__(lhs: &Self::Lhs, rhs: &Self::Rhs) -> bool {
+    fn __le__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
         Obj::__lt__(lhs, rhs) || Obj::__eq__(lhs, rhs)
     }
-    fn __ge__(lhs: &Self::Lhs, rhs: &Self::Rhs) -> bool {
+    fn __ge__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
         Obj::__gt__(lhs, rhs) || Obj::__eq__(lhs, rhs)
     }
 
-    fn __eq__(lhs: &Self::Lhs, rhs: &Self::Rhs) -> bool {
-        match (lhs, rhs) {
+    fn __eq__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
+        match (lhs.as_ref(), rhs.as_ref()) {
             (Obj::Float(flt), other) => match other {
                 Obj::Float(same) => *flt == *same,
                 Obj::Int(i) => *flt == *i as f64,
@@ -262,17 +308,17 @@ impl PyObj for Obj {
         }
     }
 
-    fn __ne__(lhs: &Self::Lhs, rhs: &Self::Rhs) -> bool {
+    fn __ne__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
         !Obj::__eq__(lhs, rhs)
     }
 
-    fn __add__(lhs: &Self::Lhs, rhs: &Self::Rhs) -> Result<Obj, PyException> {
+    fn __add__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
         let err = Err(PyException{
             error: PyError::TypeError,
             msg: format!("No valid way to add: {} and {}", lhs, rhs.clone(),),
         });
 
-        let obj = match (&lhs, &rhs) {
+        let obj = match (lhs.as_ref(), rhs.as_ref()) {
             (Obj::Float(dbl), other) => {
                 let val = match other {
                     Obj::Float(v) => *v,
@@ -292,16 +338,16 @@ impl PyObj for Obj {
             },
             _ => return err,
         };
-        Ok(obj)
+        Ok(obj.into())
     }
 
-    fn __sub__(lhs: &Self::Lhs, rhs: &Self::Rhs) -> Result<Obj, PyException> {
+    fn __sub__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
         let err = Err(PyException{
             error: PyError::TypeError,
             msg: format!("No valid way to subtract: {} and {}", lhs, rhs.clone(),),
         });
 
-        let obj = match (&lhs, &rhs) {
+        let obj = match (lhs.as_ref(), rhs.as_ref()) {
             (Obj::Float(dbl), other) => {
                 let val = match other {
                     Obj::Float(v) => *v,
@@ -317,15 +363,15 @@ impl PyObj for Obj {
             },
             _ => return err,
         };
-        Ok(obj)
+        Ok(obj.into())
     }
-    fn __mul__(lhs: &Self::Lhs, rhs: &Self::Rhs) -> Result<Obj, PyException> {
+    fn __mul__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
         let err = Err(PyException{
             error: PyError::TypeError,
             msg: format!("No valid way to subtract: {} and {}", lhs, rhs.clone(),),
         });
 
-        let obj = match (&lhs, &rhs) {
+        let obj = match (lhs.as_ref(), rhs.as_ref()) {
             (Obj::Float(dbl), other) => {
                 let val = match other {
                     Obj::Float(v) => *v,
@@ -358,10 +404,10 @@ impl PyObj for Obj {
             },
             _ => return err,
         };
-        Ok(obj)
+        Ok(obj.into())
     }
 
-    fn __div__(lhs: &Self::Lhs, rhs: &Self::Rhs) -> Result<Obj, PyException> {
+    fn __div__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
         let type_err = Err(PyException{
             error: PyError::TypeError,
             msg: format!("No valid way to divide: {} and {}", lhs, rhs.clone(),),
@@ -371,7 +417,7 @@ impl PyObj for Obj {
             msg: format!(" tried to divide {lhs} by {rhs}"),
         });
 
-        let obj = match (&lhs, &rhs) {
+        let obj = match (lhs.as_ref(), rhs.as_ref()) {
             (Obj::Float(dbl), other) => {
                 let val = match other {
                     Obj::Float(v) => *v,
@@ -400,15 +446,15 @@ impl PyObj for Obj {
             },
             _ => return type_err,
         };
-        Ok(obj)
+        Ok(obj.into())
     }
 
-    fn __pos__(obj: &Obj) -> Result<Obj, PyException> {
-        Ok(obj.clone())
+    fn __pos__(obj: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
+        Ok(Arc::from(obj.clone()))
     }
 
-    fn __neg__(obj: &Self) -> Result<Obj, PyException> {
-        let ret = match obj {
+    fn __neg__(obj: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
+        let ret= match obj.as_ref() {
             Obj::None => Obj::None,
             Obj::Bool(b) => Obj::Bool(!b),
             Obj::Float(f) => Obj::Float(-f),
@@ -418,7 +464,16 @@ impl PyObj for Obj {
                 msg: format!("Negation not implemented for {}", obj), 
             }),
         };
-        Ok(ret)
+        Ok(ret.into())
+    }
+
+    fn __call__(&self, objs: &Vec<Arc<Obj>>) -> Result<Arc<Obj>, PyException> {
+        match self {
+            Obj::Function(fn_ptr) => {
+                Ok((fn_ptr.ptr)(objs))
+            }
+            _ => Err( PyException { error: PyError::TypeError, msg: format!("Type is not a function") }),
+        }
     }
 }
 
@@ -430,7 +485,9 @@ impl std::fmt::Display for Obj {
             Obj::Float(val) => write!(f, "{}", val),
             Obj::Str(s) => write!(f, "{}", s),
             Obj::Int(val) => write!(f, "{}", val),
-            Obj::User(class) => write!(f, "{}", class),
+            Obj::Function(ptr) => write!(f, "{}", ptr),
+            Obj::Except(e) => write!(f, "{}", e),
+            //Obj::User(class) => write!(f, "{}", class),
             //t => write!(f, "{:?}", t),
         }
     }
@@ -442,34 +499,89 @@ impl Termination for Obj {
     }
 }
 
-pub trait ToObj {
-    fn to_obj(&self) -> Obj {
-        Obj::None
+pub trait ToObj : Sized {
+    fn to_obj(self) -> Obj {
+        PyObj::__default__()
+    }
+    fn to_arc(self) -> Arc<Obj> {
+        self.to_obj().into()
     }
 }
 
+impl ToObj for PyException {
+    fn to_obj(self) -> Obj {
+        Obj::Except(self)
+    }
+    fn to_arc(self) -> Arc<Obj> {
+        Obj::Except(self).into()
+    }
+} 
+
 impl ToObj for bool {
-    fn to_obj(&self) -> Obj {
-        Obj::Bool(*self)
+    fn to_obj(self) -> Obj {
+        Obj::Bool(self)
     }
 }
+
 impl ToObj for f64 {
-    fn to_obj(&self) -> Obj {
-        Obj::Float(*self)
+    fn to_obj(self) -> Obj {
+        Obj::Float(self)
     }
 }
 impl ToObj for f32 {
-    fn to_obj(&self) -> Obj {
-        Obj::Float(*self as f64)
+    fn to_obj(self) -> Obj {
+        Obj::Float(self as f64)
     }
 }
 impl ToObj for i64 {
-    fn to_obj(&self) -> Obj {
-        Obj::Int(*self)
+    fn to_obj(self) -> Obj {
+        Obj::Int(self)
     }
 }
+impl ToObj for String {
+    fn to_obj(self) -> Obj {
+        Obj::from_atom(&self)
+    }
+}
+impl ToObj for &str {
+    fn to_obj(self) -> Obj {
+        Obj::from_atom(self)
+    }
+}
+
 impl ToObj for usize {
-    fn to_obj(&self) -> Obj {
-        Obj::Int(*self as i64)
+    fn to_obj(self) -> Obj {
+        Obj::Int(self as i64)
+    }
+}
+impl ToObj for i32 {
+    fn to_obj(self) -> Obj {
+        Obj::Int(self as i64)
+    }
+}
+impl ToObj for i16 {
+    fn to_obj(self) -> Obj {
+        Obj::Int(self as i64)
+    }
+}
+impl ToObj for i8 {
+    fn to_obj(self) -> Obj {
+        Obj::Int(self as i64)
+    }
+}
+impl ToObj for u32 {
+    fn to_obj(self) -> Obj {
+        Obj::Int(self as i64)
+    }
+}
+impl ToObj for u16 {
+    fn to_obj(self) -> Obj {
+        Obj::Int(self as i64)
+    }
+}
+ 
+impl ToObj for u8 {
+    fn to_obj(self) -> Obj {
+        Obj::Int(self as i64)
     }
 }

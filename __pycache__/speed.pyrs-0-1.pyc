@@ -1,0 +1,42 @@
+(0) 		LoadConst(Int(0))
+(1) 		StoreName("i")
+(2) 		NOP
+(3) 		LoadConst(Int(0))
+(4) 		StoreName("n1")
+(5) 		NOP
+(6) 		LoadConst(Int(1))
+(7) 		StoreName("n2")
+(8) 		NOP
+(9) 		LoadConst(Int(0))
+(10) 		StoreName("n3")
+(11) 		NOP
+(12) 		LoadConst(Function(FnPtr { ptr: 0x7ff640a86870, name: "print" }))
+(13) 		LoadConst(Str("Fibbonacci: "))
+(14) 		CallFunction(1)
+(15) 		LoadName("i")
+(16) 		LoadConst(Int(80))
+(17) 		CompareOp(LessThan)
+(18) 		PopJumpIfFalse(23)
+(19) 		LoadName("n1")
+(20) 		LoadName("n2")
+(21) 		BinaryAdd
+(22) 		StoreName("n3")
+(23) 		NOP
+(24) 		LoadConst(Function(FnPtr { ptr: 0x7ff640a86870, name: "print" }))
+(25) 		LoadConst(Str("("))
+(26) 		LoadName("i")
+(27) 		LoadConst(Str(") "))
+(28) 		LoadName("n3")
+(29) 		CallFunction(4)
+(30) 		LoadName("n2")
+(31) 		StoreName("n1")
+(32) 		NOP
+(33) 		LoadName("n3")
+(34) 		StoreName("n2")
+(35) 		NOP
+(36) 		LoadName("i")
+(37) 		LoadConst(Int(1))
+(38) 		BinaryAdd
+(39) 		StoreName("i")
+(40) 		NOP
+(41) 		JumpBackward(27)

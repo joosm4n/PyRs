@@ -17,10 +17,11 @@
     {
         let mut indent: usize = 0;
         for c in line.chars() {
-            if c != ' ' {
-                break;
+            match c {
+                ' ' => indent +=1,
+                '\t' => indent += 4,
+                _ => break,
             }
-            indent += 1;
         }
         indent
     }
@@ -71,22 +72,34 @@
             let is_quotes = c == '"';
             let is_eq = c == '!' || c == '=' || c == '<' || c == '>';
 
-            if is_quotes 
+            if is_quotes
             {
                 if !in_str_lit && !in_word {
                     in_str_lit = true;
                     start_of_word_idx = curr_idx;
                 }
+                else if !in_str_lit && in_word {
+                    words.push(&sentence[start_of_word_idx..curr_idx]);
+                    in_str_lit = true;
+                    in_word = true;
+                    start_of_word_idx = curr_idx + 1;
+                }
                 else if in_str_lit {
                     words.push(&sentence[start_of_word_idx..curr_idx + 1]);
                     in_str_lit = false;
-                    start_of_word_idx = curr_idx + 1;
+                    start_of_word_idx = curr_idx;
                 }
                 else {
                     panic!("bad token: {}", c);
                 }
                 last_was_eq = false;
                 last_was_dot = false;
+                continue;
+            }
+            else if in_str_lit {
+                last_was_dot = false;
+                last_was_eq = false;
+                continue;
             }
             else if is_eq
             {
@@ -96,6 +109,7 @@
                 }
                 last_was_eq = true;
                 last_was_dot = false;
+                continue;
             }
             else if is_alpha 
             {
@@ -105,6 +119,7 @@
                 }
                 last_was_eq = false;
                 last_was_dot = false;
+                continue;
             }
             else if is_num
             {
@@ -114,12 +129,14 @@
                 }
                 last_was_eq = false;
                 last_was_dot = false;
+                continue;
             }
             else if is_dot
             {
                 if !in_word { panic!("bad token: {c}")};
                 last_was_eq = false;
                 last_was_dot = true;
+                continue;
             }
             else if is_symbol && !in_str_lit
             {
@@ -130,6 +147,7 @@
                 in_word = false;
                 last_was_eq = false;
                 last_was_dot = false;
+                continue;
             }
             else if is_whitespace && in_word
             {
@@ -144,6 +162,7 @@
                 in_word = false;
                 last_was_eq = false;
                 last_was_dot = false;
+                continue;
             }
             
         }

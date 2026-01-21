@@ -2,7 +2,10 @@ use crate::{
     pyrs_obj::{Obj},
     pyrs_error::{PyException, PyError}
 };
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::Arc,
+};
 
 pub trait Import {
     fn get_name() -> &'static str;
@@ -11,9 +14,10 @@ pub trait Import {
 
 #[derive(Debug, Clone)]
 pub struct FnPtr {
-    pub ptr: fn(&Vec<Obj>) -> Obj,
+    pub ptr: fn(&Vec<Arc<Obj>>) -> Arc<Obj>,
     pub name: String,
 }
+
 impl PartialEq for FnPtr {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
@@ -56,31 +60,31 @@ impl Funcs {
         return func_map;
     }
 
-    pub fn print(args: &Vec<Obj>) -> Obj {
+    pub fn print(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
         let mut msg = String::new();
         for arg in args {
             msg += &(format!("{} ", arg).as_str());
         }
         println!("{}", msg);
-        Obj::None
+        Arc::from(Obj::None)
     }
 
-    pub fn print_ret(args: &Vec<Obj>) -> Obj {
+    pub fn print_ret(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
         let mut msg = String::new();
         for arg in args {
             msg += &(format!("{} ", arg).as_str());
         }
         println!("{}", msg);
-        Obj::Str(msg)
+        Arc::from(Obj::Str(msg))
     }
 
-    pub fn bin(obj: &Obj) -> Obj {
+    pub fn bin(obj: &Obj) -> Arc<Obj> {
         // num.index_
         let s = match obj {
             Obj::Int(i) => format!("{:b}", i),
             _ => unimplemented!(),
         };
-        Obj::Str(s)
+        Arc::from(Obj::Str(s))
     }
 
     pub fn float(obj: &Obj) -> Result<Obj, PyException> {
@@ -200,13 +204,13 @@ impl Import for Maths {
 
 #[allow(dead_code)]
 impl Maths {
-    pub fn sin(args: &Vec<Obj>) -> Obj {
+    pub fn sin(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
         if args.len() != 1 {
             panic!("[Type Error] Func{{sin}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg {
+        let val = match arg.as_ref() {
             Obj::Float(d) => *d,
             Obj::Int(i) => *i as f64,
             _ => panic!(
@@ -214,16 +218,16 @@ impl Maths {
                 arg
             ),
         };
-        Obj::Float(val.sin())
+        Arc::from(Obj::Float(val.sin()))
     }
 
-    pub fn cos(args: &Vec<Obj>) -> Obj {
+    pub fn cos(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
         if args.len() != 1 {
             panic!("[Type Error] Func{{cos}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg {
+        let val = match arg.as_ref() {
             Obj::Float(d) => *d,
             Obj::Int(i) => *i as f64,
             _ => panic!(
@@ -231,16 +235,16 @@ impl Maths {
                 arg
             ),
         };
-        Obj::Float(val.cos())
+        Arc::from(Obj::Float(val.cos()))
     }
 
-    pub fn tan(args: &Vec<Obj>) -> Obj {
+    pub fn tan(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
         if args.len() != 1 {
             panic!("[Type Error] Func{{tan}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg {
+        let val = match arg.as_ref() {
             Obj::Float(d) => *d,
             Obj::Int(i) => *i as f64,
             _ => panic!(
@@ -248,16 +252,16 @@ impl Maths {
                 arg
             ),
         };
-        Obj::Float(val.tan())
+        Arc::from(Obj::Float(val.tan()))
     }
 
-    pub fn sqrt(args: &Vec<Obj>) -> Obj {
+    pub fn sqrt(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
         if args.len() != 1 {
             panic!("[Type Error] Func{{sqrt}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg {
+        let val = match arg.as_ref() {
             Obj::Float(d) => *d,
             Obj::Int(i) => *i as f64,
             _ => panic!(
@@ -265,16 +269,16 @@ impl Maths {
                 arg
             ),
         };
-        Obj::Float(val.sqrt())
+        Arc::from(Obj::Float(val.sqrt()))
     }
 
-    pub fn abs(args: &Vec<Obj>) -> Obj {
+    pub fn abs(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
         if args.len() != 1 {
             panic!("[Type Error] Func{{abs}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg {
+        let val = match arg.as_ref() {
             Obj::Float(d) => *d,
             Obj::Int(i) => *i as f64,
             _ => panic!(
@@ -282,16 +286,16 @@ impl Maths {
                 arg
             ),
         };
-        Obj::Float(val.abs())
+        Arc::from(Obj::Float(val.abs()))
     }
 
-    pub fn ln(args: &Vec<Obj>) -> Obj {
+    pub fn ln(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
         if args.len() != 1 {
             panic!("[Type Error] Func{{ln}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg {
+        let val = match arg.as_ref() {
             Obj::Float(d) => *d,
             Obj::Int(i) => *i as f64,
             _ => panic!(
@@ -299,16 +303,16 @@ impl Maths {
                 arg
             ),
         };
-        Obj::Float(val.ln())
+        Arc::from(Obj::Float(val.ln()))
     }
 
-    pub fn log10(args: &Vec<Obj>) -> Obj {
+    pub fn log10(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
         if args.len() != 1 {
             panic!("[Type Error] Func{{log10}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg {
+        let val = match arg.as_ref() {
             Obj::Float(d) => *d,
             Obj::Int(i) => *i as f64,
             _ => panic!(
@@ -316,16 +320,16 @@ impl Maths {
                 arg
             ),
         };
-        Obj::Float(val.log10())
+        Arc::from(Obj::Float(val.log10()))
     }
 
-    pub fn exp(args: &Vec<Obj>) -> Obj {
+    pub fn exp(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
         if args.len() != 1 {
             panic!("[Type Error] Func{{exp}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg {
+        let val = match arg.as_ref() {
             Obj::Float(d) => *d,
             Obj::Int(i) => *i as f64,
             _ => panic!(
@@ -333,6 +337,6 @@ impl Maths {
                 arg
             ),
         };
-        Obj::Float(val.exp())
+        Arc::from(Obj::Float(val.exp()))
     }
 }

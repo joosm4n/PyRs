@@ -5,10 +5,12 @@ use crate::{
     pyrs_error::{PyException, PyError},
 };
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::Arc,
+};
 
-/*
-*/
+#[cfg(not(_YES_))]
 macro_rules! dbg {
     ($($tt:tt)*) => {};
 }
@@ -181,6 +183,7 @@ impl<'a> std::fmt::Display for Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
+
     pub fn from(words: &Vec<&'a str>) -> Self {
         let mut token_list: Vec<Token<'a>> = vec![];
 
@@ -211,7 +214,8 @@ impl<'a> Lexer<'a> {
                 word if Utils::str_starts_with(word, char::is_numeric) => Token::Atom(word),
                 word if Utils::str_starts_with(word, char::is_alphabetic) => Token::Ident(word),
                 word if word.starts_with('\"') => Token::Atom(Utils::trim_first_and_last(word)),
-                t => panic!("[Parse Error] Bad token: {}", t),
+                "" => continue,
+                t => panic!("[Parse Error] Bad token: {:?}", t),
             };
             dbg!(format!("Parsed word is: {}", token));
             token_list.push(token);
@@ -271,8 +275,19 @@ impl<'a> Lexer<'a> {
                             conditions.push(self.parse_expression(0.0));
                             dbg!(&conditions);
                         }
-                        return Expression::Keyword(keyword, conditions, vec![]);
+                        return Expression::Keyword(keyword, conditions, vec![])
                     }
+                    Keyword::Def => {
+                        let  mut args = vec![];
+                        let info = vec![];
+
+                        while self.peek() != Token::Op(Op::Colon) && self.peek() != Token::Eof {
+                            args.push(self.parse_expression(0.0));
+                            dbg!(&conditions);
+                        }
+
+                        Expression::Keyword(Keyword::Def, args, info)
+                    } 
                     _ => unimplemented!(),
                 }
             }
@@ -381,6 +396,7 @@ pub enum Expression {
     Operation(Op, Vec<Expression>),
     Func(FnPtr, Vec<Expression>),
     Keyword(Keyword, Vec<Expression>, Vec<Expression>),
+    Definition(String, Vec<Expression>, String),
 }
 
 impl Default for Expression {
@@ -398,15 +414,69 @@ impl Expression {
         }
     }
 
-    pub fn from_multiline(file: &str) -> Vec<Expression> {
-        let mut expr_list = vec![];
-        let line_list = Utils::split_to_lines(&file);
+    pub fn from_multiline(input: &str) -> Vec<Expression> {
+        let lines: Vec<&str> = input.lines().collect();
+        let mut exprs: Vec<Expression> = vec![];
+        let mut block_stack: Vec<(usize, Expression, Vec<Expression>)> = vec![];
+        
+        for line in lines {
+            let mut trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
 
-        for line in line_list {
-            let expr = Expression::from_line(line);
-            expr_list.push(expr);
+            if let Some((code, _comment)) = trimmed.split_once('#') {
+                trimmed = code;
+            }
+            
+            let indent = crate::pyrs_utils::get_indent(line);
+            //println!("Indent: {indent} for line: {line}");
+            
+            // Close blocks if indentation decreased
+            while !block_stack.is_empty() {
+                let (block_indent, _, _) = block_stack.last().unwrap();
+                
+                if indent > *block_indent {
+                    break;
+                }
+
+                let (_, mut keyword_expr, body) = block_stack.pop().unwrap();
+                if let Expression::Keyword(kw, cond, _) = keyword_expr {
+                    keyword_expr = Expression::Keyword(kw, cond, body);
+                }
+                
+                if let Some((_, _, parent_body)) = block_stack.last_mut() {
+                    parent_body.push(keyword_expr);
+                } else {
+                    exprs.push(keyword_expr);
+                }
+                
+            }
+            
+            let expr = Expression::from_line(trimmed);
+            
+            // If line ends with ':', start a new block
+            if trimmed.ends_with(":") {
+                block_stack.push((indent, expr, vec![]));
+            } else if let Some((_, _, body)) = block_stack.last_mut() {
+                // Add to current block
+                body.push(expr);
+            } else {
+                // Top-level expression
+                exprs.push(expr);
+            }
+
         }
-        return expr_list;
+        
+        // Finalize remaining blocks
+        while let Some((_, mut keyword_expr, body)) = block_stack.pop() {
+            if let Expression::Keyword(kw, cond, _) = keyword_expr {
+                keyword_expr = Expression::Keyword(kw, cond, body);
+            }
+            exprs.push(keyword_expr);
+        }
+        
+        exprs
     }
 
     pub fn from_line(input: &str) -> Expression {
@@ -425,6 +495,7 @@ impl Expression {
             Expression::Atom(_) => return None,
             Expression::Ident(_) => return None,
             Expression::Keyword(_, _, _) => return None,
+            Expression::Definition(_name, _args, _ret_type) => return None,
             Expression::Operation(c, operands) => {
                 if *c == Op::Equals {
                     let var_name = match operands.first().unwrap() {
@@ -446,13 +517,14 @@ impl Expression {
     // turns expressions into objects
     pub fn eval(
         &self,
-        variables: &mut HashMap<String, Obj>,
+        variables: &mut HashMap<String, Arc<Obj>>,
         funcs: &mut HashMap<String, FnPtr>,
-    ) -> Result<Obj, PyException> {
+    ) -> Result<Arc<Obj>, PyException> {
+
         // println!("Eval: {self}");
-        let ret = match self {
-            Expression::None => Obj::None,
-            Expression::Atom(c) => Obj::from_atom(c),
+        let ret: Arc<Obj> = match self {
+            Expression::None => Obj::None.into(),
+            Expression::Atom(c) => Obj::from_atom(c).into(),
             Expression::Ident(ident) => {
                 let obj = match variables.get(ident) {
                     Some(var) => var.clone(),
@@ -488,25 +560,25 @@ impl Expression {
                 };
 
                 // binary
-                let val = match operator {
+                let val: Arc<Obj> = match operator {
                     Op::Plus => Obj::__add__(&lhs, &rhs)?,
                     Op::Minus => Obj::__sub__(&lhs, &rhs)?,
                     Op::Asterisk => Obj::__mul__(&lhs, &rhs)?,
                     Op::ForwardSlash => Obj::__div__(&lhs, &rhs)?,
-                    Op::Eq => Obj::__eq__(&lhs, &rhs).to_obj(),
-                    Op::Neq => Obj::__ne__(&lhs, &rhs).to_obj(),
-                    Op::LessThan => Obj::__lt__(&lhs, &rhs).to_obj(),
-                    Op::GreaterThan => Obj::__gt__(&lhs, &rhs).to_obj(),
-                    Op::LessEq => Obj::__le__(&lhs, &rhs).to_obj(),
-                    Op::GreaterEq => Obj::__ge__(&lhs, &rhs).to_obj(),
-                    Op::Equals => Obj::None,
+                    Op::Eq => Obj::__eq__(&lhs, &rhs).to_arc(),
+                    Op::Neq => Obj::__ne__(&lhs, &rhs).to_arc(),
+                    Op::LessThan => Obj::__lt__(&lhs, &rhs).to_arc(),
+                    Op::GreaterThan => Obj::__gt__(&lhs, &rhs).to_arc(),
+                    Op::LessEq => Obj::__le__(&lhs, &rhs).to_arc(),
+                    Op::GreaterEq => Obj::__ge__(&lhs, &rhs).to_arc(),
+                    Op::Equals => Obj::__default__().into(),
                     op => panic!("Bad operator: {}", op),
                 };
                 val
             }
             Expression::Keyword(keyword, conds, _args) => match keyword {
-                Keyword::True => Obj::Bool(true),
-                Keyword::False => Obj::Bool(false),
+                Keyword::True => true.to_arc(),
+                Keyword::False => false.to_arc(),
                 Keyword::If | Keyword::While => {
                     let condition = conds
                         .iter()
@@ -515,16 +587,19 @@ impl Expression {
                             .unwrap()
                             .__bool__())
                         .all(|x| x);
-                    Obj::Bool(condition)
+                    condition.to_arc()
                 }
                 _ => panic!("Unimplemented Keyword: {:?}", keyword),
-            },
+            }
             Expression::Func(func, vals) => {
-                let mut args: Vec<Obj> = vec![];
+                let mut args: Vec<Arc<Obj>> = vec![];
                 for val in vals { 
                     args.push(val.eval(&mut *variables, &mut *funcs)?);
                 }
                 (func.ptr)(&args)
+            }
+            Expression::Definition(_name, _args, _ret_type) => {
+                Obj::None.into()
             }
         };
         Ok(ret)
@@ -561,6 +636,13 @@ impl std::fmt::Display for Expression {
                     write!(f, " {}", a)?;
                 }
                 write!(f, "]]")
+            }
+            Expression::Definition(name, args, ret_type) => {
+                write!(f, "def[ {} args[", name)?;
+                for a in args {
+                    write!(f, " {}", a)?;
+                }
+                write!(f, "] ret[{}]]", ret_type)
             }
         }
     }

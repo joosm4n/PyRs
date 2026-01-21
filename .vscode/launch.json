@@ -5,39 +5,47 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug unit tests in executable 'learnrust'",
+            "name": "Debug unit tests in executable 'Pyrs'",
             "type": "lldb",
             "request": "launch",
             "cargo": {
                 "args": [
                     "test",
-                    "--bin=learnrust"
+                    "--bin=Pyrs"
                 ]
-            }
+            },
+            "args": [],
+            "program": "${workspaceFolder}/target/debug/Pyrs",
+            "cwd": "${workspaceFolder}",
         },
     
         {
-            "name": "Debug executable 'learnrust'",
+            "name": "Debug executable 'Pyrs'",
             "type": "lldb",
             "request": "launch",
             "cargo": {
                 "args": [
                     "run",
-                    "--bin=learnrust"
+                    "--bin=Pyrs"
                 ]
             },
-            "args": []
+            "args": [],
+            "program": "${workspaceFolder}/target/debug/Pyrs",
+            "cwd": "${workspaceFolder}",
         },
         {
-            "name": "Debug unit tests in executable 'learnrust'",
+            "name": "Debug unit tests in executable 'Pyrs'",
             "type": "lldb",
             "request": "launch",
             "cargo": {
                 "args": [
                     "test",
-                    "--bin=learnrust"
+                    "--bin=Pyrs"
                 ]
-            }
+            },
+            "args": [],
+            "program": "${workspaceFolder}/target/debug/Pyrs",
+            "cwd": "${workspaceFolder}",
         }
     ]
 }

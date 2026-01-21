@@ -1,5 +1,4 @@
 
-    
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PyException
 {
@@ -19,6 +18,7 @@ pub enum PyError
     ZeroDivisionError,
     UndefinedVariableError,
     FloatParseError,
+    StackError,
 }
 
 impl PyException
