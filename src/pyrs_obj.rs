@@ -5,6 +5,7 @@ use crate::{
     pyrs_error::{PyException, PyError},
     pyrs_std::{FnPtr},
     pyrs_parsing::{Op},
+    pyrs_utils::{bigint_to_f64},
 };
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -14,7 +15,7 @@ pub enum Obj {
     Bool(bool),
     Float(f64),
     Str(String),
-    Int(i64),
+    Int(BigInt),
 
     Function(FnPtr),
 
@@ -193,7 +194,7 @@ impl Obj {
     }
 
     pub fn from_atom(c: &str) -> Self {
-        if let Ok(val) = c.parse::<i64>() {
+        if let Ok(val) = c.parse::<BigInt>() {
             Obj::Int(val)
         } else if let Ok(val) = c.parse::<f64>() {
             Obj::Float(val)
@@ -216,7 +217,7 @@ impl PyObj for Obj {
         let ret = match self {
             Obj::Bool(v) => *v,
             Obj::Float(v) => *v != 0f64,
-            Obj::Int(v) => *v != 0i64,
+            Obj::Int(v) => *v != BigInt::ZERO,
             Obj::Str(v) => *v != "",
             _ => panic!(".__bool__() not implemented for: {:?}", self),
         };
@@ -231,19 +232,19 @@ impl PyObj for Obj {
         let ret = match (lhs.as_ref(), rhs.as_ref()) {
             (Obj::Float(flt), other) => match other {
                 Obj::Float(same) => *flt < *same,
-                Obj::Int(i) => *flt < (*i as f64),
+                Obj::Int(i) => *flt < bigint_to_f64(i),
                 Obj::Bool(b) => *flt < f64::from(*b),
                 _ => false,
             },
             (Obj::Int(i), other) => match other {
-                Obj::Float(flt) => (*i as f64) < *flt,
+                Obj::Float(flt) => bigint_to_f64(i) < *flt,
                 Obj::Int(same) => *i < *same,
-                Obj::Bool(b) => *i < i64::from(*b),
+                Obj::Bool(b) => *i < BigInt::from(*b),
                 _ => false,
             },
             (Obj::Bool(b), other) => match other {
                 Obj::Float(f) => f64::from(*b) < *f,
-                Obj::Int(i) => i64::from(*i) < *i,
+                Obj::Int(i) => BigInt::from(*b) < *i,
                 Obj::Bool(same) => *b < *same,
                 _ => false,
             },
@@ -256,19 +257,19 @@ impl PyObj for Obj {
         let ret = match (lhs.as_ref(), rhs.as_ref()) {
             (Obj::Float(flt), other) => match other {
                 Obj::Float(same) => *flt > *same,
-                Obj::Int(i) => *flt > (*i as f64),
+                Obj::Int(i) => *flt > bigint_to_f64(i),
                 Obj::Bool(b) => *flt > f64::from(*b),
                 _ => false,
             },
             (Obj::Int(i), other) => match other {
-                Obj::Float(flt) => (*i as f64) > *flt,
+                Obj::Float(flt) => bigint_to_f64(i) > *flt,
                 Obj::Int(same) => *i > *same,
-                Obj::Bool(b) => *i > i64::from(*b),
+                Obj::Bool(b) => *i > BigInt::from(*b),
                 _ => false,
             },
             (Obj::Bool(b), other) => match other {
                 Obj::Float(f) => f64::from(*b) > *f,
-                Obj::Int(i) => i64::from(*i) > *i,
+                Obj::Int(i) => BigInt::from(*b) > *i,
                 Obj::Bool(same) => *b > *same,
                 _ => false,
             },
@@ -288,19 +289,19 @@ impl PyObj for Obj {
         match (lhs.as_ref(), rhs.as_ref()) {
             (Obj::Float(flt), other) => match other {
                 Obj::Float(same) => *flt == *same,
-                Obj::Int(i) => *flt == *i as f64,
+                Obj::Int(i) => *flt == bigint_to_f64(i),
                 Obj::Bool(b) => *flt == f64::from(*b),
                 _ => false,
             },
             (Obj::Int(i), other) => match other {
-                Obj::Float(f) => *i as f64 == *f,
+                Obj::Float(f) => bigint_to_f64(i) == *f,
                 Obj::Int(same) => *i == *same,
-                Obj::Bool(b) => *i == i64::from(*b),
+                Obj::Bool(b) => *i == BigInt::from(*b),
                 _ => false,
             },
             (Obj::Bool(b), other) => match other {
                 Obj::Float(f) => f64::from(*b) == *f,
-                Obj::Int(i) => i64::from(*b) == *i,
+                Obj::Int(i) => BigInt::from(*b) == *i,
                 Obj::Bool(same) => *b == *same,
                 _ => false,
             },
@@ -322,14 +323,14 @@ impl PyObj for Obj {
             (Obj::Float(dbl), other) => {
                 let val = match other {
                     Obj::Float(v) => *v,
-                    Obj::Int(v) => *v as f64,
+                    Obj::Int(v) => bigint_to_f64(v),
                     _ => return err,
                 };
                 Obj::Float(dbl + val)
             }
             (Obj::Int(int), other) => match other {
                 Obj::Int(v) => Obj::Int(int + v),
-                Obj::Float(v) => Obj::Float(*int as f64 + v),
+                Obj::Float(v) => Obj::Float(bigint_to_f64(int) + v),
                 _ => return err,
             },
             (Obj::Str(s), other) => match other {
@@ -351,7 +352,7 @@ impl PyObj for Obj {
             (Obj::Float(dbl), other) => {
                 let val = match other {
                     Obj::Float(v) => *v,
-                    Obj::Int(v) => *v as f64,
+                    Obj::Int(v) => *v ,
                     _ => return err,
                 };
                 Obj::Float(dbl - val)
