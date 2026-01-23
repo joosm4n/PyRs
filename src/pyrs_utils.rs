@@ -1,8 +1,5 @@
 
 
-    use num_bigint::BigInt;
-    use num_traits::ToPrimitive;
-
     pub fn str_starts_with(input: &str, op: fn(char) -> bool) -> bool
     {
         input.chars().next().map_or(false, |c| op(c))
@@ -15,12 +12,7 @@
         chars.next_back();
         chars.as_str()    
     }
-
-    pub fn bigint_to_f64(val: &BigInt) -> f64
-    {
-        val.to_f64().unwrap_or_default()
-    }
-
+    
     pub fn get_indent(line: &str) -> usize 
     {
         let mut indent: usize = 0;
