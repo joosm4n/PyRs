@@ -23,7 +23,8 @@ else
 
 if command -v m4 &> /dev/null
 then 
-    echo "m4 already instlled"
+    echo "m4 is installed"
+    m4 --version
 else
     sudo apt install m4
 
