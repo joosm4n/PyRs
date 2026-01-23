@@ -22,7 +22,7 @@ fn main() -> std::io::Result<()> {
 
     let args = std::env::args();
     let mut argv: Vec<String> = vec![];
-    for a in args {
+    for a in args{
         argv.push(a);
     }
     
@@ -52,9 +52,8 @@ mod tests {
         sync::Arc,
     };
 
-    use pretty_assertions::{
-        assert_eq
-    };
+    use pretty_assertions::{assert_eq};
+    use rug::Integer;
     use super::*;
 
     struct EqTester
@@ -98,10 +97,10 @@ mod tests {
     #[test]
     fn memory_size()
     {
-        assert_eq!(40, size_of::<Obj>(), "Obj size not 24 bytes");
+        assert_eq!(40, size_of::<Obj>(), "Obj size not 40 bytes");
         assert_eq!(24, size_of::<Token>(), "Token size not 24 bytes");
-        assert_eq!(64, size_of::<Expression>(), "Expression size not 64 bytes");
-        assert_eq!(40, size_of::<PyBytecode>(), "Bytecode size not 32 bytes");
+        assert_eq!(72, size_of::<Expression>(), "Expression size not 72 bytes");
+        assert_eq!(48, size_of::<PyBytecode>(), "Bytecode size not 48 bytes");
     }
 
     #[test]
@@ -333,9 +332,10 @@ mod tests {
     fn bytecode() 
     {
         let code = vec![
-            PyBytecode::LoadConst(Obj::Int(5)),
-            PyBytecode::StoreFast("x".to_string()),
-            PyBytecode::LoadFast("x".to_string()),
+            PyBytecode::LoadConst(Obj::Int(5.into())),
+            PyBytecode::StoreName("x".to_string()),
+            PyBytecode::LoadConst(Obj::None.into()),
+            PyBytecode::LoadName("x".to_string()),
             PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
         ];
         println!("Instruction Queue: ");
@@ -354,7 +354,7 @@ mod tests {
             PyBytecode::from_expr(e, &mut code);
         }
         println!("Instructions:\n{}", PyBytecode::to_string(&code));
-        assert_eq!(format!("{:?}", code), r#"[LoadConst(Int(2)), StoreName("x"), NOP, LoadName("x"), LoadName("x"), CallInstrinsic1(Print), PopJumpIfFalse(2)]"#);
+        assert_eq!(format!("{:?}", code), r#"[LoadConst(Int(2)), StoreName("x"), NOP, LoadName("x"), LoadConst(None), LoadName("x"), CallInstrinsic1(Print), PopTop, PopJumpIfFalse(2)]"#);
         
         let mut vm = PyVM::new();
         vm.execute(code);
@@ -370,12 +370,10 @@ mod tests {
 	        x = x + 1
         "#);
         println!("Instructions:\n{}", PyBytecode::to_string(&code));
-        assert_eq!(format!("{:?}", code), r#"[LoadConst(Int(0)), StoreName("x"), NOP, LoadName("x"), LoadConst(Int(3)), CompareOp(LessThan), PopJumpIfFalse(8), LoadName("x"), CallInstrinsic1(Print), LoadName("x"), LoadConst(Int(1)), BinaryAdd, StoreName("x"), NOP, JumpBackward(12)]"#.to_string());
+        assert_eq!(format!("{:?}", code), r#"[LoadConst(Int(0)), StoreName("x"), NOP, LoadName("x"), LoadConst(Int(3)), CompareOp(LessThan), PopJumpIfFalse(10), LoadConst(None), LoadName("x"), CallInstrinsic1(Print), PopTop, LoadName("x"), LoadConst(Int(1)), BinaryAdd, StoreName("x"), NOP, JumpBackward(14)]"#.to_string());
         
-        /*
         let mut vm = PyVM::new();
         vm.execute(code);
-        */
 
     }
 
@@ -383,20 +381,21 @@ mod tests {
     fn handwritten_bytecode()
     {
         let code = vec![
-            PyBytecode::LoadConst(Obj::Int(0)),
+            PyBytecode::LoadConst(Obj::Int(0.into())),
             PyBytecode::StoreName("x".to_string()),
             PyBytecode::NOP,
             PyBytecode::LoadName("x".to_string()), 
-            PyBytecode::LoadConst(Obj::Int(3)), 
+            PyBytecode::LoadConst(Obj::Int(3.into())), 
             PyBytecode::CompareOp(Op::LessThan), 
-            PyBytecode::PopJumpIfFalse(7),
+            PyBytecode::PopJumpIfFalse(8),
+            PyBytecode::LoadConst(Obj::None.into()),
             PyBytecode::LoadName("x".to_string()),
             PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
             PyBytecode::LoadName("x".to_string()),
-            PyBytecode::LoadConst(Obj::Int(1)),
+            PyBytecode::LoadConst(Obj::Int(1.into())),
             PyBytecode::BinaryAdd,
             PyBytecode::StoreName("x".to_string()),
-            PyBytecode::JumpBackward(11),
+            PyBytecode::JumpBackward(12),
             PyBytecode::NOP,
         ];
         let mut vm = PyVM::new();

@@ -5,7 +5,7 @@ n2 = 1
 n3 = 0 # this is a test comment
 
 print("Fibbonacci: ")
-while i < 80:
+while i < 200:
     n3 = n1 + n2
     print("(", i, ") ", n3)
     n1 = n2

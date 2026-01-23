@@ -124,18 +124,25 @@ impl PyBytecode
                 });
             }
             Expression::Func(ptr, args) => {
-                match ptr.name.as_str() {
-                    _ => { // normal function
-                        let argc = args.len();
-                        queue.push(PyBytecode::LoadConst(Obj::Function(ptr)));
-                        for a in args {
-                            PyBytecode::from_expr(a, queue);
-                        }
-                        queue.push(PyBytecode::CallFunction(argc));
-                        queue.push(PyBytecode::PopTop);
-                        return;
+
+                let argc = args.len();
+                let fn_name = ptr.name.as_str().to_string();
+                queue.push(PyBytecode::LoadConst(Obj::None));
+                
+                if let Some(intrinsic) = IntrinsicFunc::try_get(fn_name.as_str()) {
+                    for a in args {
+                        PyBytecode::from_expr(a, queue);
                     }
-                };
+                    queue.push(PyBytecode::CallInstrinsic1(intrinsic))
+                }
+                else {
+                    queue.push(PyBytecode::LoadConst(Obj::Function(ptr)));
+                    for a in args {
+                        PyBytecode::from_expr(a, queue);
+                    }
+                    queue.push(PyBytecode::CallFunction(argc));
+                }
+
             }
             Expression::Keyword(keyword, cond, args) => {
                 match keyword {
@@ -147,7 +154,6 @@ impl PyBytecode
                         for a in args {
                             PyBytecode::from_expr(a, &mut temp_queue);
                         }
-                        
                         let delta = temp_queue.len();
                         queue.append(&mut temp_queue);
                         queue.push(PyBytecode::PopJumpIfFalse(delta))
@@ -174,7 +180,8 @@ impl PyBytecode
 
                         let return_delta = queue.len() - condition_start + 1;
                         queue.push(PyBytecode::JumpBackward(return_delta));
-
+                        
+                        queue.push(PyBytecode::LoadConst(Obj::None));
                     }
                     _ => panic!(),
                 }
@@ -263,7 +270,8 @@ impl PyVM
 
     fn execute_instruction(&mut self, inst: PyBytecode)
     {
-        //println!("Executing: {:?}", inst);
+        println!("Executing: {:?}", inst);
+        self.print_stack();
         match inst {
             PyBytecode::PopTop => self.pop_top(),
             PyBytecode::EndFor => self.end_for(),
@@ -364,6 +372,15 @@ impl PyVM
         self.stack.last().unwrap().clone()
     }
 
+    fn print_stack(&self)
+    {
+        println!("VM Stack:");
+        for (idx, a) in self.stack.iter().enumerate() {
+            println!(" ({idx}) \t{a}");
+        }
+        println!();
+    }
+
     // Instructions
     fn pop_top(&mut self)
     {
@@ -399,8 +416,8 @@ impl PyVM
     fn call_function(&mut self, argc: usize)
     {
         let args = self.pop_n(argc);
-        
         let func = self.pop();
+        self.pop(); // pop null
         match func.as_ref() {
             Obj::Function(fn_ptr) => {
                 let ret = (fn_ptr.ptr)(&args);
@@ -495,9 +512,17 @@ impl PyVM
 
     fn call_intrisic_1(&mut self, ptr: IntrinsicFunc) 
     {
-        let obj = self.pop();
+        let mut args = vec![];
+        loop { 
+            let obj = self.pop();
+            match obj.as_ref() {
+                Obj::None => break,
+                _ => args.push(self.pop()),
+            }
+        }
+
         let ret = match ptr {
-            IntrinsicFunc::Print => IntrinsicFunc::print(&obj),
+            IntrinsicFunc::Print => IntrinsicFunc::print(&args),
         };
         match ret {
             Some(val) => self.push(Arc::from(val)),
@@ -572,10 +597,6 @@ fn no_instruction()
 
 }
 
-fn other_fn()
-{
-
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum IntrinsicFunc
@@ -585,9 +606,21 @@ pub enum IntrinsicFunc
 
 impl IntrinsicFunc 
 {
-    fn print(obj: &Obj) -> Option<Obj>
+    fn try_get(name: &str) -> Option<IntrinsicFunc>
     {
-        println!("{}", obj);
+        let func = match name {
+            "print" => IntrinsicFunc::Print,
+            _ => return None, 
+        };
+        Some(func)
+    }
+
+    fn print(objs: &Vec<Arc<Obj>>) -> Option<Arc<Obj>>
+    {
+        for o in objs {
+            print!("{} ", o);
+        }
+        println!();
         None
     }
 

@@ -90,7 +90,7 @@ impl Funcs {
     pub fn float(obj: &Obj) -> Result<Obj, PyException> {
         let ret = match obj {
             Obj::Float(_) => obj.clone(),
-            Obj::Int(i) => Obj::Float(*i as f64),
+            Obj::Int(i) => Obj::Float(i.to_f64()),
             Obj::Str(s) => {
                 match s.parse::<f64>() {
                     Ok(f) => Obj::Float(f),
@@ -212,7 +212,7 @@ impl Maths {
 
         let val = match arg.as_ref() {
             Obj::Float(d) => *d,
-            Obj::Int(i) => *i as f64,
+            Obj::Int(i) => i.to_f64(),
             _ => panic!(
                 "[Type Error] Func{{sin}} only takes a number types: {:?}",
                 arg
@@ -229,7 +229,7 @@ impl Maths {
 
         let val = match arg.as_ref() {
             Obj::Float(d) => *d,
-            Obj::Int(i) => *i as f64,
+            Obj::Int(i) => i.to_f64(),
             _ => panic!(
                 "[Type Error] Func{{cos}} only takes a number types: {:?}",
                 arg
@@ -246,7 +246,7 @@ impl Maths {
 
         let val = match arg.as_ref() {
             Obj::Float(d) => *d,
-            Obj::Int(i) => *i as f64,
+            Obj::Int(i) => i.to_f64(),
             _ => panic!(
                 "[Type Error] Func{{tan}} only takes a number types: {:?}",
                 arg
@@ -263,7 +263,7 @@ impl Maths {
 
         let val = match arg.as_ref() {
             Obj::Float(d) => *d,
-            Obj::Int(i) => *i as f64,
+            Obj::Int(i) => i.to_f64(),
             _ => panic!(
                 "[Type Error] Func{{sqrt}} only takes a number types: {:?}",
                 arg
@@ -280,7 +280,7 @@ impl Maths {
 
         let val = match arg.as_ref() {
             Obj::Float(d) => *d,
-            Obj::Int(i) => *i as f64,
+            Obj::Int(i) => i.to_f64(),
             _ => panic!(
                 "[Type Error] Func{{abs}} only takes a number types: {:?}",
                 arg
@@ -297,7 +297,7 @@ impl Maths {
 
         let val = match arg.as_ref() {
             Obj::Float(d) => *d,
-            Obj::Int(i) => *i as f64,
+            Obj::Int(i) => i.to_f64(),
             _ => panic!(
                 "[Type Error] Func{{ln}} only takes a number types: {:?}",
                 arg
@@ -314,7 +314,7 @@ impl Maths {
 
         let val = match arg.as_ref() {
             Obj::Float(d) => *d,
-            Obj::Int(i) => *i as f64,
+            Obj::Int(i) => i.to_f64(),
             _ => panic!(
                 "[Type Error] Func{{log10}} only takes a number types: {:?}",
                 arg
@@ -331,7 +331,7 @@ impl Maths {
 
         let val = match arg.as_ref() {
             Obj::Float(d) => *d,
-            Obj::Int(i) => *i as f64,
+            Obj::Int(i) => i.to_f64(),
             _ => panic!(
                 "[Type Error] Func{{exp}} only takes a number types: {:?}",
                 arg
