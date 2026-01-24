@@ -34,25 +34,34 @@ pub enum Op {
     Asterisk,
     ForwardSlash,
     Equals,
+    Deref,
+
     Colon,
     SemiColon,
     Comma,
     DoubleQuotes,
     SingleQuote,
+
     RoundBracketsOpen,
     RoundBracketsClose,
     CurlyBracketsOpen,
     CurlyBracketsClose,
-    Not,
-    Dot,
+    SquareBracketsOpen,
+    SquareBracketsClose,
+    
     Pos,
     Neg,
+    
+    Not,
     Eq,
     Neq,
     LessThan,
     GreaterThan,
     LessEq,
     GreaterEq,
+    
+    List,
+    Dot,
 }
 
 impl Op {
@@ -60,6 +69,7 @@ impl Op {
         match self {
             Op::Plus => Some(Op::Pos),
             Op::Minus => Some(Op::Neg),
+            Op::Asterisk => Some(Op::Deref),
             _ => None,
         }
     }
@@ -75,6 +85,8 @@ impl Op {
         match self {
             Op::RoundBracketsOpen => Some(Op::RoundBracketsOpen),
             Op::RoundBracketsClose => Some(Op::RoundBracketsClose),
+            Op::SquareBracketsOpen => Some(Op::SquareBracketsOpen),
+            Op::SquareBracketsClose => Some(Op::SquareBracketsClose),
             Op::Equals => Some(Op::Equals),
             Op::Eq => Some(Op::Eq),
             Op::Neq => Some(Op::Neq),
@@ -83,6 +95,7 @@ impl Op {
             Op::Asterisk => Some(Op::Asterisk),
             Op::ForwardSlash => Some(Op::ForwardSlash),
             Op::Dot => Some(Op::Dot),
+            Op::List => Some(Op::List),
             _ => None,
         }
     }
@@ -107,7 +120,7 @@ impl std::fmt::Display for Op {
         let ident: &str = match self {
             Op::Plus | Op::Pos => "+",
             Op::Minus | Op::Neg => "-",
-            Op::Asterisk => "*",
+            Op::Asterisk | Op::Deref => "*",
             Op::ForwardSlash => "/",
             Op::Equals => "=",
             Op::Eq => "==",
@@ -126,7 +139,10 @@ impl std::fmt::Display for Op {
             Op::RoundBracketsClose => ")",
             Op::CurlyBracketsOpen => "{",
             Op::CurlyBracketsClose => "}",
+            Op::SquareBracketsOpen => "[",
+            Op::SquareBracketsClose => "]",
             Op::Dot => ".",
+            Op::List => "list",
         };
         write!(f, "{}", ident)
     }
@@ -198,6 +214,8 @@ impl<'a> Lexer<'a> {
                 "=" => Token::Op(Op::Equals),
                 "(" => Token::Op(Op::RoundBracketsOpen),
                 ")" => Token::Op(Op::RoundBracketsClose),
+                "[" => Token::Op(Op::SquareBracketsOpen),
+                "]" => Token::Op(Op::SquareBracketsClose),
                 ":" => Token::Op(Op::Colon),
                 "!" => Token::Op(Op::Not),
                 "==" => Token::Op(Op::Eq),
@@ -271,7 +289,7 @@ impl<'a> Lexer<'a> {
                     Keyword::If | Keyword::Elif | Keyword::For | Keyword::While => {
                         let mut conditions: Vec<Expression> = vec![];
                         while self.peek() != Token::Op(Op::Colon) && self.peek() != Token::Eof {
-                            //dbg!(self.next());
+                            dbg!(self.peek());
                             conditions.push(self.parse_expression(0.0));
                             dbg!(&conditions);
                         }
@@ -297,6 +315,7 @@ impl<'a> Lexer<'a> {
                     let rhs = self.parse_expression(r_bp);
                     return Expression::Operation(prefix, vec![rhs]);
                 }
+
                 match op {
                     Op::Colon => {
                         return Expression::Operation(Op::Colon, vec![]);
@@ -307,20 +326,37 @@ impl<'a> Lexer<'a> {
                         assert_eq!(
                             open,
                             Token::Op(Op::RoundBracketsClose),
-                            "[Expression Error] Bad token: {}",
+                            "Expression Error: Bad token: \'{}\'. Expected \')\'.",
                             open
                         );
                         lhs
                     }
+                    Op::SquareBracketsOpen => {
+                        let mut args = vec![];
+                        loop {
+                            let next = self.peek();
+                            dbg!(&next);
+                            match next {
+                                Token::Eof => panic!("Expected \']\' at end of file"),
+                                Token::Op(Op::SquareBracketsClose) => { self.next(); break; },
+                                Token::Sep(_) => { self.next(); continue; },
+                                _ => args.push(self.parse_expression(0.0)),
+                            }
+                        }
+                        dbg!(&args);
+                        return Expression::Operation(Op::List, args);
+                    }
                     t => panic!("[Expression Error] Unimplemented Op: {}", t),
                 }
             }
+            Token::Sep(_) => return Expression::None,
             t => panic!("[Expression Error] Bad token: {}", t),
         };
         loop {
             let op = match self.peek() {
                 Token::Eof => break,
                 Token::Op(Op::RoundBracketsClose) => break,
+                Token::Op(Op::SquareBracketsClose) => break,
                 Token::Op(Op::Colon) => break,
                 Token::Op(op) => op,
                 Token::Sep(_) => break,
@@ -549,6 +585,14 @@ impl Expression {
                     variables.insert(var_name, value.clone());
                     return Ok(value);
                 }
+                else if *operator == Op::List {
+                    let mut objs: Vec<Arc<Obj>> = vec![];
+                    for o in operands {
+                        let obj = o.eval(variables, funcs)?;
+                        objs.push(Arc::from(obj));
+                    }
+                    return Ok(Obj::List(objs).into());
+                }
 
                 // unary
                 let rhs = operands.get(1).unwrap().eval(&mut *variables, &mut *funcs)?;
@@ -565,6 +609,7 @@ impl Expression {
                     Op::Minus => Obj::__sub__(&lhs, &rhs)?,
                     Op::Asterisk => Obj::__mul__(&lhs, &rhs)?,
                     Op::ForwardSlash => Obj::__div__(&lhs, &rhs)?,
+                    Op::Deref => Obj::__deref__(&lhs)?,
                     Op::Eq => Obj::__eq__(&lhs, &rhs).to_arc(),
                     Op::Neq => Obj::__ne__(&lhs, &rhs).to_arc(),
                     Op::LessThan => Obj::__lt__(&lhs, &rhs).to_arc(),

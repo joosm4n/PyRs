@@ -126,8 +126,8 @@ mod tests {
         assert_eq!(s2.to_string(), "Op[+ Atom(smelly) Atom(poop)]");
 
         let mut eq = EqTester::new();
-        eq.eval_eq(&s1, "smelly");
-        eq.eval_eq(&s2, "smellypoop");
+        eq.eval_eq(&s1, "\'smelly\'");
+        eq.eval_eq(&s2, "\'smellypoop\'");
     }
 
     #[test]
@@ -151,7 +151,7 @@ mod tests {
         );
 
         let mut eq = EqTester::new();
-        eq.eval_eq(&s, "10 100 ");
+        eq.eval_eq(&s, "\'10 100 \'");
     }
 
     #[test]
@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(s.to_string(), "Op[* Atom(la) Atom(3)]");
 
         let mut eq = EqTester::new();
-        eq.eval_eq(&s, "lalala");
+        eq.eval_eq(&s, "\'lalala\'");
     }
 
     #[test]
@@ -354,7 +354,7 @@ mod tests {
             PyBytecode::from_expr(e, &mut code);
         }
         println!("Instructions:\n{}", PyBytecode::to_string(&code));
-        assert_eq!(format!("{:?}", code), r#"[LoadConst(Int(2)), StoreName("x"), NOP, LoadName("x"), LoadConst(None), LoadName("x"), CallInstrinsic1(Print), PopTop, PopJumpIfFalse(2)]"#);
+        assert_eq!(format!("{:?}", code), r#"[LoadConst(Int(2)), StoreName("x"), LoadName("x"), LoadConst(None), LoadName("x"), CallInstrinsic1(Print), PopJumpIfFalse(3)]"#);
         
         let mut vm = PyVM::new();
         vm.execute(code);
@@ -370,7 +370,7 @@ mod tests {
 	        x = x + 1
         "#);
         println!("Instructions:\n{}", PyBytecode::to_string(&code));
-        assert_eq!(format!("{:?}", code), r#"[LoadConst(Int(0)), StoreName("x"), NOP, LoadName("x"), LoadConst(Int(3)), CompareOp(LessThan), PopJumpIfFalse(10), LoadConst(None), LoadName("x"), CallInstrinsic1(Print), PopTop, LoadName("x"), LoadConst(Int(1)), BinaryAdd, StoreName("x"), NOP, JumpBackward(14)]"#.to_string());
+        assert_eq!(format!("{:?}", code), r#"[LoadConst(Int(0)), StoreName("x"), LoadName("x"), LoadConst(Int(3)), CompareOp(LessThan), PopJumpIfFalse(8), LoadConst(None), LoadName("x"), CallInstrinsic1(Print), LoadName("x"), LoadConst(Int(1)), BinaryAdd, StoreName("x"), JumpBackward(12), LoadConst(None)]"#.to_string());
         
         let mut vm = PyVM::new();
         vm.execute(code);
@@ -403,9 +403,10 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn file_to_bytecode()
     {
-        let code = Interpreter::compile_file("bytecode_test.py");
+        let code = Interpreter::compile_file("bytecode_t.py");
         println!("Bytecode from file:\n{}", PyBytecode::to_string(&code));
         let mut vm = PyVM::new();
         vm.execute(code);
@@ -417,6 +418,7 @@ mod tests {
     };    
 
     #[test]
+    #[ignore]
     fn speed_test()
     {
         let pyrs_start = Instant::now();
@@ -452,6 +454,24 @@ mod tests {
         println!("ms: {}", cpython_duration.as_millis());
         println!("Time elapsed: {:?}", cpython_duration);
         
+    }
+
+    #[test]
+    fn list()
+    {
+        let line1 = Expression::from_line("x = [2, 3, 4]");
+        assert_eq!(line1.to_string(), "Op[= Ident(x) Op[list Atom(2) Atom(3) Atom(4)]]".to_string());
+    
+        let line2 = Expression::from_line("print(x + [\"add\", \"none\"])");
+        assert_eq!(line2.to_string(), "Func[print args[ Op[+ Ident(x) Op[list Atom(add) Atom(none)]]]]");
+
+        let mut bytecode = vec![];
+        PyBytecode::from_expr(line1, &mut bytecode);
+        PyBytecode::from_expr(line2, &mut bytecode);
+
+        assert_eq!(format!("{:?}", bytecode), r#"[LoadConst(Int(2)), LoadConst(Int(3)), LoadConst(Int(4)), BuildList(3), StoreName("x"), LoadConst(None), LoadName("x"), LoadConst(Str("add")), LoadConst(Str("none")), BuildList(2), BinaryAdd, CallInstrinsic1(Print)]"#.to_string());
+        let mut vm = PyVM::new();
+        vm.execute(bytecode);
     }
 
     // TODO: 

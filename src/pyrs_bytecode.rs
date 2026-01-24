@@ -61,7 +61,7 @@ pub enum PyBytecode
 
     CompareOp(Op) = 160,
 
-    BuildList = 181,
+    BuildList(usize) = 181,
     GetIter = 182, 
     ForIter = 183,
     ListAppend = 184,
@@ -103,6 +103,15 @@ impl PyBytecode
                         panic!();
                     }
                     queue.push(PyBytecode::StoreName(name));
+                    return;
+                }
+                else if op == Op::List {
+                    let obj_count = args.len();
+                    for a in args {
+                        PyBytecode::from_expr(a, queue);
+                    }
+                    queue.push(PyBytecode::BuildList(obj_count));
+                    return;
                 }
                 else {
                     for a in args {
@@ -114,12 +123,11 @@ impl PyBytecode
                     Op::Minus => PyBytecode::BinarySubtract,
                     Op::Asterisk => PyBytecode::BinaryMultiply,
                     Op::ForwardSlash => PyBytecode::BinaryDivide,
-                    Op::Equals => PyBytecode::NOP,
-
+                    
                     Op::Eq | Op::Neq |
                     Op::LessEq | Op::LessThan | 
                     Op::GreaterEq | Op::GreaterThan => PyBytecode::CompareOp(op),
-
+                    
                     e => PyBytecode::Error(format!("{e}")), 
                 });
             }
@@ -298,6 +306,8 @@ impl PyVM
             PyBytecode::StoreFast(name) => self.store_fast(name),
             PyBytecode::StoreName(name) => self.store_name(name),
 
+            PyBytecode::BuildList(len) => self.build_list(len),
+
             PyBytecode::BinaryAdd => self.binary_add(),
             PyBytecode::BinarySubtract => self.binary_subtract(),
             PyBytecode::BinaryMultiply => self.binary_multiply(),
@@ -455,6 +465,13 @@ impl PyVM
             None => PyException { error: PyError::UndefinedVariableError, msg: format!("No variable with name: \"{}\" in current scope", name)}.to_arc(),
         };
         self.push(obj);
+    }
+
+    fn build_list(&mut self, len: usize)
+    {
+        let objs = self.pop_n(len);
+        let list = Arc::from(Obj::List(objs));
+        self.push(list);
     }
 
     fn pop_jump_if_false(&mut self, delta: usize)
@@ -641,7 +658,7 @@ pub enum IntrinsicFunc
     Print,
 }
 
-impl IntrinsicFunc 
+impl IntrinsicFunc
 {
     fn try_get(name: &str) -> Option<IntrinsicFunc>
     {

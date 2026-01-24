@@ -253,8 +253,8 @@ impl Interpreter {
         let res = self.eval_expr(&expr);
         match res {
             Ok(obj) => {
-                if self.show_output && obj != Obj::None.into() {
-                    println!("{}", obj)
+                if self.show_output && obj.as_ref() != &Obj::None {
+                    println!("{}", obj.__repr__())
                 }
             }
             Err(e) => { e.print(); }

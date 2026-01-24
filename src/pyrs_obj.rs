@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap, ops::{Add, Mul, MulAssign, Neg}, process::{ExitCode, Termination}, str::FromStr, sync::Arc
+    collections::HashMap, ops::{Add, Mul, Neg}, process::{ExitCode, Termination}, str::FromStr, sync::Arc
 };
 use crate::{
     pyrs_error::{PyException, PyError},
@@ -21,7 +21,11 @@ pub enum Obj {
 
     Function(FnPtr),
 
-    Except(PyException)
+    Except(PyException),
+
+    List(Vec<Arc<Obj>>),
+    Tuple(Vec<Arc<Obj>>),
+
     //User(UserClass),
 
     // Numeric
@@ -76,6 +80,24 @@ pub trait PyObj: std::fmt::Debug + Clone
 
     fn __default__() -> Self {
         panic!()
+    }
+
+    fn __str__(&self) -> String {
+        panic!()
+    }
+
+    fn __deref__(obj: &Arc<Self>) -> Result<Arc<Obj>, PyException> {
+        Err(PyException{
+            error: PyError::TypeError,
+            msg: format!(
+                "Unable to deref the PyObj: {:?}",
+                obj
+            ),
+        })
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
     }
 
     fn __bool__(&self) -> bool {
@@ -217,17 +239,65 @@ impl PyObj for Obj {
 
     fn __bool__(&self) -> bool {
         let ret = match self {
+            Obj::None => false,
             Obj::Bool(v) => *v,
             Obj::Float(v) => *v != 0f64,
             Obj::Int(v) => *v != Integer::ZERO,
             Obj::Str(v) => *v != "",
-            _ => panic!(".__bool__() not implemented for: {:?}", self),
+            Obj::List(list) => list.len() != 0usize,
+            _ => panic!("TypeError: __bool__() not implemented for: {:?}", self),
         };
         return ret;
     }
 
+    fn __str__(&self) -> String {
+        match self {
+            Obj::None => format!("None"),
+            Obj::Bool(val) => format!("{}", val),
+            Obj::Float(val) => format!("{}", val),
+            Obj::Str(s) => format!("{}", s),
+            Obj::Int(val) => format!("{}", val),
+            Obj::Function(ptr) => format!("{}", ptr),
+            Obj::Except(e) => format!("{}", e),
+            Obj::List(objs) => {
+                let mut list = String::from("[");
+                for o in objs {
+                    list.push_str(o.__repr__().as_str());
+                    list.push(',');
+                    list.push(' ');
+                }
+                list.pop();
+                list.pop();
+                list.push_str("]");
+                format!("{}", list)
+            }
+            Obj::Tuple(objs) => {
+                let mut tuple = String::from("("); 
+                for o in objs {
+                    tuple.push_str(o.__repr__().as_str());
+                    tuple.push(',');
+                    tuple.push(' ');
+                }
+                tuple.pop();
+                tuple.pop();
+                tuple.push_str(")");
+                format!("{}", tuple)
+            }
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        match self {
+            Obj::Str(s) => format!("\'{}\'", s),
+            _ => self.__str__(),
+        }
+    }
+
     fn __len__(&self) -> usize {
-        unimplemented!();
+        match self {
+            Obj::List(list) => list.len(),
+            _ => panic!("TypeError: __len__() not implemented for: {:?}", self), 
+        }
     }
 
     fn __lt__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
@@ -339,6 +409,19 @@ impl PyObj for Obj {
                 Obj::Str(v) => Obj::Str(format!("{s}{v}")),
                 _ => return err,
             },
+            (Obj::List(l1), other) => match other {
+                Obj::List(l2) => {
+                    let mut new_list = Vec::with_capacity(l1.len() + l2.len());
+                    new_list.extend(l1.iter().cloned());
+                    new_list.extend(l2.iter().cloned());    
+                    Obj::List(new_list)
+                }
+                _ => {
+                    let mut list_err = err.unwrap_err();
+                    list_err.msg = format!("TypeError: can only concatenate list (not \"{:?}\") to list", other);
+                    return Err(list_err);
+                }
+            }
             _ => return err,
         };
         Ok(obj.into())
@@ -483,17 +566,7 @@ impl PyObj for Obj {
 
 impl std::fmt::Display for Obj {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Obj::None => write!(f, "None"),
-            Obj::Bool(val) => write!(f, "{}", val),
-            Obj::Float(val) => write!(f, "{}", val),
-            Obj::Str(s) => write!(f, "{}", s),
-            Obj::Int(val) => write!(f, "{}", val),
-            Obj::Function(ptr) => write!(f, "{}", ptr),
-            Obj::Except(e) => write!(f, "{}", e),
-            //Obj::User(class) => write!(f, "{}", class),
-            //t => write!(f, "{:?}", t),
-        }
+        write!(f, "{}", self.__str__())
     }
 }
 
