@@ -233,6 +233,12 @@ impl std::convert::From<PyBytecode> for u8
     }
 }
 
+impl std::fmt::Display for PyBytecode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 pub struct PyVM
 {
     vars: HashMap<String, Arc<Obj>>,
@@ -241,6 +247,8 @@ pub struct PyVM
     instruction_queue: Vec<PyBytecode>,
     instruction_counter: usize,
     error_state: bool,
+
+    step_through: bool,
 
     inst_array: [fn(); 255],
 }
@@ -255,6 +263,7 @@ impl PyVM
             instruction_queue: vec![],
             instruction_counter: 0,
             error_state: false,
+            step_through: false,
             inst_array: PyVM::get_fn_array(), 
         }
     }
@@ -262,6 +271,8 @@ impl PyVM
     pub fn execute(&mut self, queue: Vec<PyBytecode>)
     {
         self.instruction_queue = queue;
+        //self.print_instruction_queue();
+        //panic!();
         while let Some(instruction) = self.instruction_queue.get(self.instruction_counter)
         {
             self.execute_instruction(instruction.clone());
@@ -270,8 +281,13 @@ impl PyVM
 
     fn execute_instruction(&mut self, inst: PyBytecode)
     {
-        println!("Executing: {:?}", inst);
-        self.print_stack();
+        if inst == PyBytecode::NOP {
+            self.instruction_counter += 1;
+            return;
+        }
+        //println!("Executing: {:?}", inst);
+        //self.print_stack();
+
         match inst {
             PyBytecode::PopTop => self.pop_top(),
             PyBytecode::EndFor => self.end_for(),
@@ -316,11 +332,15 @@ impl PyVM
         println!();
         println!("---- PyVM Error ---- ");
         
-        println!("Error at bytecode number: {}", self.instruction_counter);
+        println!("Error: at bytecode instruction {}", self.instruction_counter);
+        self.print_instruction(self.instruction_counter);
         println!("{e}");
 
+        println!("\nStack Trace: ");
+        self.print_stack();
+
         println!();
-        panic!();
+        panic!("PyVM Error Thrown");
     }
 
     fn push(&mut self, obj: Arc<Obj>)
@@ -367,6 +387,17 @@ impl PyVM
         objs
     }
 
+    fn pop_until(&mut self, stop_obj: &Obj) -> Vec<Arc<Obj>>
+    {
+        let mut objs = vec![];
+        while self.top().as_ref() != stop_obj {
+            objs.push(self.pop());
+        }
+
+        objs.reverse();
+        objs
+    }
+
     fn top(&self) -> Arc<Obj>
     {
         self.stack.last().unwrap().clone()
@@ -379,6 +410,19 @@ impl PyVM
             println!(" ({idx}) \t{a}");
         }
         println!();
+    }
+
+    fn print_instruction(&self, index: usize)
+    {
+        if index < self.instruction_queue.len() {
+            println!("\t ({}) \t{}", index, self.instruction_queue[index]);
+        }
+    }
+
+    fn print_instruction_queue(&self) 
+    {
+        println!("Instructions: ");
+        println!("{}", PyBytecode::to_string(&self.instruction_queue));
     }
 
     // Instructions
@@ -411,20 +455,6 @@ impl PyVM
             None => PyException { error: PyError::UndefinedVariableError, msg: format!("No variable with name: \"{}\" in current scope", name)}.to_arc(),
         };
         self.push(obj);
-    }
-
-    fn call_function(&mut self, argc: usize)
-    {
-        let args = self.pop_n(argc);
-        let func = self.pop();
-        self.pop(); // pop null
-        match func.as_ref() {
-            Obj::Function(fn_ptr) => {
-                let ret = (fn_ptr.ptr)(&args);
-                self.push(ret);
-            }
-            _ => self.push_err(PyException { error: PyError::TypeError, msg: format!("{argc} element of stack: {func} was not a Obj::Function ")}),
-        }
     }
 
     fn pop_jump_if_false(&mut self, delta: usize)
@@ -510,16 +540,23 @@ impl PyVM
         self.push(Arc::from(ret));
     }
 
+    fn call_function(&mut self, argc: usize)
+    {
+        let args = self.pop_n(argc);
+        let func = self.pop();
+        self.pop(); // pop null
+        match func.as_ref() {
+            Obj::Function(fn_ptr) => {
+                let ret = (fn_ptr.ptr)(&args);
+                self.push(ret);
+            }
+            _ => self.push_err(PyException { error: PyError::TypeError, msg: format!("{argc} element of stack: {func} was not a Obj::Function ")}),
+        }
+    }
+
     fn call_intrisic_1(&mut self, ptr: IntrinsicFunc) 
     {
-        let mut args = vec![];
-        loop { 
-            let obj = self.pop();
-            match obj.as_ref() {
-                Obj::None => break,
-                _ => args.push(self.pop()),
-            }
-        }
+        let args = self.pop_until(&Obj::None);
 
         let ret = match ptr {
             IntrinsicFunc::Print => IntrinsicFunc::print(&args),
