@@ -69,7 +69,7 @@
             let is_num = c.is_numeric();
             let is_alpha = c.is_alphabetic() || c == '_';
             let is_dot = c == '.';
-            let is_quotes = c == '"';
+            let is_quotes = c == '"' || c == '\'';
             let is_eq = c == '!' || c == '=' || c == '<' || c == '>';
 
             if is_quotes

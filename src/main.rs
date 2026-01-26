@@ -7,6 +7,7 @@ pub mod pyrs_userclass;
 pub mod pyrs_utils;
 pub mod pyrs_interpreter;
 pub mod pyrs_bytecode;
+pub mod pyrs_vm;
 
 #[allow(unused_imports)]
 use crate::{
@@ -15,7 +16,8 @@ use crate::{
     pyrs_error::{PyException}, 
     pyrs_parsing::{Expression, Token, Op},
     pyrs_std::{FnPtr, Funcs},
-    pyrs_bytecode::{PyBytecode, PyVM, IntrinsicFunc},
+    pyrs_bytecode::{PyBytecode},
+    pyrs_vm::{PyVM, IntrinsicFunc},
 };
 
 fn main() -> std::io::Result<()> {
@@ -53,7 +55,6 @@ mod tests {
     };
 
     use pretty_assertions::{assert_eq};
-    use rug::Integer;
     use super::*;
 
     struct EqTester
@@ -99,7 +100,7 @@ mod tests {
     {
         assert_eq!(40, size_of::<Obj>(), "Obj size not 40 bytes");
         assert_eq!(24, size_of::<Token>(), "Token size not 24 bytes");
-        assert_eq!(72, size_of::<Expression>(), "Expression size not 72 bytes");
+        assert_eq!(64, size_of::<Expression>(), "Expression size not 72 bytes");
         assert_eq!(48, size_of::<PyBytecode>(), "Bytecode size not 48 bytes");
     }
 
@@ -126,8 +127,8 @@ mod tests {
         assert_eq!(s2.to_string(), "Op[+ Atom(smelly) Atom(poop)]");
 
         let mut eq = EqTester::new();
-        eq.eval_eq(&s1, "\'smelly\'");
-        eq.eval_eq(&s2, "\'smellypoop\'");
+        eq.eval_eq(&s1, "smelly");
+        eq.eval_eq(&s2, "smellypoop");
     }
 
     #[test]
@@ -151,7 +152,7 @@ mod tests {
         );
 
         let mut eq = EqTester::new();
-        eq.eval_eq(&s, "\'10 100 \'");
+        eq.eval_eq(&s, "10 100 ");
     }
 
     #[test]
@@ -160,7 +161,7 @@ mod tests {
         assert_eq!(s.to_string(), "Op[* Atom(la) Atom(3)]");
 
         let mut eq = EqTester::new();
-        eq.eval_eq(&s, "\'lalala\'");
+        eq.eval_eq(&s, "lalala");
     }
 
     #[test]

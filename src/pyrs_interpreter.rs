@@ -296,16 +296,17 @@ impl Interpreter {
     // vvvv using byte code vvvv
     pub fn compile_file(filepath: &str) -> Vec<PyBytecode> {
 
-        println!("Compiling \'{}\'... ", filepath);
         let mut bytecode: Vec<PyBytecode> = vec![];
         let contents = match std::fs::read_to_string(filepath) {
             Ok(f) => f,
             Err(e) => panic!("Fileread error: {e}"),
         };
         let parsed  = Expression::from_multiline(contents.as_str());
+        //println!("parsed: {:?}", parsed);
         for expr in parsed {
             PyBytecode::from_expr(expr, &mut bytecode);
         }
+
         bytecode
     }
 
@@ -325,6 +326,7 @@ impl Interpreter {
             std::fs::create_dir("__pycache__")?;
         }
 
+        println!("Compiling \'{}\'... ", filename);
         let name = filename.strip_suffix(".py").unwrap();
         let pyc_name = format!("__pycache__/{}.{}.pyc", name, Interpreter::get_version());
         let mut file = fs::File::create(&pyc_name)?;

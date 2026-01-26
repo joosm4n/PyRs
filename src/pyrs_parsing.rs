@@ -22,7 +22,6 @@ pub enum Token<'a> {
     Atom(&'a str),
     Op(Op),
     Sep(char),
-    Def,
     Eof,
     Keyword(Keyword),
 }
@@ -157,7 +156,6 @@ impl<'a> std::fmt::Display for Token<'a> {
             Token::Keyword(keyword) => write!(f, "Keyword{{'{}'}}", keyword),
             Token::Op(op) => write!(f, "Op{{'{}'}}", op),
             Token::Sep(sep) => write!(f, "Sep{{'{}'}}", sep),
-            Token::Def => write!(f, "def"),
         }
     }
 }
@@ -225,13 +223,13 @@ impl<'a> Lexer<'a> {
                 "<=" => Token::Op(Op::LessEq),
                 ">=" => Token::Op(Op::GreaterEq),
                 "," => Token::Sep(','),
-                "def" => Token::Def,
                 word if Token::try_get_keyword(word).is_some() => {
                     Token::try_get_keyword(word).unwrap()
                 }
                 word if Utils::str_starts_with(word, char::is_numeric) => Token::Atom(word),
                 word if Utils::str_starts_with(word, char::is_alphabetic) => Token::Ident(word),
                 word if word.starts_with('\"') => Token::Atom(Utils::trim_first_and_last(word)),
+                word if word.starts_with('\'') => Token::Atom(Utils::trim_first_and_last(word)),
                 "" => continue,
                 t => panic!("[Parse Error] Bad token: {:?}", t),
             };
@@ -251,6 +249,7 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn parse_expression(&mut self, min_bp: f32) -> Expression {
+        //println!("Expr: {:?}", self.peek());
         dbg!(format!("Parsing expr: {}", self));
         let mut lhs = match self.next() {
             Token::Eof => return Expression::None,
@@ -363,7 +362,7 @@ impl<'a> Lexer<'a> {
                         let colon = self.next();
                         assert_eq!(colon, Token::Op(Op::Colon));
                         return Expression::Keyword(Keyword::Def, args, vec![]);
-                    } 
+                    }
                     _ => unimplemented!(),
                 }
             }
@@ -385,16 +384,16 @@ impl<'a> Lexer<'a> {
                             return Expression::None
                         }
                         else {
-                        let lhs = self.parse_expression(0.0);
+                            let lhs = self.parse_expression(0.0);
                             
-                        let open = self.next();
-                        assert_eq!(
-                            open,
-                            Token::Op(Op::RoundBracketsClose),
-                            "Expression Error: Bad token: \'{}\'. Expected \')\'.",
-                            open
-                        );
-                        lhs
+                            let open = self.next();
+                            assert_eq!(
+                                open,
+                                Token::Op(Op::RoundBracketsClose),
+                                "Expression Error: Bad token: \'{}\'. Expected \')\'.",
+                                open
+                            );
+                            lhs   
                         }
                     }
                     Op::SquareBracketsOpen => {
@@ -558,10 +557,8 @@ impl Expression {
                 }
                 
             }
-            
             let expr = Expression::from_line(trimmed);
             
-            // If line ends with ':', start a new block
             if trimmed.ends_with(":") {
                 block_stack.push((indent, expr, vec![]));// If line ends with ':', start a new block
             } 
@@ -712,13 +709,10 @@ impl Expression {
             }
             Expression::Func(func, vals) => {
                 let mut args: Vec<Arc<Obj>> = vec![];
-                for val in vals { 
+                for val in vals {
                     args.push(val.eval(&mut *variables, &mut *funcs)?);
                 }
                 (func.ptr)(&args)
-            }
-            Expression::Definition(_name, _args, _ret_type) => {
-                Obj::None.into()
             }
         };
         Ok(ret)
@@ -769,13 +763,6 @@ impl std::fmt::Display for Expression {
                     write!(f, " {}", a)?;
                 }
                 write!(f, "]]")
-            }
-            Expression::Definition(name, args, ret_type) => {
-                write!(f, "def[ {} args[", name)?;
-                for a in args {
-                    write!(f, " {}", a)?;
-                }
-                write!(f, "] ret[{}]]", ret_type)
             }
         }
     }

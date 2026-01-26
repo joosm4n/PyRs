@@ -1,8 +1,5 @@
 
-def go():
-	x = 0
-	while x < 3:
-		print(x)
-		x = x + 1
+def ko_print(a, b, c = 1):
+	print(c, b, a)
 
-go()
+ko_print("hello", 500)
