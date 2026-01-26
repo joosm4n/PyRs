@@ -474,9 +474,15 @@ mod tests {
         vm.execute(bytecode);
     }
 
-    // TODO: 
-    // - Nested if statements
-    // - while loops
+    #[test]
+    fn definition()
+    {
+        let line1 = Expression::from_multiline("def go(a):\n\tprint(1)\ngo()");
+
+        let expr_strs = join_expr_strings(vec![&line1[0], &line1[1]]);
+        let res_strs = "Keyword[def conds[ Ident(go) Ident(a)] args[ Func[print args[ Atom(1)]]]] | Call[go args[]]";
+        assert_eq!(expr_strs, res_strs);
+    }
 
     /*
     Usage: cargo.exe test [OPTIONS] [TESTNAME] [-- [ARGS]...]

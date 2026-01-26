@@ -100,6 +100,10 @@ pub trait PyObj: std::fmt::Debug + Clone
         format!("{:?}", self)
     }
 
+    fn __int__(&self) -> isize {
+        panic!();
+    } 
+
     fn __bool__(&self) -> bool {
         false
     }
@@ -235,6 +239,15 @@ impl PyObj for Obj {
 
     fn __default__() -> Self {
         Obj::None
+    }
+
+    fn __int__(&self) -> isize {
+        match self {
+            Obj::Bool(v) => *v as isize,
+            Obj::Int(v) => v.to_isize_wrapping(),
+            Obj::Float(v) => *v as isize,
+            _ => panic!(),
+        }
     }
 
     fn __bool__(&self) -> bool {

@@ -280,7 +280,24 @@ impl<'a> Lexer<'a> {
                     );
                     Expression::Func(func, args)
                 }
-                None => Expression::Ident(ident.to_string()),
+                None => {
+                    if self.peek() == Token::Op(Op::RoundBracketsOpen) {
+                        self.next();
+                        let mut args = vec![];
+                        while self.peek() != Token::Op(Op::RoundBracketsClose) {
+                            if self.peek() == Token::Sep(',') {
+                                self.next(); 
+                                continue;
+                            }
+                            args.push(self.parse_expression(0.0));
+                        }
+                        self.next();
+                        Expression::Call(ident.to_string(), args)
+                    }
+                    else {
+                        Expression::Ident(ident.to_string())
+                    }
+                },
             },
             Token::Keyword(keyword) => {
                 match keyword {
@@ -296,15 +313,56 @@ impl<'a> Lexer<'a> {
                         return Expression::Keyword(keyword, conditions, vec![])
                     }
                     Keyword::Def => {
-                        let  mut args = vec![];
-                        let info = vec![];
+                        let name = match self.next() {
+                            Token::Ident(ident ) => ident.to_string(),
+                            t => panic!("Syntax Error: must be ident after def, not {}", t),
+                        };
+                        if self.next() != Token::Op(Op::RoundBracketsOpen) { panic!(); }
+                        
+                        let mut args = vec![Expression::Ident(name)];
+                        
+                        let mut i = 0;
+                        let max_loops = 1000;
+                        loop {
+                            i += 1;
+                            if i > max_loops { panic!("Max loops"); }
 
-                        while self.peek() != Token::Op(Op::Colon) && self.peek() != Token::Eof {
-                            args.push(self.parse_expression(0.0));
-                            dbg!(&conditions);
+                            let tk = self.next();
+                            println!("tk: {}",tk);
+                            match tk {
+                                Token::Ident(var) => {
+                                    let expr = match self.peek() {
+                                        Token::Op(Op::Equals) => {
+                                            self.next();
+                                            let mut vals = vec![Expression::Ident(var.to_string())];
+                                            while self.peek() != Token::Sep(',') && self.peek() != Token::Op(Op::RoundBracketsClose) {
+                                                let v = self.parse_expression(0.0);
+                                                vals.push(v);
+                                            }
+                                            match self.peek() {
+                                                Token::Sep(_) => self.next(),
+                                                Token::Op(Op::RoundBracketsClose) => { self.next(); break; },
+                                                t => panic!("Syntax Error: Unexpected token \'{}\'", t),
+                                            };
+                                            println!("vals: {:#?}", vals);
+                                            Expression::Operation(Op::Equals, vals)
+                                        }
+                                        Token::Sep(',') => {
+                                            self.next();
+                                            Expression::Ident(var.to_string())
+                                        }
+                                        _ => panic!(),
+                                    };
+                                    println!("expr: {}", expr);
+                                    args.push(expr);
+                                },
+                                Token::Op(Op::RoundBracketsClose) => { break; }
+                                t => panic!("Syntax Error: Unexpected token \'{}\'", t),
+                            }
                         }
-
-                        Expression::Keyword(Keyword::Def, args, info)
+                        let colon = self.next();
+                        assert_eq!(colon, Token::Op(Op::Colon));
+                        return Expression::Keyword(Keyword::Def, args, vec![]);
                     } 
                     _ => unimplemented!(),
                 }
@@ -321,7 +379,14 @@ impl<'a> Lexer<'a> {
                         return Expression::Operation(Op::Colon, vec![]);
                     }
                     Op::RoundBracketsOpen => {
+                        println!("next: {}", self.peek());
+                        if self.peek() == Token::Op(Op::RoundBracketsClose) {
+                            println!("next: {}", self.next());
+                            return Expression::None
+                        }
+                        else {
                         let lhs = self.parse_expression(0.0);
+                            
                         let open = self.next();
                         assert_eq!(
                             open,
@@ -330,6 +395,7 @@ impl<'a> Lexer<'a> {
                             open
                         );
                         lhs
+                        }
                     }
                     Op::SquareBracketsOpen => {
                         let mut args = vec![];
@@ -346,11 +412,11 @@ impl<'a> Lexer<'a> {
                         dbg!(&args);
                         return Expression::Operation(Op::List, args);
                     }
-                    t => panic!("[Expression Error] Unimplemented Op: {}", t),
+                    t => panic!("Syntax Error: Unimplemented Op: {:?}", t),
                 }
             }
             Token::Sep(_) => return Expression::None,
-            t => panic!("[Expression Error] Bad token: {}", t),
+            //t => panic!("Syntax Error: Bad token: {:?}", t),
         };
         loop {
             let op = match self.peek() {
@@ -431,8 +497,9 @@ pub enum Expression {
     Atom(String),
     Operation(Op, Vec<Expression>),
     Func(FnPtr, Vec<Expression>),
+    Call(String, Vec<Expression>),
     Keyword(Keyword, Vec<Expression>, Vec<Expression>),
-    Definition(String, Vec<Expression>, String),
+    // Definition(String, Vec<Expression>, String, Vec<Expression>),
 }
 
 impl Default for Expression {
@@ -442,6 +509,7 @@ impl Default for Expression {
 }
 
 impl Expression {
+
     pub fn get_value_string(&self) -> String {
         match self {
             Expression::Ident(ident) => ident.clone(),
@@ -451,11 +519,13 @@ impl Expression {
     }
 
     pub fn from_multiline(input: &str) -> Vec<Expression> {
+
         let lines: Vec<&str> = input.lines().collect();
         let mut exprs: Vec<Expression> = vec![];
         let mut block_stack: Vec<(usize, Expression, Vec<Expression>)> = vec![];
         
         for line in lines {
+            // println!("{}", line);
             let mut trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;
@@ -466,7 +536,7 @@ impl Expression {
             }
             
             let indent = crate::pyrs_utils::get_indent(line);
-            //println!("Indent: {indent} for line: {line}");
+            // println!("Indent: {indent} for line: {line}");
             
             // Close blocks if indentation decreased
             while !block_stack.is_empty() {
@@ -493,13 +563,13 @@ impl Expression {
             
             // If line ends with ':', start a new block
             if trimmed.ends_with(":") {
-                block_stack.push((indent, expr, vec![]));
-            } else if let Some((_, _, body)) = block_stack.last_mut() {
-                // Add to current block
-                body.push(expr);
-            } else {
-                // Top-level expression
-                exprs.push(expr);
+                block_stack.push((indent, expr, vec![]));// If line ends with ':', start a new block
+            } 
+            else if let Some((_, _, body)) = block_stack.last_mut() {
+                body.push(expr);    // Add to current block
+            } 
+            else {
+                exprs.push(expr);   // Top-level expression
             }
 
         }
@@ -511,7 +581,8 @@ impl Expression {
             }
             exprs.push(keyword_expr);
         }
-        
+        //Expression::print_vec(&exprs);
+        //panic!();
         exprs
     }
 
@@ -531,7 +602,7 @@ impl Expression {
             Expression::Atom(_) => return None,
             Expression::Ident(_) => return None,
             Expression::Keyword(_, _, _) => return None,
-            Expression::Definition(_name, _args, _ret_type) => return None,
+            Expression::Call(_, _) => return None,
             Expression::Operation(c, operands) => {
                 if *c == Op::Equals {
                     let var_name = match operands.first().unwrap() {
@@ -621,6 +692,9 @@ impl Expression {
                 };
                 val
             }
+            Expression::Call(_name, _args) => {
+                panic!();
+            }
             Expression::Keyword(keyword, conds, _args) => match keyword {
                 Keyword::True => true.to_arc(),
                 Keyword::False => false.to_arc(),
@@ -649,6 +723,13 @@ impl Expression {
         };
         Ok(ret)
     }
+
+    pub fn print_vec(exprs: &Vec<Expression>)
+    {
+        for e in exprs {
+            println!("{e}");
+        }
+    }
 }
 
 impl std::fmt::Display for Expression {
@@ -657,6 +738,13 @@ impl std::fmt::Display for Expression {
             Expression::None => write!(f, "None"),
             Expression::Atom(i) => write!(f, "Atom({})", i),
             Expression::Ident(ident) => write!(f, "Ident({})", ident),
+            Expression::Call(name, args) => {
+                write!(f, "Call[{name} args[")?;
+                for a in args {
+                    write!(f, " {}", a)?;
+                }
+                write!(f, "]]")
+            }
             Expression::Operation(head, rest) => {
                 write!(f, "Op[{}", head)?;
                 for s in rest {

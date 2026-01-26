@@ -1,10 +1,6 @@
 
 use crate::{
-    pyrs_error::{PyError, PyException}, pyrs_obj::{Obj, PyObj, ToObj}, pyrs_parsing::{Expression, Keyword, Op}
-};
-
-use std::{
-    collections::{HashMap}, sync::Arc
+    pyrs_obj::{Obj, ToObj}, pyrs_parsing::{Expression, Keyword, Op}, pyrs_vm::{IntrinsicFunc}
 };
 
     // Format: offset INSTRUCTION argument (value)
@@ -67,6 +63,8 @@ pub enum PyBytecode
     ListAppend = 184,
     BuildMap = 185,
     
+    NewStack = 201,
+    DestroyStack = 202,
 
     // not proper
     Error(String) = 254,
@@ -131,6 +129,17 @@ impl PyBytecode
                     e => PyBytecode::Error(format!("{e}")), 
                 });
             }
+            Expression::Call(name, args) => {
+
+                let argc = args.len();
+                for a in args {
+                    //dbg!(&a);
+                    PyBytecode::from_expr(a, queue);
+                }
+
+                queue.push(PyBytecode::LoadConst(name.as_str().to_obj()));
+                queue.push(PyBytecode::CallFunction(argc));
+            }
             Expression::Func(ptr, args) => {
 
                 let argc = args.len();
@@ -144,22 +153,18 @@ impl PyBytecode
                     queue.push(PyBytecode::CallInstrinsic1(intrinsic))
                 }
                 else {
-                    queue.push(PyBytecode::LoadConst(Obj::Function(ptr)));
-                    for a in args {
-                        PyBytecode::from_expr(a, queue);
-                    }
-                    queue.push(PyBytecode::CallFunction(argc));
+                    panic!();
                 }
 
             }
-            Expression::Keyword(keyword, cond, args) => {
+            Expression::Keyword(keyword, mut args, body) => {
                 match keyword {
                     Keyword::If => {
-                        for c in cond {
+                        for c in args {
                             PyBytecode::from_expr(c, queue);
                         }
                         let mut temp_queue: Vec<PyBytecode> = vec![];
-                        for a in args {
+                        for a in body {
                             PyBytecode::from_expr(a, &mut temp_queue);
                         }
                         let delta = temp_queue.len();
@@ -169,7 +174,7 @@ impl PyBytecode
                     Keyword::While => {
                         let condition_start = queue.len();
                         let mut condition_code = vec![];
-                        for c in cond {
+                        for c in args {
                             PyBytecode::from_expr(c, &mut condition_code);
                         }
                         for inst in condition_code.iter() {
@@ -177,7 +182,7 @@ impl PyBytecode
                         }
                         
                         let mut contents_code: Vec<PyBytecode> = vec![];
-                        for a in args {
+                        for a in body {
                             PyBytecode::from_expr(a, &mut contents_code);
                         }
 
@@ -190,6 +195,70 @@ impl PyBytecode
                         queue.push(PyBytecode::JumpBackward(return_delta));
                         
                         queue.push(PyBytecode::LoadConst(Obj::None));
+                    }
+                    Keyword::Def => {
+
+                        let func_args = args.split_off(1);
+
+                        let name = match args.pop() {
+                            Some(Expression::Ident(ident)) => ident,
+                            Some(e) => panic!("Syntax Error: function name must be an identifier, not {e}"),
+                            None => panic!(),
+                        };
+
+                        let func_addr = queue.len() + 3;
+                        let mut body_code = vec![];
+
+                        queue.push(PyBytecode::LoadConst(name.to_obj()));
+                        queue.push(PyBytecode::LoadConst(func_addr.to_obj()));
+                        queue.push(PyBytecode::MakeFunction);
+
+                        for a in func_args {
+                            match a {
+                                Expression::Ident(ident) => body_code.push(PyBytecode::StoreName(ident)),
+                                _ => panic!(),
+                            }
+                        }
+
+                        for b in body {
+                            PyBytecode::from_expr(b, &mut body_code);
+                        }
+                        
+                        body_code.push(PyBytecode::ReturnValue);
+
+                        //dbg!(&body_code);
+                        queue.push(PyBytecode::JumpForward(body_code.len()));
+                        queue.append(&mut body_code);
+
+                        //panic!();
+                        /* def
+
+                        - the function is just an address to the bytecode
+                        - args are placed in the stack as (values??) 
+                        - a temp stack for local variables is made
+                        - args are stored to the variables
+                        - do bytecode
+
+                        fn generate_fn()
+                        {
+                            push inst define function + name
+                            args[ return_ptr, ]
+                            store_fast x argc
+                            *
+                                function body 
+                            *
+                            place return on stack
+                            return to previous code
+                        }
+
+                        INSTS:
+                        skip func
+                        init local stack
+                        pop args into stack
+                        do bytecode
+                        return value/tuple
+
+                        */
                     }
                     _ => panic!(),
                 }

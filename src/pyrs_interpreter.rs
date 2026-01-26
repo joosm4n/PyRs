@@ -11,7 +11,8 @@ use crate::{
     pyrs_std::{FnPtr, Funcs},
     pyrs_utils::{get_indent},
     pyrs_error::{PyException},
-    pyrs_bytecode::{PyBytecode, PyVM},
+    pyrs_bytecode::{PyBytecode},
+    pyrs_vm::{PyVM}
 };
 
 #[cfg(not(_YES_))]
