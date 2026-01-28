@@ -1,11 +1,8 @@
 use crate::{
-    pyrs_obj::{Obj},
-    pyrs_error::{PyException, PyError}
+    pyrs_error::{PyError, PyException},
+    pyrs_obj::Obj,
 };
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 pub trait Import {
     fn get_name() -> &'static str;
@@ -91,18 +88,16 @@ impl Funcs {
         let ret = match obj {
             Obj::Float(_) => obj.clone(),
             Obj::Int(i) => Obj::Float(i.to_f64()),
-            Obj::Str(s) => {
-                match s.parse::<f64>() {
-                    Ok(f) => Obj::Float(f),
-                    Err(e) => {
-                        return Err(PyException{
-                            error: PyError::FloatParseError,
-                            msg: format!("Failed to parse \"{s}\" to float. {e}"),
-                        });
-                    }
+            Obj::Str(s) => match s.parse::<f64>() {
+                Ok(f) => Obj::Float(f),
+                Err(e) => {
+                    return Err(PyException {
+                        error: PyError::FloatParseError,
+                        msg: format!("Failed to parse \"{s}\" to float. {e}"),
+                    });
                 }
-            }
-            _ => { 
+            },
+            _ => {
                 return Err(PyException {
                     error: PyError::FloatParseError,
                     msg: format!("Unable to convert {obj} to float"),
@@ -154,8 +149,6 @@ impl Import for Funcs {
         }
     }
 }
-
-// implement 'if' statements
 
 pub struct Maths {}
 

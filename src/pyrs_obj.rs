@@ -9,10 +9,10 @@ use crate::{
 
 use rug::Integer;
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum Obj {
-    
+
     None,
     Bool(bool),
     Float(f64),
@@ -23,29 +23,19 @@ pub enum Obj {
 
     Except(PyException),
 
-    List(Vec<Arc<Obj>>),
-    Tuple(Vec<Arc<Obj>>),
+    List(Vec<Arc<Obj>>), // [], mutable, ordered, duplicates, int indexing, 
+    Tuple(Vec<Arc<Obj>>), // (), immutable, ordered, duplicates, int indexing,
+    Set(Vec<Arc<Obj>>), // {}, mutable, unordered, no dupes, no indexing, 
+
+    Dict(HashMap<Obj, Arc<Obj>>),
 
     //User(UserClass),
-
-    // Numeric
-    // - Int (Unlimited precision)
-    // - Float (f64)
-    // - Complex (f64, f64)
-
-    // Boolean
-    // - bool
 
     // Iterator
     // - containters
 
     // Sequence
-    // - list
-    // - tuple
     // - range
-
-    // Text
-    // - str
 
     // Binary
     // - bytes
@@ -53,17 +43,13 @@ pub enum Obj {
     // - memoryview,
 
     // Set
-    // - set
     // - frozenset
 
     // Mapping
     // - dict (HashMap)
 }
-
-
 pub trait PyObj: std::fmt::Debug + Clone 
 {
-
     fn compare_op(lhs: &Arc<Self>, rhs: &Arc<Self>, op: &Op) -> bool
     {
         let ret = match op {
@@ -185,6 +171,11 @@ pub trait PyObj: std::fmt::Debug + Clone
             msg: format!(" __call__: not implemented for {:?}", objs),
         })
     }
+
+    fn to_arc(self) -> Arc<Self>
+    {
+        Arc::from(self)
+    }
 }
 
 impl Obj {
@@ -204,6 +195,10 @@ impl Obj {
 
     pub fn new_map() -> HashMap<String, Arc<Obj>> {
         return HashMap::new();
+    }
+
+    pub fn new_dict() -> Obj {
+        Obj::Dict(HashMap::new())
     }
 
     pub fn is_num(&self) -> bool {
@@ -257,7 +252,9 @@ impl PyObj for Obj {
             Obj::Float(v) => *v != 0f64,
             Obj::Int(v) => *v != Integer::ZERO,
             Obj::Str(v) => *v != "",
-            Obj::List(list) => list.len() != 0usize,
+            Obj::List(vec) | 
+            Obj::Tuple(vec) | 
+            Obj::Set(vec) => vec.len() != 0usize,
             _ => panic!("TypeError: __bool__() not implemented for: {:?}", self),
         };
         return ret;
@@ -296,6 +293,32 @@ impl PyObj for Obj {
                 tuple.push_str(")");
                 format!("{}", tuple)
             }
+            Obj::Set(objs) => {
+                let mut set = String::from("{"); 
+                for o in objs {
+                    set.push_str(o.__repr__().as_str());
+                    set.push(',');
+                    set.push(' ');
+                }
+                set.pop();
+                set.pop();
+                set.push_str("}");
+                format!("{}", set)
+            }
+            Obj::Dict(objs) => {
+                let mut map = String::from("{");
+                for (key, value) in objs {
+                    map.push_str(key.__repr__().as_str());
+                    map.push(':');
+                    map.push_str(value.__repr__().as_str());
+                    map.push(',');
+                    map.push(' ');
+                }
+                map.pop();
+                map.pop();
+                map.push_str("}");
+                format!("{}", map)
+            }
         }
     }
 
@@ -314,53 +337,11 @@ impl PyObj for Obj {
     }
 
     fn __lt__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
-        let ret = match (lhs.as_ref(), rhs.as_ref()) {
-            (Obj::Float(flt), other) => match other {
-                Obj::Float(same) => *flt < *same,
-                Obj::Int(i) => *flt < i.to_f64(),
-                Obj::Bool(b) => *flt < f64::from(*b),
-                _ => false,
-            },
-            (Obj::Int(i), other) => match other {
-                Obj::Float(flt) => i.to_f64() < *flt,
-                Obj::Int(same) => *i < *same,
-                Obj::Bool(b) => *i < Integer::from(*b),
-                _ => false,
-            },
-            (Obj::Bool(b), other) => match other {
-                Obj::Float(f) => f64::from(*b) < *f,
-                Obj::Int(i) => Integer::from(*b) < *i,
-                Obj::Bool(same) => *b < *same,
-                _ => false,
-            },
-            _ => false,
-        };
-        ret
+        lhs.as_ref().lt(rhs.as_ref())
     }
 
     fn __gt__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
-        let ret = match (lhs.as_ref(), rhs.as_ref()) {
-            (Obj::Float(flt), other) => match other {
-                Obj::Float(same) => *flt > *same,
-                Obj::Int(i) => *flt > i.to_f64(),
-                Obj::Bool(b) => *flt > f64::from(*b),
-                _ => false,
-            },
-            (Obj::Int(i), other) => match other {
-                Obj::Float(flt) => i.to_f64() > *flt,
-                Obj::Int(same) => *i > *same,
-                Obj::Bool(b) => *i > Integer::from(*b),
-                _ => false,
-            },
-            (Obj::Bool(b), other) => match other {
-                Obj::Float(f) => f64::from(*b) > *f,
-                Obj::Int(i) => Integer::from(*b) > *i,
-                Obj::Bool(same) => *b > *same,
-                _ => false,
-            },
-            _ => false,
-        };
-        ret
+        lhs.as_ref().gt(rhs.as_ref())
     }
 
     fn __le__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
@@ -575,6 +556,115 @@ impl PyObj for Obj {
             _ => Err( PyException { error: PyError::TypeError, msg: format!("Type is not a function") }),
         }
     }
+
+    fn to_arc(self) -> Arc<Self> {
+        Arc::from(self)
+    }
+}
+
+impl PartialEq for Obj
+{
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Obj::None, Obj::None) => true,
+            (Obj::Float(flt), other) => match other {
+                Obj::Float(same) => *flt == *same,
+                Obj::Int(i) => *flt == i.to_f64(),
+                Obj::Bool(b) => *flt == f64::from(*b),
+                _ => false,
+            },
+            (Obj::Int(i), other) => match other {
+                Obj::Float(f) => i.to_f64() == *f,
+                Obj::Int(same) => *i == *same,
+                Obj::Bool(b) => *i == Integer::from(*b),
+                _ => false,
+            },
+            (Obj::Bool(b), other) => match other {
+                Obj::Float(f) => f64::from(*b) == *f,
+                Obj::Int(i) => Integer::from(*b) == *i,
+                Obj::Bool(same) => *b == *same,
+                _ => false,
+            },
+            (Obj::Dict(_), _) |
+            (_, Obj::Dict(_)) => {
+                false
+            }
+            (_, _) => false,
+        }
+    }
+    fn ne(&self, other: &Self) -> bool {
+        !self.eq(other)
+    }
+}
+
+
+impl PartialOrd for Obj
+{
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.lt(other) { return Some(std::cmp::Ordering::Less); }
+        if self.gt(other) { return Some(std::cmp::Ordering::Greater); }
+        if self.eq(other) { return Some(std::cmp::Ordering::Equal); }
+        return None
+    }
+
+    fn lt(&self, other: &Self) -> bool {
+        let ret = match (self, other) {
+            (Obj::Float(flt), other) => match other {
+                Obj::Float(same) => *flt < *same,
+                Obj::Int(i) => *flt < i.to_f64(),
+                Obj::Bool(b) => *flt < f64::from(*b),
+                _ => false,
+            },
+            (Obj::Int(i), other) => match other {
+                Obj::Float(flt) => i.to_f64() < *flt,
+                Obj::Int(same) => *i < *same,
+                Obj::Bool(b) => *i < Integer::from(*b),
+                _ => false,
+            },
+            (Obj::Bool(b), other) => match other {
+                Obj::Float(f) => f64::from(*b) < *f,
+                Obj::Int(i) => Integer::from(*b) < *i,
+                Obj::Bool(same) => *b < *same,
+                _ => false,
+            },
+            _ => false,
+        };
+        ret
+    }
+
+    fn gt(&self, other: &Self) -> bool {
+        let ret = match (self, other) {
+            (Obj::Float(flt), other) => match other {
+                Obj::Float(same) => *flt > *same,
+                Obj::Int(i) => *flt > i.to_f64(),
+                Obj::Bool(b) => *flt > f64::from(*b),
+                _ => false,
+            },
+            (Obj::Int(i), other) => match other {
+                Obj::Float(flt) => i.to_f64() > *flt,
+                Obj::Int(same) => *i > *same,
+                Obj::Bool(b) => *i > Integer::from(*b),
+                _ => false,
+            },
+            (Obj::Bool(b), other) => match other {
+                Obj::Float(f) => f64::from(*b) > *f,
+                Obj::Int(i) => Integer::from(*b) > *i,
+                Obj::Bool(same) => *b > *same,
+                _ => false,
+            },
+            _ => false,
+        };
+        ret
+    }
+
+    fn ge(&self, other: &Self) -> bool {
+        self.gt(other) || self.eq(other)
+    }
+
+    fn le(&self, other: &Self) -> bool {
+        self.lt(other) || self.eq(other)
+    }
+
 }
 
 impl std::fmt::Display for Obj {

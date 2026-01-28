@@ -19,6 +19,7 @@ pub enum PyError
     UndefinedVariableError,
     FloatParseError,
     StackError,
+    SyntaxError,
 }
 
 impl PyException

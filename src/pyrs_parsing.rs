@@ -291,6 +291,7 @@ impl<'a> Lexer<'a> {
                             args.push(self.parse_expression(0.0));
                         }
                         self.next();
+                        //println!("args: {:#?}", args);
                         Expression::Call(ident.to_string(), args)
                     }
                     else {
@@ -321,14 +322,14 @@ impl<'a> Lexer<'a> {
                         let mut args = vec![Expression::Ident(name)];
                         
                         let mut i = 0;
-                        let max_loops = 1000;
+                        let max_args = 1000;
                         loop {
                             i += 1;
-                            if i > max_loops { panic!("Max loops"); }
+                            if i > max_args { panic!("Max loops"); }
 
-                            let tk = self.next();
-                            println!("tk: {}",tk);
-                            match tk {
+                            let next = self.next();
+                            //println!("tk: {}",tk);
+                            match next {
                                 Token::Ident(var) => {
                                     let expr = match self.peek() {
                                         Token::Op(Op::Equals) => {
@@ -346,13 +347,14 @@ impl<'a> Lexer<'a> {
                                             println!("vals: {:#?}", vals);
                                             Expression::Operation(Op::Equals, vals)
                                         }
-                                        Token::Sep(',') => {
+                                        Token::Sep(_) => {
                                             self.next();
                                             Expression::Ident(var.to_string())
                                         }
-                                        _ => panic!(),
+                                        Token::Op(Op::RoundBracketsClose) => Expression::Ident(var.to_string()),
+                                        t => panic!("Syntax Error: Unexpected token \'{}\'", t),
                                     };
-                                    println!("expr: {}", expr);
+                                    //println!("expr: {}", expr);
                                     args.push(expr);
                                 },
                                 Token::Op(Op::RoundBracketsClose) => { break; }

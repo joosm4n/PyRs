@@ -1,7 +1,7 @@
 use crate::pyrs_obj::Obj;
 use crate::pyrs_parsing::{Token, Expression};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UserClass {
     pub name: String,
     pub fields: Vec<Obj>,

@@ -7,7 +7,7 @@ use crate::{
     // 0 LOAD_CONST 0 (0)      # Load constant at index 0, which is the integer 0
     // 2 STORE_NAME 0 (i)      # Store the top stack value into variable name at index 0 (variable "i")
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
 pub enum PyBytecode
 {
@@ -58,19 +58,18 @@ pub enum PyBytecode
     CompareOp(Op) = 160,
 
     BuildList(usize) = 181,
-    GetIter = 182, 
-    ForIter = 183,
+    BuildTuple(usize) = 182, 
+    BuildMap = 183,
     ListAppend = 184,
-    BuildMap = 185,
-    
+    ForIter = 185,
+    GetIter = 186,
+
     NewStack = 201,
     DestroyStack = 202,
 
     // not proper
     Error(String) = 254,
 }
-
-// todo!("Make expressions fold in on themselves in multiline things");
 
 impl PyBytecode
 {
@@ -84,6 +83,7 @@ impl PyBytecode
                 queue.push(PyBytecode::LoadConst(a.to_obj()))
             }
             Expression::Operation(op, args) => {
+                
                 let mut name = String::new();
                 if op == Op::Equals {
                     for (idx, a) in args.into_iter().enumerate() {
@@ -126,25 +126,36 @@ impl PyBytecode
                     Op::LessEq | Op::LessThan | 
                     Op::GreaterEq | Op::GreaterThan => PyBytecode::CompareOp(op),
                     
-                    e => PyBytecode::Error(format!("{e}")), 
+                    e => PyBytecode::Error(format!("{e}")),
                 });
             }
             Expression::Call(name, args) => {
 
                 let argc = args.len();
+                // dbg!(&args);
+                queue.push(PyBytecode::LoadConst(Obj::None));
                 for a in args {
                     //dbg!(&a);
                     PyBytecode::from_expr(a, queue);
                 }
-
-                queue.push(PyBytecode::LoadConst(name.as_str().to_obj()));
-                queue.push(PyBytecode::CallFunction(argc));
+                
+                if let Some(intrinsic) = IntrinsicFunc::try_get(&name) {
+                    queue.push(PyBytecode::CallInstrinsic1(intrinsic));
+                }
+                else {
+                    queue.push(PyBytecode::LoadConst(name.as_str().to_obj()));
+                    // create tuple that is argc sized
+                    // push default args into it (Obj::None?)
+                    // then replace these with used args
+                    queue.push(PyBytecode::CallFunction(argc));
+                }
             }
             Expression::Func(ptr, args) => {
 
                 let fn_name = ptr.name.as_str().to_string();
                 queue.push(PyBytecode::LoadConst(Obj::None));
                 
+                //dbg!(&fn_name);
                 if let Some(intrinsic) = IntrinsicFunc::try_get(fn_name.as_str()) {
                     for a in args {
                         PyBytecode::from_expr(a, queue);
@@ -197,6 +208,7 @@ impl PyBytecode
                     Keyword::Def => {
 
                         let func_args = args.split_off(1);
+                        // dbg!(&func_args);
 
                         let name = match args.pop() {
                             Some(Expression::Ident(ident)) => ident,
@@ -207,6 +219,7 @@ impl PyBytecode
                         let func_addr = queue.len() + 3;
                         let mut body_code = vec![];
 
+                        // define function and location
                         queue.push(PyBytecode::LoadConst(name.to_obj()));
                         queue.push(PyBytecode::LoadConst(func_addr.to_obj()));
                         queue.push(PyBytecode::MakeFunction);
@@ -214,6 +227,11 @@ impl PyBytecode
                         for a in func_args {
                             match a {
                                 Expression::Ident(ident) => body_code.push(PyBytecode::StoreName(ident)),
+                                Expression::Operation(Op::Equals, vals) => {
+                                    let name = vals.first().unwrap().clone();
+                                    PyBytecode::from_expr(Expression::Operation(Op::Equals, vals), &mut body_code);
+                                    body_code.push(PyBytecode::LoadName(name.get_value_string()));
+                                }
                                 _ => panic!(),
                             }
                         }

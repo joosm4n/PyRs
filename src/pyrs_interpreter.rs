@@ -15,11 +15,6 @@ use crate::{
     pyrs_vm::{PyVM}
 };
 
-#[cfg(not(_YES_))]
-macro_rules! dbg {
-    ($($tt:tt)*) => {};
-}
-
 pub struct Interpreter
 {
     variables: HashMap<String, Arc<Obj>>,
@@ -154,12 +149,12 @@ impl Interpreter {
         let mut line = line_in;
 
         self.curr_line += 1;
-        dbg!(self.curr_line);
+        // dbg!(self.curr_line);
 
         let line_indent = get_indent(line);
-        dbg!(line_indent);
+        // dbg!(line_indent);
 
-        dbg!(&self.block_stack);
+        // dbg!(&self.block_stack);
 
         if let Some(top) = self.block_stack.last() {
             if line_indent < top.indent_level {
@@ -302,7 +297,7 @@ impl Interpreter {
             Err(e) => panic!("Fileread error: {e}"),
         };
         let parsed  = Expression::from_multiline(contents.as_str());
-        //println!("parsed: {:?}", parsed);
+        // dbg!(&parsed);
         for expr in parsed {
             PyBytecode::from_expr(expr, &mut bytecode);
         }

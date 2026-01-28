@@ -1,7 +1,6 @@
 
 use std::{
-    collections::HashMap,
-    sync::Arc,
+    collections::HashMap, io::{self, Write}, sync::Arc, usize
 };
 
 use crate::{
@@ -56,7 +55,7 @@ impl PyVM
             self.instruction_counter += 1;
             return;
         }
-
+        
         //println!("Executing: ({})   {:?}", self.instruction_counter, inst);
         //self.print_stack();
 
@@ -71,6 +70,7 @@ impl PyVM
             PyBytecode::StoreName(name) => self.store_name(name),
 
             PyBytecode::BuildList(len) => self.build_list(len),
+            PyBytecode::BuildTuple(count) => self.build_tuple(count),
 
             PyBytecode::BinaryAdd => self.binary_add(),
             PyBytecode::BinarySubtract => self.binary_subtract(),
@@ -78,7 +78,7 @@ impl PyVM
             PyBytecode::BinaryDivide => self.binary_divide(),
 
             PyBytecode::CallFunction(argc) => self.call_function(argc),
-            PyBytecode::CallInstrinsic1(ptr) => self.call_intrisic_1(ptr),
+            PyBytecode::CallInstrinsic1(ptr) => self.call_intrinsic_1(ptr),
 
             PyBytecode::PopJumpIfFalse(delta) => self.pop_jump_if_false(delta),
             PyBytecode::JumpForward(delta) => self.jump_forward(delta),
@@ -180,6 +180,21 @@ impl PyVM
         objs
     }
 
+    fn pop_n_or(&mut self, count: usize, or: Obj) -> Vec<Arc<Obj>>
+    {
+        let mut objs = vec![];
+        for _ in 0..count {
+            if let Some(obj) = self.get_local_stack_mut().pop() {
+                objs.push(obj);
+            }
+            else {
+                objs.push(or.clone().into());
+            }
+        }
+        objs.reverse();
+        objs
+    }
+
     fn pop_until(&mut self, stop_obj: &Obj) -> Vec<Arc<Obj>>
     {
         let mut objs = vec![];
@@ -257,6 +272,20 @@ impl PyVM
         let objs = self.pop_n(len);
         let list = Arc::from(Obj::List(objs));
         self.push(list);
+    }
+
+    fn build_tuple(&mut self, count: usize)
+    {
+        let objs = self.pop_n(count);
+        let tuple = Arc::from(Obj::Tuple(objs));
+        self.push(tuple);
+    }
+
+    fn build_set(&mut self, count: usize)
+    {
+        let objs = self.pop_n(count);
+        let set = Arc::from(Obj::Set(objs));
+        self.push(set);
     }
 
     fn pop_jump_if_false(&mut self, delta: usize)
@@ -345,22 +374,27 @@ impl PyVM
     fn call_function(&mut self, argc: usize)
     {
         let func = self.pop();
-        let args = self.pop_n(argc);
+        let args = self.pop_n_or(argc, Obj::None);
 
         self.push_stack();
         let return_addr = self.instruction_counter + 1;
-        self.push(Obj::Int(return_addr.into()).into()); // return pointer
+        self.push(Obj::Int(return_addr.into()).into()); // return pos pointer
         
         for a in args {
             self.push(a);
         }
 
         match self.funcs.get(&func.__str__()) {
-            Some(addr) => { 
+            Some(addr) => {
                 self.instruction_counter = *addr;
                 //println!("Calling: {}", func.__str__());
             }
-            None => panic!("not a name of a func: {}", func.__str__()),
+            None => { 
+                self.push_err( PyException {
+                    error: PyError::SyntaxError,
+                    msg: format!("not a name of a func: {}", func.__str__())
+                });
+            },
         }
     }
 
@@ -371,18 +405,25 @@ impl PyVM
         while let Some(obj) = fn_stack.pop() {
             last = obj;
         }
-        if last.as_ref() == &Obj::None { panic!(); }
+        if last.as_ref() == &Obj::None { 
+            self.push_err(PyException { 
+                error: PyError::StackError,
+                msg: "Must have already popped the return pointer ".to_string()
+            });
+            self.throw(); 
+        }
         self.instruction_counter = last.__int__() as usize;
         self.pop_stack();
     }
 
-    fn call_intrisic_1(&mut self, ptr: IntrinsicFunc) 
+    fn call_intrinsic_1(&mut self, ptr: IntrinsicFunc) 
     {
         let args = self.pop_until(&Obj::None);
         self.pop();
 
         let ret = match ptr {
             IntrinsicFunc::Print => IntrinsicFunc::print(&args),
+            IntrinsicFunc::Input => IntrinsicFunc::input(&args),
         };
         match ret {
             Some(val) => {
@@ -484,7 +525,7 @@ fn no_instruction()
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum IntrinsicFunc
 {
-    Print,
+    Print, Input, 
 }
 
 impl IntrinsicFunc
@@ -493,6 +534,7 @@ impl IntrinsicFunc
     {
         let func = match name {
             "print" => IntrinsicFunc::Print,
+            "input" => IntrinsicFunc::Input,
             _ => return None, 
         };
         Some(func)
@@ -507,5 +549,16 @@ impl IntrinsicFunc
         None
     }
 
+    fn input(words: &Vec<Arc<Obj>>) -> Option<Arc<Obj>>
+    {
+        if words.len() != 1 {
+            panic!();
+        }
+        print!("{}", words.first().unwrap().__str__());
+        let _ = io::stdout().flush();
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).expect("error: unable to read user input");
+        Some(Obj::Str(input.trim().to_string()).into())
+    }
 
 }
