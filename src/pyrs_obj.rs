@@ -1,10 +1,9 @@
+
 use std::{
-    collections::HashMap, ops::{Add, Mul, Neg}, process::{ExitCode, Termination}, str::FromStr, sync::Arc
+    collections::{HashMap}, ops::{Add, Sub, Mul, Neg}, process::{ExitCode, Termination}, str::FromStr, sync::Arc,
 };
 use crate::{
-    pyrs_error::{PyException, PyError},
-    pyrs_std::{FnPtr},
-    pyrs_parsing::{Op},
+    pyrs_error::{PyError, PyException}, pyrs_parsing::{Expression, Op}, pyrs_std::FnPtr
 };
 
 use rug::Integer;
@@ -28,6 +27,8 @@ pub enum Obj {
     Set(Vec<Arc<Obj>>), // {}, mutable, unordered, no dupes, no indexing, 
 
     Dict(HashMap<Obj, Arc<Obj>>),
+
+    Iter(ObjIter),
 
     //User(UserClass),
 
@@ -228,6 +229,174 @@ impl Obj {
         }
     }
 
+    pub fn is_iterable(&self) -> bool {
+        match self {
+            Obj::Set(_) |
+            Obj::Str(_) |
+            Obj::List(_) | 
+            Obj::Dict(_) |
+            Obj::Tuple(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn iter_next(&mut self) -> Option<Arc<Obj>>
+    {
+        match self {
+            Obj::Iter(i) => i.next(),
+            _ => None, 
+        }
+    }
+
+    fn add(lhs: &Obj, rhs: &Obj) -> Obj {
+        let err = Obj::Except(PyException{
+            error: PyError::TypeError,
+            msg: format!("No valid way to add: {} and {}", lhs, rhs.clone(),),
+        });
+
+        let obj = match (lhs, rhs) {
+            (Obj::Float(dbl), other) => {
+                let val = match other {
+                    Obj::Float(v) => *v,
+                    Obj::Int(v) => v.to_f64(),
+                    _ => return err,
+                };
+                Obj::Float(dbl + val)
+            }
+            (Obj::Int(int), other) => match other {
+                Obj::Int(v) => Obj::Int(int.clone().add(v)),
+                Obj::Float(v) => Obj::Float(int.to_f64() + v),
+                _ => return err,
+            },
+            (Obj::Str(s), other) => match other {
+                Obj::Str(v) => Obj::Str(format!("{s}{v}")),
+                _ => return err,
+            },
+            (Obj::List(l1), other) => match other {
+                Obj::List(l2) => {
+                    let mut new_list = Vec::with_capacity(l1.len() + l2.len());
+                    new_list.extend(l1.iter().cloned());
+                    new_list.extend(l2.iter().cloned());    
+                    Obj::List(new_list)
+                }
+                _ => {
+                    return Obj::Except(PyException { error: PyError::TypeError, msg: format!("TypeError: can only concatenate list (not \"{:?}\") to list", other)});
+                }
+            }
+            _ => return err,
+        };
+        obj
+    }
+
+    fn sub(lhs: &Obj, rhs: &Obj) -> Obj {
+        let err = Obj::Except(PyException{
+            error: PyError::TypeError,
+            msg: format!("No valid way to subtract: {} and {}", lhs, rhs.clone(),),
+        });
+
+        let obj = match (lhs, rhs) {
+            (Obj::Float(dbl), other) => {
+                let val = match other {
+                    Obj::Float(v) => *v,
+                    Obj::Int(v) => v.to_f64() ,
+                    _ => return err,
+                };
+                Obj::Float(dbl - val)
+            }
+            (Obj::Int(int), other) => match other {
+                Obj::Int(v) => Obj::Int(int.clone().sub(v)),
+                Obj::Float(v) => Obj::Float(int.to_f64() - v),
+                _ => return err,
+            },
+            _ => return err,
+        };
+        obj
+    }
+
+    fn mul(lhs: &Obj, rhs: &Obj) -> Obj {
+        let err = Obj::Except(PyException{
+            error: PyError::TypeError,
+            msg: format!("No valid way to subtract: {} and {}", lhs, rhs.clone(),),
+        });
+
+        let obj = match (lhs, rhs) {
+            (Obj::Float(dbl), other) => {
+                let val = match other {
+                    Obj::Float(v) => *v,
+                    Obj::Int(v) => v.to_f64(),
+                    _ => return err,
+                };
+                Obj::Float(dbl * val)
+            }
+            (Obj::Int(int), other) => match other {
+                Obj::Int(v) => Obj::Int(int.clone().mul(v)),
+                Obj::Float(v) => Obj::Float(int.to_f64() * v),
+                _ => return err,
+            },
+            (Obj::Str(s), other) => match other {
+                Obj::Int(v) => {
+                    if *v >= 0 {
+                        let mut mult = String::new();
+                        for _i in 0..v.to_u64().unwrap() {
+                            mult = format!("{mult}{s}");
+                        }
+                        Obj::Str(mult)
+                    } else {
+                        return Obj::Except(PyException{
+                            error: PyError::TypeError,
+                            msg: format!(" can't multiply sequence by non-int of type {}", lhs),
+                        });
+                    }
+                }
+                _ => return err,
+            },
+            _ => return err,
+        };
+        obj
+    }
+
+    pub fn div(lhs: &Obj, rhs: &Obj) -> Obj {
+        let type_err = Obj::Except(PyException{
+            error: PyError::TypeError,
+            msg: format!("No valid way to divide: {} and {}", lhs, rhs.clone(),),
+        });
+        let zero_div_err = Obj::Except(PyException{
+            error: PyError::ZeroDivisionError,
+            msg: format!(" tried to divide {lhs} by {rhs}"),
+        });
+
+        let obj = match (lhs, rhs) {
+            (Obj::Float(dbl), other) => {
+                let val = match other {
+                    Obj::Float(v) => *v,
+                    Obj::Int(v) => v.to_f64(),
+                    _ => return type_err,
+                };
+                if val == 0f64 {
+                    return zero_div_err
+                }
+                Obj::Float(dbl / val)
+            }
+            (Obj::Int(int), other) => match other {
+                Obj::Int(v) => {
+                    if *v == Integer::ZERO {
+                        return zero_div_err
+                    }
+                    Obj::Float(int.to_f64() / v.to_f64())
+                }
+                Obj::Float(v) => {
+                    if *v == 0f64 {
+                        return zero_div_err
+                    }
+                    Obj::Float(int.to_f64() / v)
+                }
+                _ => return type_err,
+            },
+            _ => return type_err,
+        };
+        obj.into()
+    }
+
 }
 
 impl PyObj for Obj {
@@ -319,6 +488,9 @@ impl PyObj for Obj {
                 map.push_str("}");
                 format!("{}", map)
             }
+            Obj::Iter(iter) => {
+                format!("Iter[ {:#?} {} ]", iter.items, iter.index)
+            }
         }
     }
 
@@ -336,6 +508,20 @@ impl PyObj for Obj {
         }
     }
 
+    fn compare_op(lhs: &Arc<Obj>, rhs: &Arc<Obj>, op: &Op) -> bool
+    {
+        let ret = match op {
+            Op::Eq => lhs.eq(rhs),
+            Op::Neq => lhs.ne(rhs),
+            Op::LessThan => lhs.lt(rhs),
+            Op::GreaterThan => lhs.gt(rhs),
+            Op::LessEq => lhs.le(rhs),
+            Op::GreaterEq => lhs.ge(rhs),
+            _ => return Obj::__default__().__bool__(),
+        };
+        ret
+    }
+
     fn __lt__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
         lhs.as_ref().lt(rhs.as_ref())
     }
@@ -351,183 +537,40 @@ impl PyObj for Obj {
         Obj::__gt__(lhs, rhs) || Obj::__eq__(lhs, rhs)
     }
 
-    fn __eq__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
-        match (lhs.as_ref(), rhs.as_ref()) {
-            (Obj::Float(flt), other) => match other {
-                Obj::Float(same) => *flt == *same,
-                Obj::Int(i) => *flt == i.to_f64(),
-                Obj::Bool(b) => *flt == f64::from(*b),
-                _ => false,
-            },
-            (Obj::Int(i), other) => match other {
-                Obj::Float(f) => i.to_f64() == *f,
-                Obj::Int(same) => *i == *same,
-                Obj::Bool(b) => *i == Integer::from(*b),
-                _ => false,
-            },
-            (Obj::Bool(b), other) => match other {
-                Obj::Float(f) => f64::from(*b) == *f,
-                Obj::Int(i) => Integer::from(*b) == *i,
-                Obj::Bool(same) => *b == *same,
-                _ => false,
-            },
-            (_, _) => false,
+    fn __add__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+        match Obj::add(lhs.as_ref(), rhs.as_ref()) {
+            Obj::Except(e) => Err(e),
+            o => Ok(o.into()), 
         }
+    }
+
+    fn __sub__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+        match Obj::sub(lhs.as_ref(), rhs.as_ref()) {
+            Obj::Except(e) => Err(e),
+            o => Ok(o.into()), 
+        }
+    }
+
+    fn __mul__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+        match Obj::mul(lhs.as_ref(), rhs.as_ref()) {
+            Obj::Except(e) => Err(e),
+            o => Ok(o.into()), 
+        }
+    }
+
+    fn __div__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+        match Obj::div(lhs.as_ref(), rhs.as_ref()) {
+            Obj::Except(e) => Err(e),
+            o => Ok(o.into()), 
+        }
+    }
+
+    fn __eq__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
+        lhs.eq(rhs)
     }
 
     fn __ne__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
         !Obj::__eq__(lhs, rhs)
-    }
-
-    fn __add__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
-        let err = Err(PyException{
-            error: PyError::TypeError,
-            msg: format!("No valid way to add: {} and {}", lhs, rhs.clone(),),
-        });
-
-        let obj = match (lhs.as_ref(), rhs.as_ref()) {
-            (Obj::Float(dbl), other) => {
-                let val = match other {
-                    Obj::Float(v) => *v,
-                    Obj::Int(v) => v.to_f64(),
-                    _ => return err,
-                };
-                Obj::Float(dbl + val)
-            }
-            (Obj::Int(int), other) => match other {
-                Obj::Int(v) => Obj::Int(int.clone().add(v)),
-                Obj::Float(v) => Obj::Float(int.to_f64() + v),
-                _ => return err,
-            },
-            (Obj::Str(s), other) => match other {
-                Obj::Str(v) => Obj::Str(format!("{s}{v}")),
-                _ => return err,
-            },
-            (Obj::List(l1), other) => match other {
-                Obj::List(l2) => {
-                    let mut new_list = Vec::with_capacity(l1.len() + l2.len());
-                    new_list.extend(l1.iter().cloned());
-                    new_list.extend(l2.iter().cloned());    
-                    Obj::List(new_list)
-                }
-                _ => {
-                    let mut list_err = err.unwrap_err();
-                    list_err.msg = format!("TypeError: can only concatenate list (not \"{:?}\") to list", other);
-                    return Err(list_err);
-                }
-            }
-            _ => return err,
-        };
-        Ok(obj.into())
-    }
-
-    fn __sub__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
-        let err = Err(PyException{
-            error: PyError::TypeError,
-            msg: format!("No valid way to subtract: {} and {}", lhs, rhs.clone(),),
-        });
-
-        let obj = match (lhs.as_ref(), rhs.as_ref()) {
-            (Obj::Float(dbl), other) => {
-                let val = match other {
-                    Obj::Float(v) => *v,
-                    Obj::Int(v) => v.to_f64() ,
-                    _ => return err,
-                };
-                Obj::Float(dbl - val)
-            }
-            (Obj::Int(int), other) => match other {
-                Obj::Int(v) => Obj::Int(int.clone().add(v)),
-                Obj::Float(v) => Obj::Float(int.to_f64() - v),
-                _ => return err,
-            },
-            _ => return err,
-        };
-        Ok(obj.into())
-    }
-
-    fn __mul__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
-        let err = Err(PyException{
-            error: PyError::TypeError,
-            msg: format!("No valid way to subtract: {} and {}", lhs, rhs.clone(),),
-        });
-
-        let obj = match (lhs.as_ref(), rhs.as_ref()) {
-            (Obj::Float(dbl), other) => {
-                let val = match other {
-                    Obj::Float(v) => *v,
-                    Obj::Int(v) => v.to_f64(),
-                    _ => return err,
-                };
-                Obj::Float(dbl * val)
-            }
-            (Obj::Int(int), other) => match other {
-                Obj::Int(v) => Obj::Int(int.clone().mul(v)),
-                Obj::Float(v) => Obj::Float(int.to_f64() * v),
-                _ => return err,
-            },
-            (Obj::Str(s), other) => match other {
-                Obj::Int(v) => {
-                    if *v >= 0 {
-                        let mut mult = String::new();
-                        for _i in 0..v.to_u64().unwrap() {
-                            mult = format!("{mult}{s}");
-                        }
-                        Obj::Str(mult)
-                    } else {
-                        return Err(PyException{
-                            error: PyError::TypeError,
-                            msg: format!(" can't multiply sequence by non-int of type {}", lhs),
-                        });
-                    }
-                }
-                _ => return err,
-            },
-            _ => return err,
-        };
-        Ok(obj.into())
-    }
-
-    fn __div__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
-        let type_err = Err(PyException{
-            error: PyError::TypeError,
-            msg: format!("No valid way to divide: {} and {}", lhs, rhs.clone(),),
-        });
-        let zero_div_err = Err(PyException{
-            error: PyError::ZeroDivisionError,
-            msg: format!(" tried to divide {lhs} by {rhs}"),
-        });
-
-        let obj = match (lhs.as_ref(), rhs.as_ref()) {
-            (Obj::Float(dbl), other) => {
-                let val = match other {
-                    Obj::Float(v) => *v,
-                    Obj::Int(v) => v.to_f64(),
-                    _ => return type_err,
-                };
-                if val == 0f64 {
-                    return zero_div_err
-                }
-                Obj::Float(dbl / val)
-            }
-            (Obj::Int(int), other) => match other {
-                Obj::Int(v) => {
-                    if *v == Integer::ZERO {
-                        return zero_div_err
-                    }
-                    Obj::Int(int.clone().div_exact(v))
-                }
-                Obj::Float(v) => {
-                    if *v == 0f64 {
-                        return zero_div_err
-                    }
-                    Obj::Float(int.to_f64() / v)
-                }
-                _ => return type_err,
-            },
-            _ => return type_err,
-        };
-        Ok(obj.into())
     }
 
     fn __pos__(obj: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
@@ -585,6 +628,7 @@ impl PartialEq for Obj
                 Obj::Bool(same) => *b == *same,
                 _ => false,
             },
+            (Obj::Str(s1), Obj::Str(s2)) => s1 == s2,
             (Obj::Dict(_), _) |
             (_, Obj::Dict(_)) => {
                 false
@@ -596,7 +640,6 @@ impl PartialEq for Obj
         !self.eq(other)
     }
 }
-
 
 impl PartialOrd for Obj
 {
@@ -627,6 +670,7 @@ impl PartialOrd for Obj
                 Obj::Bool(same) => *b < *same,
                 _ => false,
             },
+            (Obj::Str(s1), Obj::Str(s2)) => s1 < s2,
             _ => false,
         };
         ret
@@ -652,6 +696,7 @@ impl PartialOrd for Obj
                 Obj::Bool(same) => *b > *same,
                 _ => false,
             },
+            (Obj::Str(s1), Obj::Str(s2)) => s1 > s2,
             _ => false,
         };
         ret
@@ -679,12 +724,194 @@ impl Termination for Obj {
     }
 }
 
-pub trait ToObj : Sized {
+// obj iter
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct ObjIter {
+    items: Vec<Arc<Obj>>,
+    index: usize,
+}
+
+impl ObjIter {
+    fn from(obj: &Arc<Obj>) -> Option<Self> {
+
+        let iter = match obj.as_ref() {
+            Obj::List(v) | Obj::Tuple(v) | Obj::Set(v) => {
+                ObjIter { items: v.clone(), index: 0 }
+            }
+            Obj::Str(s) => {
+                let items = s.chars()
+                    .map(|c| Arc::new(Obj::Str(c.to_string())))
+                    .collect();
+                ObjIter { items, index: 0 }
+            }
+            Obj::Dict(m) => {
+                let items = m.keys()
+                    .cloned()
+                    .map(|k| Arc::new(k))
+                    .collect();
+                ObjIter { items, index: 0 }
+            }
+            _ => return None,
+        };
+        Some(iter)
+    }
+
+    fn get_curr(&self) -> Option<Arc<Obj>> {
+        self.items.get(self.index).cloned()
+    }
+}
+
+impl Iterator for ObjIter {
+    type Item = Arc<Obj>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let out = self.get_curr();
+        if out.is_some() {
+            self.index += 1;
+        }
+        out
+    }
+}
+
+
+// obj iter
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct ObjIntoIter {
+    items: Vec<Arc<Obj>>,
+    index: usize,
+}
+
+impl ObjIntoIter {
+
+    fn from(obj: Arc<Obj>) -> Option<Self> {
+
+        let iter = match obj.as_ref() {
+            Obj::List(v) | Obj::Tuple(v) | Obj::Set(v) => {
+                ObjIntoIter { items: v.clone(), index: 0 }
+            }
+            Obj::Str(s) => {
+                let items = s.chars()
+                    .map(|c| Arc::new(Obj::Str(c.to_string())))
+                    .collect();
+                ObjIntoIter { items, index: 0 }
+            }
+            Obj::Dict(m) => {
+                let items = m.keys()
+                    .cloned()
+                    .map(|k| Arc::new(k))
+                    .collect();
+                ObjIntoIter { items, index: 0 }
+            }
+            _ => return None,
+        };
+        Some(iter)
+    }
+
+    fn get_curr(&self) -> Option<Arc<Obj>> {
+        self.items.get(self.index).cloned()
+    }
+}
+
+impl Iterator for ObjIntoIter {
+    type Item = Arc<Obj>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let out = self.get_curr();
+        if out.is_some() {
+            self.index += 1;
+        }
+        out
+    }
+}
+
+impl IntoIterator for Obj {
+    type Item = Arc<Obj>;
+    type IntoIter = ObjIntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        ObjIntoIter::from(Arc::new(self)).expect("Not Iterable")
+    }
+}
+
+// Add this near the other iterator impls (after ObjIntoIter)
+impl Obj {
+    pub fn iter(&self) -> Option<ObjIter> {
+        match self {
+            Obj::List(v) | Obj::Tuple(v) | Obj::Set(v) => {
+                Some(ObjIter { items: v.clone(), index: 0 })
+            }
+            Obj::Str(s) => {
+                let items = s.chars()
+                    .map(|c| Arc::new(Obj::Str(c.to_string())))
+                    .collect();
+                Some(ObjIter { items, index: 0 })
+            }
+            Obj::Dict(m) => {
+                let items = m.keys()
+                    .cloned()
+                    .map(|k| Arc::new(k))
+                    .collect();
+                Some(ObjIter { items, index: 0 })
+            }
+            _ => None,
+        }
+    }
+}
+
+// Extension trait so Arc<Obj>.iter() and Arc<Obj>.into_obj_iter() are available
+pub trait ArcObjIterExt {
+    fn iter(&self) -> Option<ObjIter>;
+    fn into_obj_iter(self) -> Option<ObjIntoIter>;
+}
+
+impl ArcObjIterExt for Arc<Obj> {
+    fn iter(&self) -> Option<ObjIter> {
+        // ObjIter::from takes Arc<Obj> and returns Option<ObjIter>
+        ObjIter::from(&self)
+    }
+
+    fn into_obj_iter(self) -> Option<ObjIntoIter> {
+        ObjIntoIter::from(self)
+    }
+}
+
+pub trait ToObj : Sized + Clone {
     fn to_obj(self) -> Obj {
         PyObj::__default__()
     }
     fn to_arc(self) -> Arc<Obj> {
         self.to_obj().into()
+    }
+}
+
+impl ToObj for Expression
+{
+    fn to_arc(self) -> Arc<Obj>
+    {
+        self.to_obj().into()
+    }
+
+    fn to_obj(self) -> Obj {
+        match self {
+            Expression::Atom(atom) => Obj::from_atom(&atom),
+            Expression::Operation(op, args) => {
+                match op {
+                    Op::List => {
+                        let mut objs = vec![];
+                        for a in args {
+                            objs.push(a.to_arc());
+                        }
+                        Obj::List(objs.into())
+                    }
+                    Op::Plus => {
+                        let lhs = args.first().cloned().unwrap().to_obj();
+                        let rhs = args.last().cloned().unwrap().to_obj();
+                        let sum = Obj::add(&lhs, &rhs);
+                        sum
+                    }
+                    _ => Obj::Except(PyException { error: PyError::TypeError, msg: format!("cannot convert op {:#?} with args {:#?} to Obj", op, args) }),
+                }
+            }
+            _ => Obj::Except(PyException { error: PyError::TypeError, msg: format!("cannot convert {:#?} to Obj", self) }),
+        }
     }
 }
 
@@ -730,6 +957,11 @@ impl ToObj for &str {
 }
 
 impl ToObj for usize {
+    fn to_obj(self) -> Obj {
+        Obj::Int(self.into())
+    }
+}
+impl ToObj for u64 {
     fn to_obj(self) -> Obj {
         Obj::Int(self.into())
     }

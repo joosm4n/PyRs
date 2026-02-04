@@ -1,11 +1,14 @@
-use crate::pyrs_obj::Obj;
-use crate::pyrs_parsing::{Token, Expression};
+use crate::{ 
+    pyrs_obj::Obj,
+    pyrs_bytecode::{PyBytecode},
+};
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserClass {
     pub name: String,
     pub fields: Vec<Obj>,
-    pub funcs: Vec<Expression>,
+    pub funcs: Vec<PyBytecode>,
 }
 
 // class <name>:
@@ -13,10 +16,28 @@ pub struct UserClass {
 // \t\t self.x = 0
 // \t\t self.y = 1
 
+
+/*
+
+What to implement:
+    - default func impls (in bytecode)
+
+    basically i can make a class a instruction addr,
+    fields an instance a hashmap
+    access with . operator 
+
+
+
+
+
+
+
+
+
+*/
+
 impl UserClass {
-    pub fn from_token(_token: &Token) {
-        unimplemented!();
-    }
+    
 }
 
 impl std::fmt::Display for UserClass {

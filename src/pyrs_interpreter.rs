@@ -29,7 +29,8 @@ pub struct Interpreter
     //cache: Expression,
 
     last_line: String,
-    show_output: bool,
+    debug_mode: bool,
+    repr: bool,
 
     vm: PyVM,
 }
@@ -40,14 +41,21 @@ struct BlockContext {
     keyword_expr: Expression,  // The if/elif/else/for/while expression
     body: Vec<Expression>,      // Expressions in this block
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 
-pub enum InterpreterCommand<'a> {
+pub enum InterpreterFlags
+{
+    Debug,
+    AnyFile,
+    Compile,
+}
+
+pub enum InterpreterCommand {
     Error(&'static str),
     Live,
-    PyFile(&'a str),
-    AnyFile(&'a str),
-    FromString(&'a str),
-    CompileFile(&'a str),
+    File(String, Vec<InterpreterFlags>),
+    FromString(String),
+    PrintHelp,
 }
 
 impl Interpreter {
@@ -61,13 +69,42 @@ impl Interpreter {
             //cache: Expression::None,
             block_stack: Vec::new(),
             last_line: String::new(),
-            show_output: false,
+            debug_mode: false,
+            repr: false,
             vm: PyVM::new(),
         }
     }
 
+    pub fn set_debug_mode(&mut self, debug: bool)
+    {
+        self.debug_mode = debug;
+        self.vm.set_debug_mode(debug);
+    }
+
     pub fn get_version() -> &'static str {
         "pyrs-0-1"
+    }
+
+    pub fn print_help()
+    {
+        let help = 
+        r#"
+        Usage:  PyRs <flags> <filename>
+        
+        or:     cargo run -- <flags> <filename>
+
+        <flags>:
+            -h, --help 
+                Print help (this message)
+            -a, --all
+                Allow any file type to be interpreted, default only .py files
+            -c, --compile
+                Compiles the file
+            -d, --debug
+                Runs in debug mode, this means it will print various things inc stack traces or parsed exprs
+
+        "#;
+        println!("{help}");
     }
 
     fn eval_expr(&mut self, expr: &Expression) -> Result<Arc<Obj>, PyException> {
@@ -115,33 +152,37 @@ impl Interpreter {
         }
     }
 
-    pub fn parse_args<'a>(argv: &'a Vec<String>) -> InterpreterCommand<'a> {
+    pub fn parse_args(argv: &Vec<String>) -> Vec<InterpreterCommand> {
         let arg_err = "Invalid args. \nEg: cargo run -- test.py \n or: cargo run -- -a test.x";
+        
+        let mut commands = vec![];
+        let mut flags = vec![];
 
         if argv.len() == 1 {
-            return InterpreterCommand::Live;
-        } else if argv.len() == 2 {
-            let arg1 = argv.get(1).unwrap();
-            if arg1.ends_with(".py") {
-                return InterpreterCommand::PyFile(&arg1);
-            } else {
-                return InterpreterCommand::Error(arg_err);
-            }
-        } else if argv.len() == 3 {
-            let arg1 = argv.get(1).unwrap();
-            let arg2 = argv.get(2).unwrap();
-            if arg1 == "-a" {
-                return InterpreterCommand::AnyFile(&arg2);
-            } else if arg1 == "-s" {
-                return InterpreterCommand::FromString(&arg2);
-            } else if arg1 == "-c" { 
-                return InterpreterCommand::CompileFile(&arg2);
-            } else {
-                return InterpreterCommand::Error(arg_err);
-            }
-        } else {
-            return InterpreterCommand::Error(arg_err);
+            return vec![InterpreterCommand::Live];
         }
+        else {
+            
+            for (i, arg) in argv.iter().enumerate() {
+                if i == 0 {
+                    continue;
+                }
+                match arg.as_str() {
+                    "-a" | "--all" => flags.push(InterpreterFlags::AnyFile),
+                    "-d" | "--debug" => flags.push(InterpreterFlags::Debug),
+                    "-c" | "--compile" => flags.push(InterpreterFlags::Compile),
+                    "-h" | "--help" => commands.push(InterpreterCommand::PrintHelp),
+                    a if a.contains('.') => {
+                        let mut file_flags= vec![];
+                        file_flags.append(&mut flags);
+                        commands.push(InterpreterCommand::File(arg.to_string(), file_flags));
+                        flags = vec![];
+                    }
+                    _ => return vec![InterpreterCommand::Error(arg_err)],
+                };
+            }
+        }
+        commands
     }
 
     pub fn interpret_line(&mut self, line_in: &str) {
@@ -249,7 +290,7 @@ impl Interpreter {
         let res = self.eval_expr(&expr);
         match res {
             Ok(obj) => {
-                if self.show_output && obj.as_ref() != &Obj::None {
+                if self.repr && obj.as_ref() != &Obj::None {
                     println!("{}", obj.__repr__())
                 }
             }
@@ -260,7 +301,7 @@ impl Interpreter {
 
     pub fn live_interpret(&mut self) 
     {
-        self.show_output = true;
+        self.repr = true;
         loop {
             if self.curr_indent > 0 {
                 print!("... ");
@@ -297,7 +338,7 @@ impl Interpreter {
             Err(e) => panic!("Fileread error: {e}"),
         };
         let parsed  = Expression::from_multiline(contents.as_str());
-        // dbg!(&parsed);
+        //dbg!(&parsed);
         for expr in parsed {
             PyBytecode::from_expr(expr, &mut bytecode);
         }

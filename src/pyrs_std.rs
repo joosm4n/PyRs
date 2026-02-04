@@ -135,7 +135,9 @@ impl Import for Funcs {
         return "std";
     }
 
+    #[allow(unreachable_code, unused_variables)]
     fn try_get<'a>(word: &'a str) -> Option<FnPtr> {
+        return None;
         match word {
             "print" => Some(FnPtr {
                 ptr: Funcs::print,

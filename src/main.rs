@@ -12,7 +12,7 @@ mod pyrs_tests;
 
 #[allow(unused_imports)]
 use crate::{
-    pyrs_interpreter::{Interpreter, InterpreterCommand},
+    pyrs_interpreter::{Interpreter, InterpreterCommand, InterpreterFlags},
     pyrs_obj::{Obj},
     pyrs_error::{PyException}, 
     pyrs_parsing::{Expression, Token, Op},
@@ -30,16 +30,32 @@ fn main() -> std::io::Result<()> {
     }
     
     let mut interp = Interpreter::new();
-    let cmd = Interpreter::parse_args(&argv);
-    match cmd {
-        InterpreterCommand::Live => interp.live_interpret(),
-        InterpreterCommand::AnyFile(file) => interp.interpret_file(file),
-        InterpreterCommand::PyFile(py) => interp.interpret_file(py),
-        InterpreterCommand::FromString(words) => interp.interpret_line(words),
-        InterpreterCommand::Error(msg) => println!("{}", msg),
-        InterpreterCommand::CompileFile(filepath) => { 
-            let bytecode = Interpreter::compile_file(filepath);
-            Interpreter::seralize_bytecode(filepath, &bytecode)?;
+    let commands = Interpreter::parse_args(&argv);
+    for (i, cmd) in commands.into_iter().enumerate() {
+        match cmd {
+            InterpreterCommand::Live => interp.live_interpret(),
+            InterpreterCommand::File(filepath, flags) => { 
+                if flags.contains(&InterpreterFlags::Debug) {
+                    interp.set_debug_mode(true);
+                }
+
+                let is_py_file = filepath.ends_with(".py");
+                if !flags.contains(&InterpreterFlags::AnyFile) && !is_py_file {
+                    println!("To use and file type use the \'-a\' flag before the file");
+                    return Ok(());
+                }
+
+                if flags.contains(&InterpreterFlags::Compile) {
+                    let bytecode = Interpreter::compile_file(&filepath);
+                    Interpreter::seralize_bytecode(&filepath, &bytecode)?;
+                } 
+                else {
+                    interp.interpret_file(&filepath);
+                }
+            }
+            InterpreterCommand::FromString(words) => interp.interpret_line(&words),
+            InterpreterCommand::Error(msg) => println!("Error on command {i}: {msg}"),
+            InterpreterCommand::PrintHelp => Interpreter::print_help(),
         }
     }
     Ok(())

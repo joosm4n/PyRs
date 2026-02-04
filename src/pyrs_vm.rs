@@ -1,7 +1,9 @@
 
 use std::{
-    collections::HashMap, io::{self, Write}, sync::Arc, usize
+    collections::HashMap, io::{self, Write}, sync::Arc, usize, ops::{AddAssign},
 };
+
+use rug::Integer;
 
 use crate::{
     pyrs_error::{PyError, PyException}, pyrs_obj::{Obj, PyObj, ToObj}, pyrs_parsing::{Op}, pyrs_bytecode::{PyBytecode}
@@ -34,15 +36,21 @@ impl PyVM
             instruction_queue: vec![],
             instruction_counter: 0,
             error_state: false,
-            debug_mode: true,
+            debug_mode: false,
         }
+    }
+
+    pub fn set_debug_mode(&mut self, debug: bool)
+    {
+        self.debug_mode = debug;
     }
 
     pub fn execute(&mut self, queue: Vec<PyBytecode>)
     {
         self.instruction_queue = queue;
-        //self.print_instruction_queue();
-        //panic!();
+        if self.debug_mode {
+            self.print_instruction_queue();
+        }
         while let Some(instruction) = self.instruction_queue.get(self.instruction_counter)
         {
             self.execute_instruction(instruction.clone());
@@ -56,8 +64,10 @@ impl PyVM
             return;
         }
         
-        //println!("Executing: ({})   {:?}", self.instruction_counter, inst);
-        //self.print_stack();
+        if self.debug_mode {
+            println!("Executing: ({})   {:?}", self.instruction_counter, inst);
+            self.print_stack();
+        }
 
         match inst {
             PyBytecode::PopTop => self.pop_top(),
@@ -72,15 +82,21 @@ impl PyVM
             PyBytecode::BuildList(len) => self.build_list(len),
             PyBytecode::BuildTuple(count) => self.build_tuple(count),
 
+            PyBytecode::GetIter => self.get_iter(),
+            PyBytecode::ForIter(delta) => self.for_iter(delta),
+
             PyBytecode::BinaryAdd => self.binary_add(),
             PyBytecode::BinarySubtract => self.binary_subtract(),
             PyBytecode::BinaryMultiply => self.binary_multiply(),
             PyBytecode::BinaryDivide => self.binary_divide(),
+            
+            PyBytecode::UnaryNegative => self.unary_negative(),
 
             PyBytecode::CallFunction(argc) => self.call_function(argc),
             PyBytecode::CallInstrinsic1(ptr) => self.call_intrinsic_1(ptr),
 
             PyBytecode::PopJumpIfFalse(delta) => self.pop_jump_if_false(delta),
+            PyBytecode::PopJumpIfTrue(delta) => self.pop_jump_if_true(delta),
             PyBytecode::JumpForward(delta) => self.jump_forward(delta),
             PyBytecode::JumpBackward(delta) => self.jump_backward(delta),
 
@@ -91,7 +107,7 @@ impl PyVM
             PyBytecode::DestroyStack => self.pop_stack(),
 
             PyBytecode::ReturnValue => self.return_value(),
-
+            
             PyBytecode::NOP => {},
             _ => panic!("Instruction {:?} not implemented ", inst),
         }
@@ -100,6 +116,11 @@ impl PyVM
         }
         self.instruction_counter += 1;
     }
+
+    pub fn get_vars(&self) -> &Vec<HashMap<String, Arc<Obj>>>
+    {
+        &self.var_maps
+    } 
 
     fn push_err(&mut self, e: PyException)
     {
@@ -211,13 +232,18 @@ impl PyVM
         self.local_stacks.last().unwrap().last().unwrap().clone()
     }
 
-    fn print_stack(&self)
+    pub fn print_stack(&self)
     {
         println!("VM Stack:");
         for (idx, a) in self.local_stacks.iter().enumerate() {
             println!(" ({:?}) \t{:?}", idx, a);
         }
         println!();
+    }
+
+    pub fn view_stack(&self) -> &Vec<Vec<Arc<Obj>>>
+    {
+        return &self.local_stacks;
     }
 
     fn print_instruction(&self, index: usize)
@@ -288,10 +314,53 @@ impl PyVM
         self.push(set);
     }
 
+    fn get_iter(&mut self)
+    {
+        let obj = self.pop();
+        let iter = match obj.iter() {
+            Some(i) => Obj::Iter(i),
+            None => {
+                Obj::Except(
+                    PyException { 
+                        error: PyError::TypeError, 
+                        msg: format!("Obj {} not iterable", obj),
+                    }
+                )
+            }
+        };
+        self.push(iter.into())
+    }
+
+    fn for_iter(&mut self, delta: usize)
+    {
+        let top = self.pop();
+        match top.as_ref() {
+            Obj::Iter(iter) => {
+                let mut iter_clone = iter.clone();
+                match iter_clone.next() {
+                    Some(item) => {
+                        self.push(Arc::from(Obj::Iter(iter_clone)));
+                        self.push(item);
+                    }
+                    None => {
+                        self.instruction_counter += delta;
+                    }
+                }
+            },
+            _ => {
+                self.push_err(PyException {
+                    error: PyError::TypeError, 
+                    msg: format!("FOR_ITER expected iterator, found {}", top), 
+                });
+            }
+        };
+
+    }
+
     fn pop_jump_if_false(&mut self, delta: usize)
     {
         let cond = self.pop();
-        if cond.__bool__() {
+        if !cond.__bool__() {
             self.instruction_counter += delta;
         }
     }
@@ -299,7 +368,7 @@ impl PyVM
     fn pop_jump_if_true(&mut self, delta: usize)
     {
         let cond = self.pop();
-        if !cond.__bool__() {
+        if cond.__bool__() {
             self.instruction_counter += delta;
         }
     }
@@ -316,9 +385,9 @@ impl PyVM
 
     fn compare_op(&mut self, op: Op)
     {
-        let lhs = self.pop();
         let rhs = self.pop();
-        let cond = PyObj::compare_op(&lhs, &rhs, &op);
+        let lhs = self.pop();
+        let cond = Obj::compare_op(&lhs, &rhs, &op);
         // dbg!(&rhs, &lhs, &op, &cond);
         self.push(cond.to_arc());
     }
@@ -369,6 +438,15 @@ impl PyVM
             }
         };
         self.push(Arc::from(ret));
+    }
+
+    fn unary_negative(&mut self)
+    {
+        let obj = self.pop();
+        match Obj::__neg__(&obj) {
+            Ok(o) => self.push(o),
+            Err(e) => self.push_err(e),
+        }
     }
 
     fn call_function(&mut self, argc: usize)
@@ -424,6 +502,7 @@ impl PyVM
         let ret = match ptr {
             IntrinsicFunc::Print => IntrinsicFunc::print(&args),
             IntrinsicFunc::Input => IntrinsicFunc::input(&args),
+            IntrinsicFunc::Range => IntrinsicFunc::range(&args),
         };
         match ret {
             Some(val) => {
@@ -525,7 +604,7 @@ fn no_instruction()
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum IntrinsicFunc
 {
-    Print, Input, 
+    Print, Input, Range,
 }
 
 impl IntrinsicFunc
@@ -535,6 +614,7 @@ impl IntrinsicFunc
         let func = match name {
             "print" => IntrinsicFunc::Print,
             "input" => IntrinsicFunc::Input,
+            "range" => IntrinsicFunc::Range,
             _ => return None, 
         };
         Some(func)
@@ -559,6 +639,42 @@ impl IntrinsicFunc
         let mut input = String::new();
         io::stdin().read_line(&mut input).expect("error: unable to read user input");
         Some(Obj::Str(input.trim().to_string()).into())
+    }
+
+    fn range(limits: &Vec<Arc<Obj>>) -> Option<Arc<Obj>> 
+    {
+        let (mut start, end, mut inc): (Integer, Integer, Integer) = match limits.len() {
+            1 => {
+                let e = match limits[0].as_ref() { Obj::Int(i) => i.clone(), _ => return None };
+                (Integer::from(0), e, Integer::from(1))
+            }
+            2 => {
+                let s = match limits[0].as_ref() { Obj::Int(i) => i.clone(), _ => return None };
+                let e = match limits[1].as_ref() { Obj::Int(i) => i.clone(), _ => return None };
+                (s, e, Integer::from(1))
+            }
+            3 => {
+                let s = match limits[0].as_ref() { Obj::Int(i) => i.clone(), _ => return None };
+                let e = match limits[1].as_ref() { Obj::Int(i) => i.clone(), _ => return None };
+                let i = match limits[2].as_ref() { Obj::Int(i) => i.clone(), _ => return None };
+                (s, e, i)
+            }
+            _ => return None,
+        };
+
+        if start < end {
+            inc = Integer::from(-1);
+        }
+
+        let parts = (start.clone() - end.clone()).abs() / inc.clone();
+
+        let mut objs = Vec::new();
+        for _ in 0..parts.to_u64_wrapping() {
+            objs.push(Obj::Int(start.clone()).into());
+            start.add_assign(inc.clone());
+        }
+
+        Some(Obj::List(objs).into())
     }
 
 }
