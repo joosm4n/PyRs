@@ -1,3 +1,5 @@
 
-for a in range(5):
-	print(a)
+class MyClass:
+    i = 1
+
+x = MyClass

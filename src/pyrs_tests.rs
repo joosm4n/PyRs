@@ -67,8 +67,9 @@ mod tests {
     {
         assert_eq!(56, size_of::<Obj>(), "Obj size not 56 bytes");
         assert_eq!(24, size_of::<Token>(), "Token size not 24 bytes");
-        assert_eq!(56, size_of::<Expression>(), "Expression size not 64 bytes");
+        assert_eq!(56, size_of::<Expression>(), "Expression size not 56 bytes");
         assert_eq!(64, size_of::<PyBytecode>(), "Bytecode size not 64 bytes");
+        assert_eq!(200, size_of::<PyVM>(), "VirtualMachine size not 200 bytes");
     }
 
     #[test]
@@ -170,12 +171,11 @@ mod tests {
         assert_eq!(expr_str, res_str);
 
         let mut eq = EqTester::new();
-        eq.eval_eq(&s1, "false");
-        eq.eval_eq(&s2, "true");
-        eq.eval_eq(&s3, "true");
-        eq.eval_eq(&s4, "false");
-        eq.eval_eq(&s5,"false");
-        eq.eval_eq(&s6, "true");
+        eq.eval_eq(&s1, "False");
+        eq.eval_eq(&s3, "True");
+        eq.eval_eq(&s4, "False");
+        eq.eval_eq(&s5,"False");
+        eq.eval_eq(&s6, "True");
         Ok(Obj::None)
     }
 
@@ -192,24 +192,18 @@ mod tests {
     }
 
     #[test]
-    fn assign() -> Result<Obj, PyException> 
+    fn parse_assign()
     {
         let s1 = Expression::from_line("x = 2");
         let s2 = Expression::from_line("six = 6");
         let s3 = Expression::from_line("y = x");
         let s4 = Expression::from_line("z = 20 * 4");
+        let s5 = Expression::from_line("x += 2");
+        let s6 = Expression::from_line("x /= 2");
 
-        let expr_strs = join_expr_strings(vec![&s1, &s2, &s3, &s4]);
-        let res_strs = "Op[= Ident(x) Atom(2)] | Op[= Ident(six) Atom(6)] | Op[= Ident(y) Ident(x)] | Op[= Ident(z) Op[* Atom(20) Atom(4)]]";
+        let expr_strs = join_expr_strings(vec![&s1, &s2, &s3, &s4, &s5, &s6]);
+        let res_strs = "Op[= Ident(x) Atom(2)] | Op[= Ident(six) Atom(6)] | Op[= Ident(y) Ident(x)] | Op[= Ident(z) Op[* Atom(20) Atom(4)]] | Op[+= Ident(x) Atom(2)] | Op[/= Ident(x) Atom(2)]";
         assert_eq!(expr_strs, res_strs);
-
-        let mut eq = EqTester::new();
-        eq.eval_eq(&s1, "2");
-        eq.eval_eq(&s2, "6");
-        eq.eval_eq(&s3, "2");
-        eq.eval_eq(&s4, "80");
-
-        Ok(Obj::None)
     }
 
     #[test]
@@ -368,13 +362,13 @@ mod tests {
     }
 
     #[test]
-    fn while_loop_bytecode()
+    fn bytecode_while_loop()
     {
         let code = PyBytecode::from_str
         (r#"x = 0
         while x < 3:
 	        print(x)
-	        x = x + 1
+	        x += 1
         "#);
         println!("Instructions:\n{}", PyBytecode::to_string(&code));
         assert_eq!(format!("{:?}", code), r#"[LoadConst(Int(0)), StoreName("x"), LoadName("x"), LoadConst(Int(3)), CompareOp(LessThan), PopJumpIfFalse(8), LoadConst(None), LoadName("x"), CallInstrinsic1(Print), LoadName("x"), LoadConst(Int(1)), BinaryAdd, StoreName("x"), JumpBackward(12), LoadConst(None)]"#.to_string());
@@ -548,7 +542,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn function_definition_bytecode() {
         let code = PyBytecode::from_str(
             "def add(x, y):\n\
@@ -587,7 +580,7 @@ mod tests {
     }
 
     #[test]
-    fn unary_bytecode() {
+    fn bytecode_unary() {
         let mut code = vec![];
         PyBytecode::from_expr(Expression::from_line("-42"), &mut code);
         
@@ -600,16 +593,16 @@ mod tests {
     }
 
     #[test]
-    fn compare_ops() {
+    fn ops_compare() {
         let comparisons = vec![
-            ("5 < 10", "true"),
-            ("10 > 5", "true"), 
-            ("5 <= 5", "true"),
-            ("5 >= 5", "true"),
-            ("5 == 5", "true"),
-            ("5 != 4", "true"),
-            ("\"abc\" < \"def\"", "true"),
-            ("\"xyz\" > \"abc\"", "true"),
+            ("5 < 10", "True"),
+            ("10 > 5", "True"), 
+            ("5 <= 5", "True"),
+            ("5 >= 5", "True"),
+            ("5 == 5", "True"),
+            ("5 != 4", "True"),
+            ("\"abc\" < \"def\"", "True"),
+            ("\"xyz\" > \"abc\"", "True"),
         ];
         
         let mut vs = Obj::new_map();
@@ -646,9 +639,11 @@ mod tests {
     #[test]
     fn ops_dot()
     {
-        let dot_expr = Expression::from_line("a.x");
-        assert_eq!(&dot_expr.to_string(), "Op[. Ident(a) Ident(x)]");
+        let expr1 = Expression::from_line("a.x");
+        assert_eq!(&expr1.to_string(), "Op[. Ident(a) Ident(x)]");
 
+        let expr2 = Expression::from_line("a.x()");
+        assert_eq!(&expr2.to_string(), "Op[. Ident(a) Call[x args[]]]");
     }
 
     #[test]

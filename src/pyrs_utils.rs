@@ -70,7 +70,7 @@ pub fn split_to_words(sentence: &str) -> Vec<&str> {
                 words.push(&sentence[start_idx..end_idx]);
             }
 
-            '!' | '=' | '<' | '>' => {
+            '!' | '=' | '<' | '>' | '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' => {
                 if let Some(&(_, next_ch)) = chars.peek() {
                     if next_ch == '=' {
                         chars.next();
@@ -149,6 +149,6 @@ pub fn split_to_words(sentence: &str) -> Vec<&str> {
             }
         }
     }
-
+    //dbg!(&words);
     words
 }

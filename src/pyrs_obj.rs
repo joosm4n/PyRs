@@ -1,9 +1,15 @@
-
-use std::{
-    collections::{HashMap}, ops::{Add, Sub, Mul, Neg}, process::{ExitCode, Termination}, str::FromStr, sync::Arc,
-};
 use crate::{
-    pyrs_error::{PyError, PyException}, pyrs_parsing::{Expression, Op}, pyrs_std::FnPtr
+    pyrs_error::{PyError, PyException},
+    pyrs_parsing::{Expression, Op},
+    pyrs_std::{FnPtr, RangeObj},
+    pyrs_userclass::{UserClassInstance},
+};
+use std::{
+    collections::HashMap,
+    ops::{Add, Mul, Neg, Sub},
+    process::{ExitCode, Termination},
+    str::FromStr,
+    sync::Arc,
 };
 
 use rug::Integer;
@@ -11,7 +17,6 @@ use rug::Integer;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum Obj {
-
     None,
     Bool(bool),
     Float(f64),
@@ -22,15 +27,16 @@ pub enum Obj {
 
     Except(PyException),
 
-    List(Vec<Arc<Obj>>), // [], mutable, ordered, duplicates, int indexing, 
+    List(Vec<Arc<Obj>>),  // [], mutable, ordered, duplicates, int indexing,
     Tuple(Vec<Arc<Obj>>), // (), immutable, ordered, duplicates, int indexing,
-    Set(Vec<Arc<Obj>>), // {}, mutable, unordered, no dupes, no indexing, 
+    Set(Vec<Arc<Obj>>),   // {}, mutable, unordered, no dupes, no indexing,
+    Range(RangeObj),
 
     Dict(HashMap<Obj, Arc<Obj>>),
 
     Iter(ObjIter),
 
-    //User(UserClass),
+    Class(UserClassInstance),
 
     // Iterator
     // - containters
@@ -49,10 +55,9 @@ pub enum Obj {
     // Mapping
     // - dict (HashMap)
 }
-pub trait PyObj: std::fmt::Debug + Clone 
-{
-    fn compare_op(lhs: &Arc<Self>, rhs: &Arc<Self>, op: &Op) -> bool
-    {
+pub trait PyObj: std::fmt::Debug + Clone {
+
+    fn compare_op(lhs: &Arc<Self>, rhs: &Arc<Self>, op: &Op) -> bool {
         let ret = match op {
             Op::Eq => Self::__eq__(lhs, rhs),
             Op::Neq => Self::__ne__(lhs, rhs),
@@ -65,6 +70,10 @@ pub trait PyObj: std::fmt::Debug + Clone
         ret
     }
 
+    fn __dot__(&self, _ident: &String) -> Arc<Obj> {
+        panic!();
+    }
+
     fn __default__() -> Self {
         panic!()
     }
@@ -73,13 +82,10 @@ pub trait PyObj: std::fmt::Debug + Clone
         panic!()
     }
 
-    fn __deref__(obj: &Arc<Self>) -> Result<Arc<Obj>, PyException> {
-        Err(PyException{
+    fn __unpack__(self) -> Result<Vec<Arc<Obj>>, PyException> {
+        Err(PyException {
             error: PyError::TypeError,
-            msg: format!(
-                "Unable to deref the PyObj: {:?}",
-                obj
-            ),
+            msg: format!("Unable to deref the PyObj: {:?}", self),
         })
     }
 
@@ -89,7 +95,7 @@ pub trait PyObj: std::fmt::Debug + Clone
 
     fn __int__(&self) -> isize {
         panic!();
-    } 
+    }
 
     fn __bool__(&self) -> bool {
         false
@@ -117,17 +123,14 @@ pub trait PyObj: std::fmt::Debug + Clone
     }
 
     fn __add__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
-        Err(PyException{
+        Err(PyException {
             error: PyError::TypeError,
-            msg: format!(
-                "Unable to add the two PyObj types : {:?}, {:?}",
-                lhs, rhs
-            ),
+            msg: format!("Unable to add the two PyObj types : {:?}, {:?}", lhs, rhs),
         })
     }
 
     fn __sub__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
-        Err(PyException{
+        Err(PyException {
             error: PyError::TypeError,
             msg: format!(
                 "Unable to subtract the two PyObj types : {:?}, {:?}",
@@ -136,7 +139,7 @@ pub trait PyObj: std::fmt::Debug + Clone
         })
     }
     fn __mul__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
-        Err(PyException{
+        Err(PyException {
             error: PyError::TypeError,
             msg: format!(
                 "Unable to multiply the two PyObj types : {:?}, {:?}",
@@ -145,7 +148,7 @@ pub trait PyObj: std::fmt::Debug + Clone
         })
     }
     fn __div__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
-        Err(PyException{
+        Err(PyException {
             error: PyError::TypeError,
             msg: format!(
                 "Unable to divide the two PyObj types : {:?}, {:?}",
@@ -159,37 +162,33 @@ pub trait PyObj: std::fmt::Debug + Clone
     }
 
     fn __neg__(obj: &Arc<Self>) -> Result<Arc<Self>, PyException> {
-        Err(PyException{
+        Err(PyException {
             error: PyError::TypeError,
             msg: format!(" __neg__: not implemented for {:?}", obj),
         })
     }
 
-    fn __call__(&self, objs: &Vec<Arc<Self>>) -> Result<Arc<Self>, PyException>
-    {
-        Err(PyException{
+    fn __call__(&self, objs: &Vec<Arc<Self>>) -> Result<Arc<Self>, PyException> {
+        Err(PyException {
             error: PyError::TypeError,
             msg: format!(" __call__: not implemented for {:?}", objs),
         })
     }
 
-    fn to_arc(self) -> Arc<Self>
-    {
+    fn to_arc(self) -> Arc<Self> {
         Arc::from(self)
     }
 }
 
 impl Obj {
-
     pub fn from<T: ToObj>(arg: T) -> Arc<Obj> {
         arg.to_arc()
     }
 
-    pub fn new_vec() -> Vec<Obj>
-    {
+    pub fn new_vec() -> Vec<Obj> {
         return vec![];
     }
-    
+
     pub fn new_arc_vec() -> Vec<Arc<Obj>> {
         return vec![];
     }
@@ -218,12 +217,11 @@ impl Obj {
     }
 
     pub fn from_atom(c: &str) -> Self {
-
         if let Ok(val) = Integer::from_str(c) {
-            return Obj::Int(val)
+            return Obj::Int(val);
         }
         if let Ok(val) = c.parse::<f64>() {
-            return Obj::Float(val)
+            return Obj::Float(val);
         } else {
             Obj::Str(c.to_string())
         }
@@ -231,25 +229,20 @@ impl Obj {
 
     pub fn is_iterable(&self) -> bool {
         match self {
-            Obj::Set(_) |
-            Obj::Str(_) |
-            Obj::List(_) | 
-            Obj::Dict(_) |
-            Obj::Tuple(_) => true,
+            Obj::Set(_) | Obj::Str(_) | Obj::List(_) | Obj::Dict(_) | Obj::Tuple(_) => true,
             _ => false,
         }
     }
 
-    pub fn iter_next(&mut self) -> Option<Arc<Obj>>
-    {
+    pub fn iter_next(&mut self) -> Option<Arc<Obj>> {
         match self {
             Obj::Iter(i) => i.next(),
-            _ => None, 
+            _ => None,
         }
     }
 
     fn add(lhs: &Obj, rhs: &Obj) -> Obj {
-        let err = Obj::Except(PyException{
+        let err = Obj::Except(PyException {
             error: PyError::TypeError,
             msg: format!("No valid way to add: {} and {}", lhs, rhs.clone(),),
         });
@@ -276,20 +269,26 @@ impl Obj {
                 Obj::List(l2) => {
                     let mut new_list = Vec::with_capacity(l1.len() + l2.len());
                     new_list.extend(l1.iter().cloned());
-                    new_list.extend(l2.iter().cloned());    
+                    new_list.extend(l2.iter().cloned());
                     Obj::List(new_list)
                 }
                 _ => {
-                    return Obj::Except(PyException { error: PyError::TypeError, msg: format!("TypeError: can only concatenate list (not \"{:?}\") to list", other)});
+                    return Obj::Except(PyException {
+                        error: PyError::TypeError,
+                        msg: format!(
+                            "TypeError: can only concatenate list (not \"{:?}\") to list",
+                            other
+                        ),
+                    });
                 }
-            }
+            },
             _ => return err,
         };
         obj
     }
 
     fn sub(lhs: &Obj, rhs: &Obj) -> Obj {
-        let err = Obj::Except(PyException{
+        let err = Obj::Except(PyException {
             error: PyError::TypeError,
             msg: format!("No valid way to subtract: {} and {}", lhs, rhs.clone(),),
         });
@@ -298,7 +297,7 @@ impl Obj {
             (Obj::Float(dbl), other) => {
                 let val = match other {
                     Obj::Float(v) => *v,
-                    Obj::Int(v) => v.to_f64() ,
+                    Obj::Int(v) => v.to_f64(),
                     _ => return err,
                 };
                 Obj::Float(dbl - val)
@@ -314,7 +313,7 @@ impl Obj {
     }
 
     fn mul(lhs: &Obj, rhs: &Obj) -> Obj {
-        let err = Obj::Except(PyException{
+        let err = Obj::Except(PyException {
             error: PyError::TypeError,
             msg: format!("No valid way to subtract: {} and {}", lhs, rhs.clone(),),
         });
@@ -342,7 +341,7 @@ impl Obj {
                         }
                         Obj::Str(mult)
                     } else {
-                        return Obj::Except(PyException{
+                        return Obj::Except(PyException {
                             error: PyError::TypeError,
                             msg: format!(" can't multiply sequence by non-int of type {}", lhs),
                         });
@@ -356,11 +355,11 @@ impl Obj {
     }
 
     pub fn div(lhs: &Obj, rhs: &Obj) -> Obj {
-        let type_err = Obj::Except(PyException{
+        let type_err = Obj::Except(PyException {
             error: PyError::TypeError,
             msg: format!("No valid way to divide: {} and {}", lhs, rhs.clone(),),
         });
-        let zero_div_err = Obj::Except(PyException{
+        let zero_div_err = Obj::Except(PyException {
             error: PyError::ZeroDivisionError,
             msg: format!(" tried to divide {lhs} by {rhs}"),
         });
@@ -373,20 +372,20 @@ impl Obj {
                     _ => return type_err,
                 };
                 if val == 0f64 {
-                    return zero_div_err
+                    return zero_div_err;
                 }
                 Obj::Float(dbl / val)
             }
             (Obj::Int(int), other) => match other {
                 Obj::Int(v) => {
                     if *v == Integer::ZERO {
-                        return zero_div_err
+                        return zero_div_err;
                     }
                     Obj::Float(int.to_f64() / v.to_f64())
                 }
                 Obj::Float(v) => {
                     if *v == 0f64 {
-                        return zero_div_err
+                        return zero_div_err;
                     }
                     Obj::Float(int.to_f64() / v)
                 }
@@ -396,13 +395,20 @@ impl Obj {
         };
         obj.into()
     }
-
 }
 
 impl PyObj for Obj {
-
     fn __default__() -> Self {
         Obj::None
+    }
+
+    fn __dot__(&self, field: &String) -> Arc<Obj> {
+        match self {
+            Obj::Class(o) => {
+                o.get_field(field)
+            },
+            o => panic!("dot op not implemented for obj {o}"),
+        }
     }
 
     fn __int__(&self) -> isize {
@@ -421,18 +427,43 @@ impl PyObj for Obj {
             Obj::Float(v) => *v != 0f64,
             Obj::Int(v) => *v != Integer::ZERO,
             Obj::Str(v) => *v != "",
-            Obj::List(vec) | 
-            Obj::Tuple(vec) | 
-            Obj::Set(vec) => vec.len() != 0usize,
+            Obj::List(vec) | Obj::Tuple(vec) | Obj::Set(vec) => vec.len() != 0usize,
             _ => panic!("TypeError: __bool__() not implemented for: {:?}", self),
         };
         return ret;
     }
 
+    fn __unpack__(self) -> Result<Vec<Arc<Obj>>, PyException> {
+        if self.is_iterable() {
+            Ok(match self {
+                Obj::List(vec) |
+                Obj::Set(vec) |
+                Obj::Tuple(vec) => vec, 
+                
+                Obj::Range(range) => range.to_vec(),
+                Obj::Dict(dict) => { 
+                    dict.into_iter()
+                    .map(|(key, _) | Arc::new(key))
+                    .collect()
+                },
+                _ => unreachable!(),
+            })
+        }
+        else {
+            Err(PyException { 
+                error: PyError::TypeError, 
+                msg: format!("Cannot unpack a non iterable type: {:?}", self) 
+            })
+        }
+    }
+
     fn __str__(&self) -> String {
         match self {
             Obj::None => format!("None"),
-            Obj::Bool(val) => format!("{}", val),
+            Obj::Bool(val) => match val {
+                true => format!("True"),
+                false => format!("False"),
+            },
             Obj::Float(val) => format!("{}", val),
             Obj::Str(s) => format!("{}", s),
             Obj::Int(val) => format!("{}", val),
@@ -451,7 +482,7 @@ impl PyObj for Obj {
                 format!("{}", list)
             }
             Obj::Tuple(objs) => {
-                let mut tuple = String::from("("); 
+                let mut tuple = String::from("(");
                 for o in objs {
                     tuple.push_str(o.__repr__().as_str());
                     tuple.push(',');
@@ -463,7 +494,7 @@ impl PyObj for Obj {
                 format!("{}", tuple)
             }
             Obj::Set(objs) => {
-                let mut set = String::from("{"); 
+                let mut set = String::from("{");
                 for o in objs {
                     set.push_str(o.__repr__().as_str());
                     set.push(',');
@@ -488,8 +519,34 @@ impl PyObj for Obj {
                 map.push_str("}");
                 format!("{}", map)
             }
+            Obj::Range(range) => {
+                let mut r = String::from("range(");
+                if let Some(start) = &range.start {
+                    r.push_str(&format!("{}", start.to_string()));
+                };
+                if let Some(end) = &range.end {
+                    r.push_str(&format!(", {}", end.to_string()));
+                };
+                if let Some(inc) = &range.inc {
+                    r.push_str(&format!(", {}", inc.to_string()));
+                };
+                r
+            }
             Obj::Iter(iter) => {
                 format!("Iter[ {:#?} {} ]", iter.items, iter.index)
+            }
+            Obj::Class(instance ) => {
+                let class = &instance.class;
+                
+                let mut c = format!("Class[ {} fields[", class.name);
+                for (name, _) in &class.fields {
+                    c.push_str(name);
+                    c.push_str(": ");
+                    c.push_str(&instance.get_field(name).__str__());
+                    c.push('\n');
+                }
+                c.push(']');
+                c
             }
         }
     }
@@ -504,12 +561,11 @@ impl PyObj for Obj {
     fn __len__(&self) -> usize {
         match self {
             Obj::List(list) => list.len(),
-            _ => panic!("TypeError: __len__() not implemented for: {:?}", self), 
+            _ => panic!("TypeError: __len__() not implemented for: {:?}", self),
         }
     }
 
-    fn compare_op(lhs: &Arc<Obj>, rhs: &Arc<Obj>, op: &Op) -> bool
-    {
+    fn compare_op(lhs: &Arc<Obj>, rhs: &Arc<Obj>, op: &Op) -> bool {
         let ret = match op {
             Op::Eq => lhs.eq(rhs),
             Op::Neq => lhs.ne(rhs),
@@ -540,28 +596,28 @@ impl PyObj for Obj {
     fn __add__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
         match Obj::add(lhs.as_ref(), rhs.as_ref()) {
             Obj::Except(e) => Err(e),
-            o => Ok(o.into()), 
+            o => Ok(o.into()),
         }
     }
 
     fn __sub__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
         match Obj::sub(lhs.as_ref(), rhs.as_ref()) {
             Obj::Except(e) => Err(e),
-            o => Ok(o.into()), 
+            o => Ok(o.into()),
         }
     }
 
     fn __mul__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
         match Obj::mul(lhs.as_ref(), rhs.as_ref()) {
             Obj::Except(e) => Err(e),
-            o => Ok(o.into()), 
+            o => Ok(o.into()),
         }
     }
 
     fn __div__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
         match Obj::div(lhs.as_ref(), rhs.as_ref()) {
             Obj::Except(e) => Err(e),
-            o => Ok(o.into()), 
+            o => Ok(o.into()),
         }
     }
 
@@ -578,25 +634,28 @@ impl PyObj for Obj {
     }
 
     fn __neg__(obj: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
-        let ret= match obj.as_ref() {
+        let ret = match obj.as_ref() {
             Obj::None => Obj::None,
             Obj::Bool(b) => Obj::Bool(!b),
             Obj::Float(f) => Obj::Float(-f),
             Obj::Int(i) => Obj::Int(i.clone().neg()),
-            _ => return Err(PyException{
-                error: PyError::NotImplementedError, 
-                msg: format!("Negation not implemented for {}", obj), 
-            }),
+            _ => {
+                return Err(PyException {
+                    error: PyError::NotImplementedError,
+                    msg: format!("Negation not implemented for {}", obj),
+                })
+            }
         };
         Ok(ret.into())
     }
 
     fn __call__(&self, objs: &Vec<Arc<Obj>>) -> Result<Arc<Obj>, PyException> {
         match self {
-            Obj::Function(fn_ptr) => {
-                Ok((fn_ptr.ptr)(objs))
-            }
-            _ => Err( PyException { error: PyError::TypeError, msg: format!("Type is not a function") }),
+            Obj::Function(fn_ptr) => Ok((fn_ptr.ptr)(objs)),
+            _ => Err(PyException {
+                error: PyError::TypeError,
+                msg: format!("Type is not a function"),
+            }),
         }
     }
 
@@ -605,8 +664,7 @@ impl PyObj for Obj {
     }
 }
 
-impl PartialEq for Obj
-{
+impl PartialEq for Obj {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Obj::None, Obj::None) => true,
@@ -629,10 +687,7 @@ impl PartialEq for Obj
                 _ => false,
             },
             (Obj::Str(s1), Obj::Str(s2)) => s1 == s2,
-            (Obj::Dict(_), _) |
-            (_, Obj::Dict(_)) => {
-                false
-            }
+            (Obj::Dict(_), _) | (_, Obj::Dict(_)) => false,
             (_, _) => false,
         }
     }
@@ -641,13 +696,18 @@ impl PartialEq for Obj
     }
 }
 
-impl PartialOrd for Obj
-{
+impl PartialOrd for Obj {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.lt(other) { return Some(std::cmp::Ordering::Less); }
-        if self.gt(other) { return Some(std::cmp::Ordering::Greater); }
-        if self.eq(other) { return Some(std::cmp::Ordering::Equal); }
-        return None
+        if self.lt(other) {
+            return Some(std::cmp::Ordering::Less);
+        }
+        if self.gt(other) {
+            return Some(std::cmp::Ordering::Greater);
+        }
+        if self.eq(other) {
+            return Some(std::cmp::Ordering::Equal);
+        }
+        return None;
     }
 
     fn lt(&self, other: &Self) -> bool {
@@ -709,12 +769,17 @@ impl PartialOrd for Obj
     fn le(&self, other: &Self) -> bool {
         self.lt(other) || self.eq(other)
     }
-
 }
 
 impl std::fmt::Display for Obj {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.__str__())
+    }
+}
+
+impl Default for Obj {
+    fn default() -> Self {
+        Obj::None
     }
 }
 
@@ -731,24 +796,23 @@ pub struct ObjIter {
     index: usize,
 }
 
-impl ObjIter {
-    fn from(obj: &Arc<Obj>) -> Option<Self> {
-
+impl ObjIter 
+{
+    pub fn from(obj: &Arc<Obj>) -> Option<Self> {
         let iter = match obj.as_ref() {
-            Obj::List(v) | Obj::Tuple(v) | Obj::Set(v) => {
-                ObjIter { items: v.clone(), index: 0 }
-            }
+            Obj::List(v) | Obj::Tuple(v) | Obj::Set(v) => ObjIter {
+                items: v.clone(),
+                index: 0,
+            },
             Obj::Str(s) => {
-                let items = s.chars()
+                let items = s
+                    .chars()
                     .map(|c| Arc::new(Obj::Str(c.to_string())))
                     .collect();
                 ObjIter { items, index: 0 }
             }
             Obj::Dict(m) => {
-                let items = m.keys()
-                    .cloned()
-                    .map(|k| Arc::new(k))
-                    .collect();
+                let items = m.keys().cloned().map(|k| Arc::new(k)).collect();
                 ObjIter { items, index: 0 }
             }
             _ => return None,
@@ -756,8 +820,13 @@ impl ObjIter {
         Some(iter)
     }
 
-    fn get_curr(&self) -> Option<Arc<Obj>> {
+    pub fn get_curr(&self) -> Option<Arc<Obj>> {
         self.items.get(self.index).cloned()
+    }
+
+    pub fn get_items(self) -> Vec<Arc<Obj>>
+    {
+        self.items
     }
 }
 
@@ -772,7 +841,6 @@ impl Iterator for ObjIter {
     }
 }
 
-
 // obj iter
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct ObjIntoIter {
@@ -781,24 +849,21 @@ pub struct ObjIntoIter {
 }
 
 impl ObjIntoIter {
-
     fn from(obj: Arc<Obj>) -> Option<Self> {
-
         let iter = match obj.as_ref() {
-            Obj::List(v) | Obj::Tuple(v) | Obj::Set(v) => {
-                ObjIntoIter { items: v.clone(), index: 0 }
-            }
+            Obj::List(v) | Obj::Tuple(v) | Obj::Set(v) => ObjIntoIter {
+                items: v.clone(),
+                index: 0,
+            },
             Obj::Str(s) => {
-                let items = s.chars()
+                let items = s
+                    .chars()
                     .map(|c| Arc::new(Obj::Str(c.to_string())))
                     .collect();
                 ObjIntoIter { items, index: 0 }
             }
             Obj::Dict(m) => {
-                let items = m.keys()
-                    .cloned()
-                    .map(|k| Arc::new(k))
-                    .collect();
+                let items = m.keys().cloned().map(|k| Arc::new(k)).collect();
                 ObjIntoIter { items, index: 0 }
             }
             _ => return None,
@@ -833,22 +898,21 @@ impl IntoIterator for Obj {
 
 // Add this near the other iterator impls (after ObjIntoIter)
 impl Obj {
-    pub fn iter(&self) -> Option<ObjIter> {
+    pub fn iter_py(&self) -> Option<ObjIter> {
         match self {
-            Obj::List(v) | Obj::Tuple(v) | Obj::Set(v) => {
-                Some(ObjIter { items: v.clone(), index: 0 })
-            }
+            Obj::List(v) | Obj::Tuple(v) | Obj::Set(v) => Some(ObjIter {
+                items: v.clone(),
+                index: 0,
+            }),
             Obj::Str(s) => {
-                let items = s.chars()
+                let items = s
+                    .chars()
                     .map(|c| Arc::new(Obj::Str(c.to_string())))
                     .collect();
                 Some(ObjIter { items, index: 0 })
             }
             Obj::Dict(m) => {
-                let items = m.keys()
-                    .cloned()
-                    .map(|k| Arc::new(k))
-                    .collect();
+                let items = m.keys().cloned().map(|k| Arc::new(k)).collect();
                 Some(ObjIter { items, index: 0 })
             }
             _ => None,
@@ -873,7 +937,7 @@ impl ArcObjIterExt for Arc<Obj> {
     }
 }
 
-pub trait ToObj : Sized + Clone {
+pub trait ToObj: Sized + Clone {
     fn to_obj(self) -> Obj {
         PyObj::__default__()
     }
@@ -882,35 +946,37 @@ pub trait ToObj : Sized + Clone {
     }
 }
 
-impl ToObj for Expression
-{
-    fn to_arc(self) -> Arc<Obj>
-    {
+impl ToObj for Expression {
+    fn to_arc(self) -> Arc<Obj> {
         self.to_obj().into()
     }
 
     fn to_obj(self) -> Obj {
         match self {
             Expression::Atom(atom) => Obj::from_atom(&atom),
-            Expression::Operation(op, args) => {
-                match op {
-                    Op::List => {
-                        let mut objs = vec![];
-                        for a in args {
-                            objs.push(a.to_arc());
-                        }
-                        Obj::List(objs.into())
+            Expression::Operation(op, args) => match op {
+                Op::List => {
+                    let mut objs = vec![];
+                    for a in args {
+                        objs.push(a.to_arc());
                     }
-                    Op::Plus => {
-                        let lhs = args.first().cloned().unwrap().to_obj();
-                        let rhs = args.last().cloned().unwrap().to_obj();
-                        let sum = Obj::add(&lhs, &rhs);
-                        sum
-                    }
-                    _ => Obj::Except(PyException { error: PyError::TypeError, msg: format!("cannot convert op {:#?} with args {:#?} to Obj", op, args) }),
+                    Obj::List(objs.into())
                 }
-            }
-            _ => Obj::Except(PyException { error: PyError::TypeError, msg: format!("cannot convert {:#?} to Obj", self) }),
+                Op::Plus => {
+                    let lhs = args.first().cloned().unwrap().to_obj();
+                    let rhs = args.last().cloned().unwrap().to_obj();
+                    let sum = Obj::add(&lhs, &rhs);
+                    sum
+                }
+                _ => Obj::Except(PyException {
+                    error: PyError::TypeError,
+                    msg: format!("cannot convert op {:#?} with args {:#?} to Obj", op, args),
+                }),
+            },
+            _ => Obj::Except(PyException {
+                error: PyError::TypeError,
+                msg: format!("cannot convert {:#?} to Obj", self),
+            }),
         }
     }
 }
@@ -922,7 +988,16 @@ impl ToObj for PyException {
     fn to_arc(self) -> Arc<Obj> {
         Obj::Except(self).into()
     }
-} 
+}
+
+impl ToObj for rug::Integer {
+    fn to_obj(self) -> Obj {
+        Obj::Int(self)
+    }
+    fn to_arc(self) -> Arc<Obj> {
+        self.to_obj().into()
+    }
+}
 
 impl ToObj for bool {
     fn to_obj(self) -> Obj {
@@ -991,11 +1066,9 @@ impl ToObj for u16 {
         Obj::Int(self.into())
     }
 }
- 
+
 impl ToObj for u8 {
     fn to_obj(self) -> Obj {
         Obj::Int(self.into())
     }
 }
-
-

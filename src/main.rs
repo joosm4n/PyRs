@@ -8,6 +8,7 @@ pub mod pyrs_utils;
 pub mod pyrs_interpreter;
 pub mod pyrs_bytecode;
 pub mod pyrs_vm;
+pub mod pyrs_codeobject;
 mod pyrs_tests; 
 
 #[allow(unused_imports)]

@@ -35,18 +35,23 @@ pub enum PyBytecode {
     BinaryXOR = 85,
 
     LoadConst(Obj) = 100,
-    LoadFast(String) = 101,
-    StoreFast(String) = 102,
+    LoadFast(usize) = 101,
+    StoreFast(usize) = 102,
     LoadName(String) = 103,
     StoreName(String) = 104,
     LoadGlobal = 105,
     StoreGlobal = 106,
+    PushNull = 107,
+
+    Cache = 110,
 
     CallFunction(usize /* argc */) = 120,
     CallInstrinsic1(IntrinsicFunc) = 121,
     CallInstrinsic2(IntrinsicFunc) = 122,
     ReturnValue = 123,
     MakeFunction = 124,
+
+    LoadBuildClass = 130,
 
     PopJumpIfFalse(usize) = 140,
     PopJumpIfTrue(usize) = 141,
@@ -57,11 +62,15 @@ pub enum PyBytecode {
 
     CompareOp(Op) = 160,
 
+    UnpackSequence = 170,
+    UnpackEx = 171,
+
     BuildList(usize) = 181,
     BuildTuple(usize) = 182,
     BuildSet(usize) = 183,
     BuildMap = 184,
-    ListAppend = 185,
+    BuildString(usize) = 185,
+    ListAppend = 186,
 
     ForIter(usize) = 191,
     GetIter = 192,
@@ -70,13 +79,12 @@ pub enum PyBytecode {
     DestroyStack = 202,
 
     // not proper
-    IfCheckMarker = 252,
-    IfEndMarker = 253,
     Error(String) = 254,
 }
 
 impl PyBytecode {
     pub fn from_expr(expr: Expression, queue: &mut Vec<PyBytecode>) {
+        // println!("Compiling: {}", expr.to_string());
         match expr {
             Expression::Ident(x) => {
                 queue.push(PyBytecode::LoadName(x));
@@ -97,6 +105,36 @@ impl PyBytecode {
                             }
                         }
                         if name.is_empty() { panic!(); }
+
+                        queue.push(PyBytecode::StoreName(name));
+                        return;
+                    }
+                    Op::AddEquals | Op::SubEquals | Op::MulEquals | Op::DivEquals => {
+
+                        for (idx, a) in args.into_iter().enumerate() {
+                            if idx == 0 {
+                                match a {
+                                    Expression::Ident(ident) => {
+                                        name = ident;
+                                        queue.push(PyBytecode::LoadName(name.clone()));
+                                    }
+                                    _ => panic!(),
+                                };
+                            } else if idx == 1 {
+                                PyBytecode::from_expr(a, queue);
+                            } else {
+                                panic!("Only 2 args possible for add/sub/mul/div assign op");
+                            }
+                        }
+                        if name.is_empty() { panic!(); }
+
+                        queue.push( match op {
+                            Op::AddEquals => PyBytecode::BinaryAdd,
+                            Op::SubEquals => PyBytecode::BinarySubtract,
+                            Op::MulEquals => PyBytecode::BinaryMultiply,
+                            Op::DivEquals => PyBytecode::BinaryDivide,
+                            _ => unreachable!(),
+                        });
 
                         queue.push(PyBytecode::StoreName(name));
                         return;
@@ -132,7 +170,7 @@ impl PyBytecode {
                     }
                 }
 
-                queue.push(match op {
+                queue.push( match op {
                     Op::Plus => PyBytecode::BinaryAdd,
                     Op::Minus => PyBytecode::BinarySubtract,
                     Op::Asterisk => PyBytecode::BinaryMultiply,
@@ -146,8 +184,12 @@ impl PyBytecode {
                     | Op::GreaterThan => PyBytecode::CompareOp(op),
 
                     Op::Neg => PyBytecode::UnaryNegative,
+                    Op::Unpack => PyBytecode::UnpackSequence,
 
-                    e => PyBytecode::Error(format!("{e}")),
+                    e => {
+                        println!("Op {e} to PyBytecode not implemented! Pushed Error to instructions instead");
+                        PyBytecode::Error(format!("{e}"))
+                    },
                 });
             }
             Expression::Call(name, args) => {
@@ -169,26 +211,11 @@ impl PyBytecode {
                     queue.push(PyBytecode::CallFunction(argc));
                 }
             }
-            /*
-            Expression::Func(ptr, args) => {
-                let fn_name = ptr.name.as_str().to_string();
-                queue.push(PyBytecode::LoadConst(Obj::None));
-                
-                //dbg!(&fn_name);
-                if let Some(intrinsic) = IntrinsicFunc::try_get(fn_name.as_str()) {
-                    for a in args {
-                        PyBytecode::from_expr(a, queue);
-                    }
-                    queue.push(PyBytecode::CallInstrinsic1(intrinsic))
-                } else {
-                    panic!("Unknown function ident: {}", &fn_name);
-                }
-            }
-            */
             Expression::Keyword(keyword, mut args, body) => {
                 match keyword {
                     Keyword::True => queue.push(PyBytecode::LoadConst(Obj::Bool(true))),
                     Keyword::False => queue.push(PyBytecode::LoadConst(Obj::Bool(false))),
+                    Keyword::Elif | Keyword::Else => panic!("Shouldn't have a stand alone elif/else expression"),
                     Keyword::If => {
                         // Evaluate the if condition first
                         for c in args {
@@ -376,36 +403,19 @@ impl PyBytecode {
                         //dbg!(&body_code);
                         queue.push(PyBytecode::JumpForward(body_code.len()));
                         queue.append(&mut body_code);
+                    }
+                    Keyword::Return => {
 
-                        //panic!();
-                        /* def
-
-                        - the function is just an address to the bytecode
-                        - args are placed in the stack as (values??)
-                        - a temp stack for local variables is made
-                        - args are stored to the variables
-                        - do bytecode
-
-                        fn generate_fn()
-                        {
-                            push inst define function + name
-                            args[ return_ptr, ]
-                            store_fast x argc
-                            *
-                                function body
-                            *
-                            place return on stack
-                            return to previous code
+                        for a in args {
+                            PyBytecode::from_expr(a, queue);
                         }
-
-                        INSTS:
-                        skip func
-                        init local stack
-                        pop args into stack
-                        do bytecode
-                        return value/tuple
-
-                        */
+                        queue.push(PyBytecode::ReturnValue);
+                    }
+                    Keyword::None => {
+                        queue.push(PyBytecode::PushNull);
+                    }
+                    Keyword::Pass => {
+                        queue.push(PyBytecode::NOP);
                     }
                     k => panic!("Unknown keyword: {k}"),
                 }
@@ -415,20 +425,30 @@ impl PyBytecode {
     }
 
     pub fn from_str(s: &str) -> Vec<PyBytecode> {
-        use crate::pyrs_interpreter::Interpreter;
 
+        use crate::pyrs_interpreter::Interpreter;
         use std::fs;
         use std::io::Write;
+        use std::time::{SystemTime, UNIX_EPOCH};
 
-        let temp_file = "__temp_bytecode__.py";
-        let mut file = fs::File::create(temp_file).expect("Failed to create temp file");
+        let thread_id = std::thread::current().id();
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let temp_file = format!("__temp_bytecode_{:?}_{}__.py", thread_id, timestamp);
+        //println!("temp_file: {temp_file}");
+
+        let mut file = fs::File::create(&temp_file).expect("Failed to create temp file");
         file.write_all(s.as_bytes())
             .expect("Failed to write to temp file");
 
-        let code = Interpreter::compile_file(temp_file);
+        let code = Interpreter::compile_file(&temp_file);
 
         // Clean up
-        fs::remove_file(temp_file).expect("Failed to delete temp file");
+        fs::remove_file(temp_file)
+            .expect("Failed to delete temp file");
+
         code
     }
 

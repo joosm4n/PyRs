@@ -1,8 +1,12 @@
 use crate::{
     pyrs_error::{PyError, PyException},
-    pyrs_obj::Obj,
+    pyrs_obj::{Obj, ToObj},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap, f32::consts::E, sync::Arc
+};
+
+use rug::Integer;
 
 pub trait Import {
     fn get_name() -> &'static str;
@@ -130,6 +134,58 @@ impl Funcs {
     // __import__
 }
 
+#[derive(Debug, Clone)]
+pub struct RangeObj 
+{
+    pub start: Option<Integer>,
+    pub end: Option<Integer>,
+    pub inc: Option<Integer>,
+    one_arg: bool,
+}
+
+impl RangeObj 
+{
+    pub fn from(start_val: Option<Integer>, end_val: Option<Integer>, increment: Option<Integer>) -> Self
+    {
+        let only_one_arg = end_val.is_none();
+        RangeObj { start: start_val, end: end_val, inc: increment, one_arg: only_one_arg }
+    }
+
+    pub fn to_vec(self) -> Vec<Arc<Obj>>
+    {
+        let mut objs = vec![];
+
+        let start: Integer; let end: Integer; let inc: Integer;
+        if self.one_arg {
+            start = Integer::ZERO;
+            end = self.start.unwrap_or(Integer::ZERO);
+            inc = Integer::from(1);
+        }
+        else {
+            start = self.start.unwrap_or(Integer::ZERO);
+            end = self.end.unwrap_or(Integer::ZERO);
+            inc = self.inc.unwrap_or(Integer::from(1));
+        }
+        
+        if start < end {
+            let mut curr = start;
+            while curr < end {
+                objs.push(curr.clone().to_arc());
+                curr += inc.clone();
+            }
+        }
+        else {
+            let mut curr = start;
+            while curr > end {
+                objs.push(curr.clone().to_arc());
+                curr += inc.clone();
+            }
+        }
+
+        objs
+    }
+}
+
 impl Import for Funcs {
     fn get_name() -> &'static str {
         return "std";
@@ -151,6 +207,8 @@ impl Import for Funcs {
         }
     }
 }
+
+
 
 pub struct Maths {}
 

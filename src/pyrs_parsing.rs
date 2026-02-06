@@ -1,19 +1,11 @@
 use crate::{
+    pyrs_error::{PyError, PyException},
     pyrs_obj::{Obj, PyObj, ToObj},
     pyrs_std::{FnPtr, Funcs, Import},
     pyrs_utils as Utils,
-    pyrs_error::{PyException, PyError},
 };
 
-use std::{
-    collections::HashMap,
-    sync::{Arc},
-};
-
-#[cfg(not(_YES_))]
-macro_rules! dbg {
-    ($($tt:tt)*) => {};
-}
+use std::{collections::HashMap, sync::Arc};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
@@ -39,7 +31,7 @@ pub enum Op {
     MulEquals,
     DivEquals,
 
-    Deref,
+    Unpack,
 
     Colon,
     SemiColon,
@@ -53,10 +45,10 @@ pub enum Op {
     CurlyBracketsClose,
     SquareBracketsOpen,
     SquareBracketsClose,
-    
+
     Pos,
     Neg,
-    
+
     Not,
     Eq,
     Neq,
@@ -64,7 +56,7 @@ pub enum Op {
     GreaterThan,
     LessEq,
     GreaterEq,
-    
+
     List,
     Tuple,
     Set,
@@ -72,12 +64,33 @@ pub enum Op {
     Dot,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub enum Keyword {
+    If,
+    Elif,
+    Else,
+
+    For,
+    While,
+
+    True,
+    False,
+
+    Def,
+    Class,
+    In,
+    Return,
+
+    None,
+    Pass,
+}
+
 impl Op {
     pub fn try_get_prefix_binding(&self) -> Option<Op> {
         match self {
             Op::Plus => Some(Op::Pos),
             Op::Minus => Some(Op::Neg),
-            Op::Asterisk => Some(Op::Deref),
+            Op::Asterisk => Some(Op::Unpack),
             _ => None,
         }
     }
@@ -85,7 +98,8 @@ impl Op {
     pub fn prefix_binding_power(op: &Op) -> ((), f32) {
         match op {
             Op::Pos | Op::Neg => ((), 3.0),
-            _ => panic!("Unknown operator {:?}", op),
+            Op::Unpack => ((), 4.0),
+            _ => panic!("Unknown prefix operator {:?}", op),
         }
     }
 
@@ -121,12 +135,12 @@ impl Op {
             Op::CurlyBracketsOpen | Op::CurlyBracketsClose => (0.0, 0.1),
             Op::SquareBracketsOpen | Op::SquareBracketsClose => (0.0, 0.1),
 
-            Op::Equals | Op::AddEquals | Op::SubEquals | Op::MulEquals | Op::DivEquals => { 
+            Op::Equals | Op::AddEquals | Op::SubEquals | Op::MulEquals | Op::DivEquals => {
                 (0.2, 0.3)
-            },
+            }
             Op::Eq | Op::Neq | Op::LessEq | Op::LessThan | Op::GreaterEq | Op::GreaterThan => {
                 (0.5, 0.6)
-            },
+            }
             Op::Plus | Op::Minus => (1.0, 1.1),
             Op::Asterisk | Op::ForwardSlash => (2.0, 2.1),
             Op::Dot => (4.1, 4.0),
@@ -159,7 +173,7 @@ impl std::fmt::Display for Op {
         let ident: &str = match self {
             Op::Plus | Op::Pos => "+",
             Op::Minus | Op::Neg => "-",
-            Op::Asterisk | Op::Deref => "*",
+            Op::Asterisk | Op::Unpack => "*",
             Op::ForwardSlash => "/",
             Op::Equals => "=",
             Op::AddEquals => "+=",
@@ -219,12 +233,16 @@ impl<'a> Token<'a> {
             "False" => Keyword::False,
             "in" => Keyword::In,
             "return" => Keyword::Return,
+            "None" => Keyword::None,
+            "pass" => Keyword::Pass,
+            "class" => Keyword::Class,
             _ => return None,
         };
         return Some(Token::Keyword(keyword));
     }
 }
 
+#[derive(Debug)]
 pub struct Lexer<'a> {
     pub tokens: Vec<Token<'a>>,
 }
@@ -246,13 +264,10 @@ impl<'a> std::fmt::Display for Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-
     pub fn from(words: &Vec<&'a str>) -> Self {
         let mut token_list: Vec<Token<'a>> = vec![];
 
         for &word in words {
-            dbg!(format!("Parsing word: {}", word));
-
             let token: Token = match word {
                 "+" => Token::Op(Op::Plus),
                 "-" => Token::Op(Op::Minus),
@@ -272,7 +287,7 @@ impl<'a> Lexer<'a> {
                 ":" => Token::Op(Op::Colon),
                 "!" => Token::Op(Op::Not),
                 "==" => Token::Op(Op::Eq),
-                "!=" => Token::Op(Op::Neq),                
+                "!=" => Token::Op(Op::Neq),
                 "<" => Token::Op(Op::LessThan),
                 ">" => Token::Op(Op::GreaterThan),
                 "<=" => Token::Op(Op::LessEq),
@@ -287,11 +302,12 @@ impl<'a> Lexer<'a> {
                 word if word.starts_with('\"') => Token::Atom(Utils::trim_first_and_last(word)),
                 word if word.starts_with('\'') => Token::Atom(Utils::trim_first_and_last(word)),
                 "" => continue,
-                t => panic!("[Parse Error] Bad token: {:?}", t),
+                t => panic!("ParseError: Bad token: {:?}", t),
             };
-            dbg!(format!("Parsed word is: {}", token));
             token_list.push(token);
         }
+
+        token_list.push(Token::Sep('\n'));
         token_list.reverse();
         return Lexer { tokens: token_list };
     }
@@ -307,7 +323,6 @@ impl<'a> Lexer<'a> {
     #[allow(unused_variables)]
     pub fn parse_expression(&mut self, min_bp: f32) -> Expression {
         //println!("Expr: {:?}", self.peek());
-        dbg!(format!("Parsing expr: {}", self));
         let mut lhs = match self.next() {
             Token::Eof => return Expression::None,
             Token::Atom(it) => Expression::Atom(it.to_string()),
@@ -351,11 +366,10 @@ impl<'a> Lexer<'a> {
                         self.next();
                         //println!("args: {:#?}", args);
                         Expression::Call(ident.to_string(), args)
-                    }
-                    else {
+                    } else {
                         Expression::Ident(ident.to_string())
                     }
-                },
+                }
             },
             Token::Keyword(keyword) => {
                 match keyword {
@@ -366,11 +380,9 @@ impl<'a> Lexer<'a> {
                         while self.peek() != Token::Op(Op::Colon) && self.peek() != Token::Eof {
                             conditions.push(self.parse_expression(0.0));
                         }
-                        return Expression::Keyword(keyword, conditions, vec![])
+                        return Expression::Keyword(keyword, conditions, vec![]);
                     }
-                    Keyword::Else => {
-                        return Expression::Keyword(Keyword::Else, vec![], vec![])
-                    }
+                    Keyword::Else => return Expression::Keyword(Keyword::Else, vec![], vec![]),
                     Keyword::For => {
                         let mut objs = vec![];
 
@@ -381,31 +393,38 @@ impl<'a> Lexer<'a> {
                         objs.push(Expression::Ident(x.into()));
 
                         let _in_tk = match self.next() {
-                            Token::Keyword(Keyword::In) => {},
+                            Token::Keyword(Keyword::In) => {}
                             e => panic!("Syntax Error: expected token \'in\', but found {}", e),
                         };
 
                         loop {
-                            if self.peek() == Token::Op(Op::Colon) { self.next(); break; }
+                            if self.peek() == Token::Op(Op::Colon) {
+                                self.next();
+                                break;
+                            }
                             let cond = self.parse_expression(0.0);
                             objs.push(cond);
                         }
-                        return Expression::Keyword(Keyword::For, objs, vec![])
+                        return Expression::Keyword(Keyword::For, objs, vec![]);
                     }
                     Keyword::Def => {
                         let name = match self.next() {
-                            Token::Ident(ident ) => ident.to_string(),
+                            Token::Ident(ident) => ident.to_string(),
                             t => panic!("Syntax Error: must be ident after def, not {}", t),
                         };
-                        if self.next() != Token::Op(Op::RoundBracketsOpen) { panic!(); }
-                        
+                        if self.next() != Token::Op(Op::RoundBracketsOpen) {
+                            panic!();
+                        }
+
                         let mut args = vec![Expression::Ident(name)];
-                        
+
                         let mut i = 0;
                         let max_args = 1000;
                         loop {
                             i += 1;
-                            if i > max_args { panic!("Max loops"); }
+                            if i > max_args {
+                                panic!("Max loops");
+                            }
 
                             let next = self.next();
                             //println!("tk: {}",tk);
@@ -415,14 +434,22 @@ impl<'a> Lexer<'a> {
                                         Token::Op(Op::Equals) => {
                                             self.next();
                                             let mut vals = vec![Expression::Ident(var.to_string())];
-                                            while self.peek() != Token::Sep(',') && self.peek() != Token::Op(Op::RoundBracketsClose) {
+                                            while self.peek() != Token::Sep(',')
+                                                && self.peek() != Token::Op(Op::RoundBracketsClose)
+                                            {
                                                 let v = self.parse_expression(0.0);
                                                 vals.push(v);
                                             }
                                             match self.peek() {
                                                 Token::Sep(_) => self.next(),
-                                                Token::Op(Op::RoundBracketsClose) => { self.next(); break; },
-                                                t => panic!("Syntax Error: Unexpected token \'{}\'", t),
+                                                Token::Op(Op::RoundBracketsClose) => {
+                                                    self.next();
+                                                    break;
+                                                }
+                                                t => panic!(
+                                                    "Syntax Error: Unexpected token \'{}\'",
+                                                    t
+                                                ),
                                             };
                                             println!("vals: {:#?}", vals);
                                             Expression::Operation(Op::Equals, vals)
@@ -431,13 +458,17 @@ impl<'a> Lexer<'a> {
                                             self.next();
                                             Expression::Ident(var.to_string())
                                         }
-                                        Token::Op(Op::RoundBracketsClose) => Expression::Ident(var.to_string()),
+                                        Token::Op(Op::RoundBracketsClose) => {
+                                            Expression::Ident(var.to_string())
+                                        }
                                         t => panic!("Syntax Error: Unexpected token \'{}\'", t),
                                     };
                                     //println!("expr: {}", expr);
                                     args.push(expr);
-                                },
-                                Token::Op(Op::RoundBracketsClose) => { break; }
+                                }
+                                Token::Op(Op::RoundBracketsClose) => {
+                                    break;
+                                }
                                 t => panic!("Syntax Error: Unexpected token \'{}\'", t),
                             }
                         }
@@ -445,7 +476,33 @@ impl<'a> Lexer<'a> {
                         assert_eq!(colon, Token::Op(Op::Colon));
                         return Expression::Keyword(Keyword::Def, args, vec![]);
                     }
-                    _ => unimplemented!(),
+                    Keyword::Return => {
+                        let mut args = vec![];
+                        loop {
+                            let a = self.peek();
+                            match a {
+                                Token::Sep('\n') => {
+                                    self.next();
+                                    break;
+                                }
+                                Token::Eof => {
+                                    break;
+                                }
+                                t => args.push(self.parse_expression(0.0)),
+                            }
+                        }
+                        assert_eq!(
+                            args.len(),
+                            1,
+                            "return can only return 1 expr not {:#?}",
+                            args
+                        );
+                        return Expression::Keyword(Keyword::Return, args, vec![]);
+                    }
+                    Keyword::Pass => {
+                        return Expression::Keyword(Keyword::Pass, vec![], vec![]);
+                    }
+                    t => panic!("Unimplemented keyword \'{:?}\' in parse_expression()", t),
                 }
             }
             Token::Op(op) => {
@@ -463,23 +520,27 @@ impl<'a> Lexer<'a> {
                         //println!("next: {}", self.peek());
                         if self.peek() == Token::Op(Op::RoundBracketsClose) {
                             //println!("next: {}", self.next());
-                            return Expression::None
-                        }
-                        else {
+                            return Expression::None;
+                        } else {
                             let lhs = self.parse_expression(0.0);
-                            
+
                             let open = self.next();
                             if open == Token::Op(Op::RoundBracketsClose) {
                                 lhs
-                            }
-                            else {
+                            } else {
                                 let mut args = vec![lhs];
                                 loop {
                                     let next = self.peek();
                                     match next {
                                         Token::Eof => panic!("Expected \')\' at end of file"),
-                                        Token::Op(Op::RoundBracketsClose) => { self.next(); break; },
-                                        Token::Sep(_) => { self.next(); continue; },
+                                        Token::Op(Op::RoundBracketsClose) => {
+                                            self.next();
+                                            break;
+                                        }
+                                        Token::Sep(_) => {
+                                            self.next();
+                                            continue;
+                                        }
                                         _ => args.push(self.parse_expression(0.0)),
                                     }
                                 }
@@ -494,8 +555,14 @@ impl<'a> Lexer<'a> {
                             let next = self.peek();
                             match next {
                                 Token::Eof => panic!("Expected \']\' at end of file"),
-                                Token::Op(Op::SquareBracketsClose) => { self.next(); break; },
-                                Token::Sep(_) => { self.next(); continue; },
+                                Token::Op(Op::SquareBracketsClose) => {
+                                    self.next();
+                                    break;
+                                }
+                                Token::Sep(_) => {
+                                    self.next();
+                                    continue;
+                                }
                                 _ => args.push(self.parse_expression(0.0)),
                             }
                         }
@@ -508,8 +575,14 @@ impl<'a> Lexer<'a> {
                             let next = self.peek();
                             match next {
                                 Token::Eof => panic!("Expected \'}}\' at end of file"),
-                                Token::Op(Op::CurlyBracketsClose) => { self.next(); break; },
-                                Token::Sep(_) => { self.next(); continue; },
+                                Token::Op(Op::CurlyBracketsClose) => {
+                                    self.next();
+                                    break;
+                                }
+                                Token::Sep(_) => {
+                                    self.next();
+                                    continue;
+                                }
                                 _ => args.push(self.parse_expression(0.0)),
                             }
                         }
@@ -523,15 +596,14 @@ impl<'a> Lexer<'a> {
             //t => panic!("Syntax Error: Bad token: {:?}", t),
         };
         loop {
-            
             let op = match self.peek() {
-                Token::Eof => break,
-                Token::Op(Op::RoundBracketsClose) => break,
-                Token::Op(Op::SquareBracketsClose) => break,
+                Token::Op(Op::RoundBracketsClose)
+                | Token::Op(Op::SquareBracketsClose)
+                | Token::Op(Op::CurlyBracketsClose) => break,
                 Token::Op(Op::Colon) => break,
+
                 Token::Op(o) => o,
-                Token::Sep(_) => break,
-                Token::Atom(_) | Token::Ident(_) | Token::Keyword(_) => break,
+                _ => break,
             };
 
             let (l_bp, r_bp) = Op::infix_binding_power(&op);
@@ -545,23 +617,6 @@ impl<'a> Lexer<'a> {
         }
         lhs
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub enum Keyword {
-    If,
-    Elif,
-    Else,
-
-    For,
-    While,
-
-    True,
-    False,
-    
-    Def,
-    In,
-    Return,
 }
 
 impl Keyword {}
@@ -579,6 +634,9 @@ impl std::fmt::Display for Keyword {
             Keyword::False => "False",
             Keyword::In => "in",
             Keyword::Return => "return",
+            Keyword::None => "None",
+            Keyword::Pass => "pass",
+            Keyword::Class => "class",
         };
         write!(f, "{}", s)
     }
@@ -603,7 +661,6 @@ impl Default for Expression {
 }
 
 impl Expression {
-
     pub fn get_value_string(&self) -> String {
         match self {
             Expression::Ident(ident) => ident.clone(),
@@ -613,11 +670,10 @@ impl Expression {
     }
 
     pub fn from_multiline(input: &str) -> Vec<Expression> {
-
         let lines: Vec<&str> = input.lines().collect();
         let mut exprs: Vec<Expression> = vec![];
         let mut block_stack: Vec<(usize, Expression, Vec<Expression>)> = vec![];
-        
+
         for line in lines {
             // println!("{}", line);
             let mut trimmed = line.trim();
@@ -628,17 +684,20 @@ impl Expression {
             if let Some((code, _comment)) = trimmed.split_once('#') {
                 trimmed = code;
             }
-            
+
             let indent = crate::pyrs_utils::get_indent(line);
             let expr = Expression::from_line(trimmed);
-        
+
             let is_elif_else = trimmed.starts_with("elif ") || trimmed.starts_with("else:");
-            let is_if_like = matches!(expr, Expression::Keyword(Keyword::If | Keyword::Elif | Keyword::Else, _, _));
+            let is_if_like = matches!(
+                expr,
+                Expression::Keyword(Keyword::If | Keyword::Elif | Keyword::Else, _, _)
+            );
 
             // Close blocks if indentation decreased
             while !block_stack.is_empty() {
                 let (block_indent, _, _) = block_stack.last().unwrap();
-                
+
                 if is_elif_else && is_if_like && indent == *block_indent {
                     break;
                 }
@@ -651,13 +710,12 @@ impl Expression {
                 if let Expression::Keyword(kw, cond, _) = keyword_expr {
                     keyword_expr = Expression::Keyword(kw, cond, body);
                 }
-                
+
                 if let Some((_, _, parent_body)) = block_stack.last_mut() {
                     parent_body.push(keyword_expr);
                 } else {
                     exprs.push(keyword_expr);
                 }
-                
             }
 
             if trimmed.ends_with(":") {
@@ -665,20 +723,16 @@ impl Expression {
                     if let Some((_, _, body)) = block_stack.last_mut() {
                         body.push(expr);
                     }
+                } else {
+                    block_stack.push((indent, expr, vec![])); // If line ends with ':', start a new block
                 }
-                else {
-                    block_stack.push((indent, expr, vec![]));// If line ends with ':', start a new block
-                }
-            } 
-            else if let Some((_, _, body)) = block_stack.last_mut() {
-                body.push(expr);    // Add to current block
+            } else if let Some((_, _, body)) = block_stack.last_mut() {
+                body.push(expr); // Add to current block
+            } else {
+                exprs.push(expr); // Top-level expression
             }
-            else {
-                exprs.push(expr);   // Top-level expression
-            }
-
         }
-        
+
         // Finalize remaining blocks
         while let Some((_, mut keyword_expr, body)) = block_stack.pop() {
             if let Expression::Keyword(kw, cond, _) = keyword_expr {
@@ -696,7 +750,6 @@ impl Expression {
         let mut token_list = Lexer::from(&word_list);
 
         let expr = token_list.parse_expression(0f32);
-        //println!("Parsed expr: {:?}", &expr);
         expr
     }
 
@@ -732,7 +785,6 @@ impl Expression {
         variables: &mut HashMap<String, Arc<Obj>>,
         funcs: &mut HashMap<String, FnPtr>,
     ) -> Result<Arc<Obj>, PyException> {
-
         // println!("Eval: {self}");
         let ret: Arc<Obj> = match self {
             Expression::None => Obj::None.into(),
@@ -741,7 +793,7 @@ impl Expression {
                 let obj = match variables.get(ident) {
                     Some(var) => var.clone(),
                     None => {
-                        return Err(PyException{
+                        return Err(PyException {
                             error: PyError::UndefinedVariableError,
                             msg: format!(
                                 ": could not find the variable \"{ident}\" in the current scope"
@@ -755,12 +807,14 @@ impl Expression {
                 // assign
                 let first = operands.first().unwrap();
                 if *operator == Op::Equals {
-                    let value = operands.get(1).unwrap().eval(&mut *variables, &mut *funcs)?; 
+                    let value = operands
+                        .get(1)
+                        .unwrap()
+                        .eval(&mut *variables, &mut *funcs)?;
                     let var_name = first.get_value_string();
                     variables.insert(var_name, value.clone());
                     return Ok(value);
-                }
-                else if *operator == Op::List {
+                } else if *operator == Op::List {
                     let mut objs: Vec<Arc<Obj>> = vec![];
                     for o in operands {
                         let obj = o.eval(variables, funcs)?;
@@ -770,7 +824,10 @@ impl Expression {
                 }
 
                 // unary
-                let rhs = operands.get(1).unwrap().eval(&mut *variables, &mut *funcs)?;
+                let rhs = operands
+                    .get(1)
+                    .unwrap()
+                    .eval(&mut *variables, &mut *funcs)?;
                 let lhs = first.eval(&mut *variables, &mut *funcs)?;
                 match operator {
                     Op::Pos => return Obj::__pos__(&lhs),
@@ -784,7 +841,6 @@ impl Expression {
                     Op::Minus => PyObj::__sub__(&lhs, &rhs)?,
                     Op::Asterisk => PyObj::__mul__(&lhs, &rhs)?,
                     Op::ForwardSlash => PyObj::__div__(&lhs, &rhs)?,
-                    Op::Deref => PyObj::__deref__(&lhs)?,
                     Op::Eq => PyObj::__eq__(&lhs, &rhs).to_arc(),
                     Op::Neq => PyObj::__ne__(&lhs, &rhs).to_arc(),
                     Op::LessThan => PyObj::__lt__(&lhs, &rhs).to_arc(),
@@ -805,30 +861,25 @@ impl Expression {
                 Keyword::If | Keyword::While => {
                     let condition = conds
                         .iter()
-                        .map(|x| 
-                            x.eval(&mut *variables, &mut *funcs)
-                            .unwrap()
-                            .__bool__())
+                        .map(|x| x.eval(&mut *variables, &mut *funcs).unwrap().__bool__())
                         .all(|x| x);
                     condition.to_arc()
                 }
                 _ => panic!("Unimplemented Keyword: {:?}", keyword),
-            }
-            /*
-            Expression::Func(func, vals) => {
-                let mut args: Vec<Arc<Obj>> = vec![];
-                for val in vals {
-                    args.push(val.eval(&mut *variables, &mut *funcs)?);
-                }
-                (func.ptr)(&args)
-            }
-            */
+            }, /*
+               Expression::Func(func, vals) => {
+                   let mut args: Vec<Arc<Obj>> = vec![];
+                   for val in vals {
+                       args.push(val.eval(&mut *variables, &mut *funcs)?);
+                   }
+                   (func.ptr)(&args)
+               }
+               */
         };
         Ok(ret)
     }
 
-    pub fn print_vec(exprs: &Vec<Expression>)
-    {
+    pub fn print_vec(exprs: &Vec<Expression>) {
         for e in exprs {
             println!("{e}");
         }
@@ -837,10 +888,14 @@ impl Expression {
     pub fn split_if_elif_else(body: Vec<Expression>) -> Vec<Expression> {
         let mut result = vec![];
         let mut current_keyword: Option<(Keyword, Vec<Expression>, Vec<Expression>)> = None;
-        
+
         for expr in body {
             match &expr {
-                Expression::Keyword(kw @ (Keyword::If | Keyword::Elif | Keyword::Else), conds, _) => {
+                Expression::Keyword(
+                    kw @ (Keyword::If | Keyword::Elif | Keyword::Else),
+                    conds,
+                    _,
+                ) => {
                     if let Some((kw, conds, body)) = current_keyword.take() {
                         result.push(Expression::Keyword(kw, conds, body));
                     }
@@ -855,14 +910,13 @@ impl Expression {
                 }
             }
         }
-        
+
         if let Some((kw, conds, body)) = current_keyword {
             result.push(Expression::Keyword(kw, conds, body));
         }
-        
+
         result
     }
-
 }
 
 impl std::fmt::Display for Expression {
@@ -895,16 +949,15 @@ impl std::fmt::Display for Expression {
                     write!(f, " {}", a)?;
                 }
                 write!(f, "]]")
-            }
-            /*
-            Expression::Func(func, args) => {
-                write!(f, "Func[{} args[", func)?;
-                for a in args {
-                    write!(f, " {}", a)?;
-                }
-                write!(f, "]]")
-            }
-            */
+            } /*
+              Expression::Func(func, args) => {
+                  write!(f, "Func[{} args[", func)?;
+                  for a in args {
+                      write!(f, " {}", a)?;
+                  }
+                  write!(f, "]]")
+              }
+              */
         }
     }
 }
