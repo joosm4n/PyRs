@@ -1,7 +1,7 @@
 use crate::{
     pyrs_error::{PyError, PyException},
     pyrs_obj::{Obj, PyObj, ToObj},
-    pyrs_std::{FnPtr, Funcs, Import},
+    pyrs_std::{FnPtr},
     pyrs_utils as Utils,
 };
 
@@ -266,8 +266,9 @@ impl<'a> std::fmt::Display for Lexer<'a> {
 impl<'a> Lexer<'a> {
     pub fn from(words: &Vec<&'a str>) -> Self {
         let mut token_list: Vec<Token<'a>> = vec![];
-
+        //dbg!(words);
         for &word in words {
+            //dbg!(word);
             let token: Token = match word {
                 "+" => Token::Op(Op::Plus),
                 "-" => Token::Op(Op::Minus),
@@ -298,7 +299,10 @@ impl<'a> Lexer<'a> {
                     Token::try_get_keyword(word).unwrap()
                 }
                 word if Utils::str_starts_with(word, char::is_numeric) => Token::Atom(word),
-                word if Utils::str_starts_with(word, char::is_alphabetic) => Token::Ident(word),
+
+                word if Utils::str_starts_with(word, char::is_alphabetic) | 
+                        word.starts_with('_') => Token::Ident(word),
+
                 word if word.starts_with('\"') => Token::Atom(Utils::trim_first_and_last(word)),
                 word if word.starts_with('\'') => Token::Atom(Utils::trim_first_and_last(word)),
                 "" => continue,
@@ -326,7 +330,9 @@ impl<'a> Lexer<'a> {
         let mut lhs = match self.next() {
             Token::Eof => return Expression::None,
             Token::Atom(it) => Expression::Atom(it.to_string()),
-            Token::Ident(ident) => match Funcs::try_get(ident) {
+            Token::Ident(ident) => {
+                /*
+                
                 Some(func) => {
                     let open = self.next();
                     assert_eq!(
@@ -353,23 +359,24 @@ impl<'a> Lexer<'a> {
                     //Expression::Func(func, args)
                 }
                 None => {
-                    if self.peek() == Token::Op(Op::RoundBracketsOpen) {
-                        self.next();
-                        let mut args = vec![];
-                        while self.peek() != Token::Op(Op::RoundBracketsClose) {
-                            if self.peek() == Token::Sep(',') {
-                                self.next();
-                                continue;
-                            }
-                            args.push(self.parse_expression(0.0));
+                */
+                if self.peek() == Token::Op(Op::RoundBracketsOpen) {
+                    self.next();
+                    let mut args = vec![];
+                    while self.peek() != Token::Op(Op::RoundBracketsClose) {
+                        if self.peek() == Token::Sep(',') {
+                            self.next();
+                            continue;
                         }
-                        self.next();
-                        //println!("args: {:#?}", args);
-                        Expression::Call(ident.to_string(), args)
-                    } else {
-                        Expression::Ident(ident.to_string())
+                        args.push(self.parse_expression(0.0));
                     }
+                    self.next();
+                    //println!("args: {:#?}", args);
+                    Expression::Call(ident.to_string(), args)
+                } else {
+                    Expression::Ident(ident.to_string())
                 }
+                /*} */
             },
             Token::Keyword(keyword) => {
                 match keyword {
@@ -498,6 +505,15 @@ impl<'a> Lexer<'a> {
                             args
                         );
                         return Expression::Keyword(Keyword::Return, args, vec![]);
+                    }
+                    Keyword::Class => {
+                        // conds [name]
+                        // body (to be filled)
+                        let mut conditions: Vec<Expression> = vec![];
+                        while self.peek() != Token::Op(Op::Colon) && self.peek() != Token::Eof {
+                            conditions.push(self.parse_expression(0.0));
+                        }
+                        return Expression::Keyword(Keyword::Class, conditions, vec![]);
                     }
                     Keyword::Pass => {
                         return Expression::Keyword(Keyword::Pass, vec![], vec![]);

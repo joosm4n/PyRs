@@ -1,7 +1,13 @@
 use crate::{
     pyrs_obj::{Obj, ToObj},
     pyrs_parsing::{Expression, Keyword, Op},
+    pyrs_userclass::UserClassDef,
     pyrs_vm::IntrinsicFunc,
+};
+
+use std::{ 
+    collections::HashMap,
+    sync::Arc,
 };
 
 // Format: offset INSTRUCTION argument (value)
@@ -93,7 +99,7 @@ impl PyBytecode {
             Expression::Operation(op, args) => {
                 let mut name = String::new();
                 match op {
-                    Op::Equals =>  {
+                    Op::Equals => {
                         for (idx, a) in args.into_iter().enumerate() {
                             if idx == 0 {
                                 match a {
@@ -104,13 +110,14 @@ impl PyBytecode {
                                 PyBytecode::from_expr(a, queue);
                             }
                         }
-                        if name.is_empty() { panic!(); }
+                        if name.is_empty() {
+                            panic!();
+                        }
 
                         queue.push(PyBytecode::StoreName(name));
                         return;
                     }
                     Op::AddEquals | Op::SubEquals | Op::MulEquals | Op::DivEquals => {
-
                         for (idx, a) in args.into_iter().enumerate() {
                             if idx == 0 {
                                 match a {
@@ -126,9 +133,11 @@ impl PyBytecode {
                                 panic!("Only 2 args possible for add/sub/mul/div assign op");
                             }
                         }
-                        if name.is_empty() { panic!(); }
+                        if name.is_empty() {
+                            panic!();
+                        }
 
-                        queue.push( match op {
+                        queue.push(match op {
                             Op::AddEquals => PyBytecode::BinaryAdd,
                             Op::SubEquals => PyBytecode::BinarySubtract,
                             Op::MulEquals => PyBytecode::BinaryMultiply,
@@ -163,6 +172,17 @@ impl PyBytecode {
                         queue.push(PyBytecode::BuildTuple(obj_cound));
                         return;
                     }
+                    Op::Dot => {
+                        dbg!(&args);
+                        let mut sides = args;
+                        let lhs = sides.first().unwrap().get_value_string();
+                        match sides.pop().unwrap() {
+                            Expression::Call(name, args) => {
+                                PyBytecode::from_expr(Expression::Call(format!("{}.{}", lhs, name), args), queue);
+                            }
+                            _ => panic!(),
+                        };
+                    }
                     _ => {
                         for a in args {
                             PyBytecode::from_expr(a, queue);
@@ -195,39 +215,44 @@ impl PyBytecode {
             Expression::Call(name, args) => {
                 let argc = args.len();
                 // dbg!(&args);
-                queue.push(PyBytecode::LoadConst(Obj::None));
+
+                let intrinsic_option = IntrinsicFunc::try_get(&name);
+                if intrinsic_option.is_some() {
+                    queue.push(PyBytecode::PushNull);
+                }
+
                 for a in args {
                     //dbg!(&a);
                     PyBytecode::from_expr(a, queue);
                 }
 
-                if let Some(intrinsic) = IntrinsicFunc::try_get(&name) {
+                if let Some(intrinsic) = intrinsic_option {
                     queue.push(PyBytecode::CallInstrinsic1(intrinsic));
                 } else {
                     queue.push(PyBytecode::LoadConst(name.as_str().to_obj()));
-                    // create tuple that is argc sized
-                    // push default args into it (Obj::None?)
-                    // then replace these with used args
                     queue.push(PyBytecode::CallFunction(argc));
+                    // todo: create tuple that is argc sized??
                 }
             }
             Expression::Keyword(keyword, mut args, body) => {
                 match keyword {
                     Keyword::True => queue.push(PyBytecode::LoadConst(Obj::Bool(true))),
                     Keyword::False => queue.push(PyBytecode::LoadConst(Obj::Bool(false))),
-                    Keyword::Elif | Keyword::Else => panic!("Shouldn't have a stand alone elif/else expression"),
+                    Keyword::Elif | Keyword::Else => {
+                        panic!("Shouldn't have a stand alone elif/else expression")
+                    }
                     Keyword::If => {
                         // Evaluate the if condition first
                         for c in args {
                             PyBytecode::from_expr(c, queue);
                         }
-                        
+
                         let parts = Expression::split_if_elif_else(body);
-                        
+
                         // Generate the main if body
                         let mut if_body = vec![];
                         let mut elif_else_parts = vec![];
-                        
+
                         for part in parts {
                             match part {
                                 Expression::Keyword(Keyword::Elif, conds, body) => {
@@ -241,7 +266,7 @@ impl PyBytecode {
                                 }
                             }
                         }
-                        
+
                         if elif_else_parts.is_empty() {
                             // Simple if statement
                             queue.push(PyBytecode::PopJumpIfFalse(if_body.len()));
@@ -250,37 +275,39 @@ impl PyBytecode {
                             // Complex if-elif-else
                             // For now, let's implement a simpler approach that works correctly
                             // even if not optimally efficient
-                            
+
                             // Generate all the elif/else bytecode first to know sizes
                             let mut all_elif_else_code = vec![];
-                            
+
                             for (conds, body_exprs) in elif_else_parts {
                                 let mut block_code = vec![];
-                                
+
                                 if !conds.is_empty() {
                                     // elif block
                                     for cond in conds {
                                         PyBytecode::from_expr(cond, &mut block_code);
                                     }
-                                    
+
                                     let mut body_code = vec![];
                                     for expr in body_exprs {
                                         PyBytecode::from_expr(expr, &mut body_code);
                                     }
-                                    
-                                    block_code.push(PyBytecode::PopJumpIfFalse(body_code.len() + 1));
+
+                                    block_code
+                                        .push(PyBytecode::PopJumpIfFalse(body_code.len() + 1));
                                     block_code.append(&mut body_code);
-                                    block_code.push(PyBytecode::JumpForward(0)); // Placeholder, will fix later
+                                    block_code.push(PyBytecode::JumpForward(0));
+                                // Placeholder, will fix later
                                 } else {
                                     // else block - no condition
                                     for expr in body_exprs {
                                         PyBytecode::from_expr(expr, &mut block_code);
                                     }
                                 }
-                                
+
                                 all_elif_else_code.append(&mut block_code);
                             }
-                            
+
                             // Fix the JumpForward placeholders
                             let mut jump_fixups = vec![];
                             for (i, instr) in all_elif_else_code.iter().enumerate() {
@@ -289,11 +316,11 @@ impl PyBytecode {
                                     jump_fixups.push((i, remaining));
                                 }
                             }
-                            
+
                             for (idx, distance) in jump_fixups {
                                 all_elif_else_code[idx] = PyBytecode::JumpForward(distance);
                             }
-                            
+
                             // Now emit the main if
                             //let skip_distance = if_body.len() + 1 + all_elif_else_code.len();
                             queue.push(PyBytecode::PopJumpIfFalse(if_body.len() + 1));
@@ -328,13 +355,17 @@ impl PyBytecode {
                         queue.push(PyBytecode::LoadConst(Obj::None));
                     }
                     Keyword::For => {
-                        
-                        let for_err = "only for loops of form \'for Ident() in Ident()\' currently supported";
+                        let for_err =
+                            "only for loops of form \'for Ident() in Ident()\' currently supported";
                         assert_eq!(args.len(), 2);
 
                         match args.pop().unwrap() {
-                            Expression::Ident(ident) => queue.push(PyBytecode::LoadName(ident.clone())),
-                            c if matches!(c, Expression::Call(_, _)) => PyBytecode::from_expr(c, queue), 
+                            Expression::Ident(ident) => {
+                                queue.push(PyBytecode::LoadName(ident.clone()))
+                            }
+                            c if matches!(c, Expression::Call(_, _)) => {
+                                PyBytecode::from_expr(c, queue)
+                            }
                             e => panic!("{} found {}", for_err, e),
                         };
 
@@ -344,13 +375,13 @@ impl PyBytecode {
                         };
 
                         queue.push(PyBytecode::GetIter);
-                        
+
                         let mut for_code = vec![];
                         for b in body {
                             PyBytecode::from_expr(b, &mut for_code);
                         }
                         let contents_len = for_code.len(); // length of for loops contents
-                        
+
                         queue.push(PyBytecode::ForIter(contents_len + 2));
                         queue.push(PyBytecode::StoreName(x.into()));
 
@@ -404,15 +435,59 @@ impl PyBytecode {
                         queue.push(PyBytecode::JumpForward(body_code.len()));
                         queue.append(&mut body_code);
                     }
-                    Keyword::Return => {
+                    Keyword::Class => {
+                        //println!("\nClass");
 
+                        //dbg!(&args);
+                        let name = match args.first().unwrap() {
+                            Expression::Ident(ident) => ident.clone(),
+                            e => panic!("class name must be an identifier not: {:?}", e),
+                        };
+
+                        //dbg!(&body);
+                        let mut fields: HashMap<String, (usize, Obj)> = HashMap::new();
+                        let mut methods = UserClassDef::default_methods();
+                        for (idx, f) in body.into_iter().enumerate() {
+                            match f {
+                                Expression::Operation(Op::Equals, mut v) => {
+                                    let default_val = v.pop().unwrap();
+                                    fields.insert(
+                                        v[0].get_value_string(),
+                                        (idx, default_val.to_obj()),
+                                    );
+                                }
+                                Expression::Keyword(Keyword::Def, conds, body) => {
+                                    let mut func = vec![];
+                                    let fn_name = conds.first().unwrap().get_value_string();
+                                    PyBytecode::from_expr(
+                                        Expression::Keyword(Keyword::Def, conds, body),
+                                        &mut func,
+                                    );
+                                    methods.insert(fn_name, func);
+                                }
+                                _ => panic!("invalid expr for default"),
+                            }
+                        }
+
+                        let class = UserClassDef {
+                            name: name,
+                            fields: fields,
+                            methods: methods,
+                        };
+
+                        queue.push(PyBytecode::LoadConst(Obj::ClassDef(Arc::new(class))));
+                        queue.push(PyBytecode::LoadBuildClass);
+
+                        //panic!("testing class");
+                    }
+                    Keyword::Return => {
                         for a in args {
                             PyBytecode::from_expr(a, queue);
                         }
                         queue.push(PyBytecode::ReturnValue);
                     }
                     Keyword::None => {
-                        queue.push(PyBytecode::PushNull);
+                        queue.push(PyBytecode::LoadConst(Obj::None));
                     }
                     Keyword::Pass => {
                         queue.push(PyBytecode::NOP);
@@ -425,7 +500,6 @@ impl PyBytecode {
     }
 
     pub fn from_str(s: &str) -> Vec<PyBytecode> {
-
         use crate::pyrs_interpreter::Interpreter;
         use std::fs;
         use std::io::Write;
@@ -446,8 +520,7 @@ impl PyBytecode {
         let code = Interpreter::compile_file(&temp_file);
 
         // Clean up
-        fs::remove_file(temp_file)
-            .expect("Failed to delete temp file");
+        fs::remove_file(temp_file).expect("Failed to delete temp file");
 
         code
     }

@@ -1,5 +1,5 @@
 use crate::{ 
-    pyrs_bytecode::PyBytecode, pyrs_error::{PyError, PyException}, pyrs_obj::{Obj, ToObj}
+    pyrs_bytecode::PyBytecode, pyrs_error::{PyError, PyException}, pyrs_obj::{Obj}
 };
 use std::{
     collections::HashMap,
@@ -7,19 +7,19 @@ use std::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct UserClass {
+pub struct UserClassDef {
     pub name: String,
-    pub fields: HashMap<String, usize>, // offset
+    pub fields: HashMap<String, (usize, Obj)>, // offset
     pub methods: HashMap<String, Vec<PyBytecode>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserClassInstance {
-    pub class: Arc<UserClass>,
+    pub class: Arc<UserClassDef>,
     pub fields: Vec<Arc<Obj>>,
 }
 
-impl UserClass
+impl UserClassDef
 {
     pub fn new_instance(class: &Arc<Self>) -> UserClassInstance {
         UserClassInstance {
@@ -37,20 +37,28 @@ impl UserClass
         fields
     }
 
+    pub fn default_methods() -> HashMap<String, Vec<PyBytecode>>
+    {
+        let mut map = HashMap::new();
+        map.insert("__init__".into(), vec![PyBytecode::ReturnValue]);
+        map.insert("__str__".into(), vec![PyBytecode::ReturnValue]);
+        map
+    }
+
 }
 
 impl UserClassInstance
 {
-    pub fn get_field(&self, field: &String) -> Arc<Obj>
+    pub fn get_field(&self, field: &String) -> Result<&Arc<Obj>, PyException>
     {
-        if let Some(idx) = self.class.fields.get(field) {
-            self.fields[*idx].clone()
+        if let Some((idx, _)) = self.class.fields.get(field) {
+            Ok(&self.fields[*idx])
         }
         else {
-            return PyException{
+            Err(PyException{
                 error: PyError::UndefinedVariableError,
                 msg: format!("no field \'{field}\' for object {}", &self.class.name),
-            }.to_arc()
+            })
         }
     } 
 }
@@ -73,8 +81,3 @@ What to implement:
 
 */
 
-impl std::fmt::Display for UserClass {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} - {:?}", self.name, self.fields)
-    }
-}

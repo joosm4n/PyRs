@@ -2,7 +2,7 @@ use crate::{
     pyrs_error::{PyError, PyException},
     pyrs_parsing::{Expression, Op},
     pyrs_std::{FnPtr, RangeObj},
-    pyrs_userclass::{UserClassInstance},
+    pyrs_userclass::{UserClassInstance, UserClassDef},
 };
 use std::{
     collections::HashMap,
@@ -17,7 +17,10 @@ use rug::Integer;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum Obj {
+
+    Null,
     None,
+
     Bool(bool),
     Float(f64),
     Str(String),
@@ -37,6 +40,7 @@ pub enum Obj {
     Iter(ObjIter),
 
     Class(UserClassInstance),
+    ClassDef(Arc<UserClassDef>),
 
     // Iterator
     // - containters
@@ -70,7 +74,7 @@ pub trait PyObj: std::fmt::Debug + Clone {
         ret
     }
 
-    fn __dot__(&self, _ident: &String) -> Arc<Obj> {
+    fn __dot__(&self, _ident: &String) -> Result<&Arc<Obj>, PyException> {
         panic!();
     }
 
@@ -402,7 +406,7 @@ impl PyObj for Obj {
         Obj::None
     }
 
-    fn __dot__(&self, field: &String) -> Arc<Obj> {
+    fn __dot__(&self, field: &String) -> Result<&Arc<Obj>, PyException> {
         match self {
             Obj::Class(o) => {
                 o.get_field(field)
@@ -459,6 +463,7 @@ impl PyObj for Obj {
 
     fn __str__(&self) -> String {
         match self {
+            Obj::Null => format!(""),
             Obj::None => format!("None"),
             Obj::Bool(val) => match val {
                 true => format!("True"),
@@ -542,7 +547,21 @@ impl PyObj for Obj {
                 for (name, _) in &class.fields {
                     c.push_str(name);
                     c.push_str(": ");
-                    c.push_str(&instance.get_field(name).__str__());
+                    c.push_str(&instance.get_field(name).unwrap().__str__());
+                    c.push('\n');
+                }
+                c.push(']');
+                c
+            }
+            Obj::ClassDef(class) => {
+                let mut c = format!("Class[ {} fields[", class.name);
+                for (name, _) in &class.fields {
+                    c.push_str(name);
+                    c.push('\n');
+                }
+                c.push_str("] methods[");
+                for (name, _) in &class.methods {
+                    c.push_str(name);
                     c.push('\n');
                 }
                 c.push(']');
@@ -667,6 +686,7 @@ impl PyObj for Obj {
 impl PartialEq for Obj {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
+            (Obj::Null, Obj::Null) |
             (Obj::None, Obj::None) => true,
             (Obj::Float(flt), other) => match other {
                 Obj::Float(same) => *flt == *same,

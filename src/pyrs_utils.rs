@@ -85,10 +85,6 @@ pub fn split_to_words(sentence: &str) -> Vec<&str> {
                 }
             }
 
-            c if !c.is_alphanumeric() && c != '.' => {
-                words.push(&sentence[start_idx..start_idx + c.len_utf8()]);
-            }
-
             c if c.is_numeric() => {
                 let mut end_idx = start_idx + c.len_utf8();
                 let mut has_dot = false;
@@ -136,6 +132,10 @@ pub fn split_to_words(sentence: &str) -> Vec<&str> {
                 }
 
                 words.push(&sentence[start_idx..end_idx]);
+            }
+
+            c if !c.is_alphanumeric() && c != '.' => {
+                words.push(&sentence[start_idx..start_idx + c.len_utf8()]);
             }
 
             // Handle standalone dot

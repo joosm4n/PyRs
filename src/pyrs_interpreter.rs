@@ -1,4 +1,3 @@
-
 use std::{
     collections::HashMap,
     io::{self, Write},
@@ -6,17 +5,16 @@ use std::{
 };
 
 use crate::{
+    pyrs_bytecode::PyBytecode,
+    pyrs_error::PyException,
     pyrs_obj::{Obj, PyObj},
     pyrs_parsing::{Expression, Keyword},
     pyrs_std::{FnPtr, Funcs},
-    pyrs_utils::{get_indent},
-    pyrs_error::{PyException},
-    pyrs_bytecode::{PyBytecode},
-    pyrs_vm::{PyVM}
+    pyrs_utils::get_indent,
+    pyrs_vm::PyVM,
 };
 
-pub struct Interpreter
-{
+pub struct Interpreter {
     variables: HashMap<String, Arc<Obj>>,
     funcs: HashMap<String, FnPtr>,
     running: bool,
@@ -27,7 +25,6 @@ pub struct Interpreter
     // Stack-based approach for nested blocks
     block_stack: Vec<BlockContext>,
     //cache: Expression,
-
     last_line: String,
     debug_mode: bool,
     repr: bool,
@@ -38,13 +35,12 @@ pub struct Interpreter
 #[derive(Debug)]
 struct BlockContext {
     indent_level: usize,
-    keyword_expr: Expression,  // The if/elif/else/for/while expression
-    body: Vec<Expression>,      // Expressions in this block
+    keyword_expr: Expression, // The if/elif/else/for/while expression
+    body: Vec<Expression>,    // Expressions in this block
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 
-pub enum InterpreterFlags
-{
+pub enum InterpreterFlags {
     Debug,
     AnyFile,
     Compile,
@@ -75,8 +71,7 @@ impl Interpreter {
         }
     }
 
-    pub fn set_debug_mode(&mut self, debug: bool)
-    {
+    pub fn set_debug_mode(&mut self, debug: bool) {
         self.debug_mode = debug;
         self.vm.set_debug_mode(debug);
     }
@@ -85,10 +80,8 @@ impl Interpreter {
         "pyrs-0-1"
     }
 
-    pub fn print_help()
-    {
-        let help = 
-        r#"
+    pub fn print_help() {
+        let help = r#"
         Usage:  PyRs <flags> <filename>
         
         or:     cargo run -- <flags> <filename>
@@ -128,13 +121,12 @@ impl Interpreter {
         });
     }
 
-    fn interpret_blocks_until(&mut self, target_indent: usize) 
-    {
+    fn interpret_blocks_until(&mut self, target_indent: usize) {
         while let Some(context) = self.block_stack.last() {
             if context.indent_level <= target_indent {
                 break;
             }
-            
+
             let context = self.block_stack.pop().unwrap();
             let complete_expr = match context.keyword_expr {
                 Expression::Keyword(kw, conds, _empty) => {
@@ -142,7 +134,7 @@ impl Interpreter {
                 }
                 _ => panic!("Expected keyword expression"),
             };
-            
+
             // Either add to parent block or execute
             if let Some(parent) = self.block_stack.last_mut() {
                 parent.body.push(complete_expr);
@@ -154,15 +146,13 @@ impl Interpreter {
 
     pub fn parse_args(argv: &Vec<String>) -> Vec<InterpreterCommand> {
         let arg_err = "Invalid args. \nEg: cargo run -- test.py \n or: cargo run -- -a test.x";
-        
+
         let mut commands = vec![];
         let mut flags = vec![];
 
         if argv.len() == 1 {
             return vec![InterpreterCommand::Live];
-        }
-        else {
-            
+        } else {
             for (i, arg) in argv.iter().enumerate() {
                 if i == 0 {
                     continue;
@@ -173,7 +163,7 @@ impl Interpreter {
                     "-c" | "--compile" => flags.push(InterpreterFlags::Compile),
                     "-h" | "--help" => commands.push(InterpreterCommand::PrintHelp),
                     a if a.contains('.') => {
-                        let mut file_flags= vec![];
+                        let mut file_flags = vec![];
                         file_flags.append(&mut flags);
                         commands.push(InterpreterCommand::File(arg.to_string(), file_flags));
                         flags = vec![];
@@ -186,16 +176,9 @@ impl Interpreter {
     }
 
     pub fn interpret_line(&mut self, line_in: &str) {
-
         let mut line = line_in;
-
         self.curr_line += 1;
-        // dbg!(self.curr_line);
-
         let line_indent = get_indent(line);
-        // dbg!(line_indent);
-
-        // dbg!(&self.block_stack);
 
         if let Some(top) = self.block_stack.last() {
             if line_indent < top.indent_level {
@@ -223,70 +206,65 @@ impl Interpreter {
         if line.trim().ends_with(":") {
             if let Expression::Keyword(_, _, _) = expr {
                 self.start_block(line_indent + 4, expr);
-            } 
-            else {
+            } else {
                 panic!("Only keywords can start blocks");
             }
-        }
-        else {
+        } else {
             if self.block_stack.is_empty() {
                 self.process_expr(&expr); // keyword args are in
-            } 
-            else {
+            } else {
                 self.push_to_current_block(expr);
             }
         }
-
     }
 
-    fn process_expr(&mut self, expr: &Expression) 
-    {
+    fn process_expr(&mut self, expr: &Expression) {
         match expr {
-            Expression::Keyword(keyword, _conds , args) => {
-                match keyword {
-                    Keyword::If => {
-                        match self.eval_expr(&expr) {
-                            Ok(cond) => { 
-                                if cond.__bool__() {
-                                    for a in args {
-                                        self.process_expr(&a);
-                                    }
-                                }
-                            }
-                            Err(e) => e.print(),
-                        }
-                    }
-                    Keyword::While => {
-                        loop {
-                            match self.eval_expr(&expr) {
-                                Ok(cond) => { 
-                                    if !cond.__bool__() { break; }
-                                    for a in args {
-                                        self.process_expr(&a);
-                                    }
-                                }
-                                Err(e) => {
-                                    e.print();
-                                    break;
-                                }
+            Expression::Keyword(keyword, _conds, args) => match keyword {
+                Keyword::If => match self.eval_expr(&expr) {
+                    Ok(cond) => {
+                        if cond.__bool__() {
+                            for a in args {
+                                self.process_expr(&a);
                             }
                         }
                     }
-                    _ => unimplemented!()
-                }
-            }
+                    Err(e) => e.print(),
+                },
+                Keyword::While => loop {
+                    match self.eval_expr(&expr) {
+                        Ok(cond) => {
+                            if !cond.__bool__() {
+                                break;
+                            }
+                            for a in args {
+                                self.process_expr(&a);
+                            }
+                        }
+                        Err(e) => {
+                            e.print();
+                            break;
+                        }
+                    }
+                },
+                _ => unimplemented!(),
+            },
             _ => {}
         }
 
         if let Some((var_name, lhs)) = expr.is_assign() {
             let value = lhs.eval(&mut self.variables, &mut self.funcs);
             match value {
-                Ok(val) => { self.variables.insert(var_name.to_string(), val); }
-                Err(e) => { e.print(); }
+                Ok(val) => {
+                    self.variables.insert(var_name.to_string(), val);
+                }
+                Err(e) => {
+                    e.print();
+                }
             }
             return;
         }
-        
+
         let res = self.eval_expr(&expr);
         match res {
             Ok(obj) => {
@@ -294,19 +272,18 @@ impl Interpreter {
                     println!("{}", obj.__repr__())
                 }
             }
-            Err(e) => { e.print(); }
+            Err(e) => {
+                e.print();
+            }
         }
-
     }
 
-    pub fn live_interpret(&mut self) 
-    {
+    pub fn live_interpret(&mut self) {
         self.repr = true;
         loop {
             if self.curr_indent > 0 {
                 print!("... ");
-            }
-            else {
+            } else {
                 print!(">>> ");
             }
             io::stdout().flush().unwrap();
@@ -331,13 +308,12 @@ impl Interpreter {
 
     // vvvv using byte code vvvv
     pub fn compile_file(filepath: &str) -> Vec<PyBytecode> {
-
         let mut bytecode: Vec<PyBytecode> = vec![];
         let contents = match std::fs::read_to_string(filepath) {
             Ok(f) => f,
             Err(e) => panic!("Fileread error: {e}"),
         };
-        let parsed  = Expression::from_multiline(contents.as_str());
+        let parsed = Expression::from_multiline(contents.as_str());
         //dbg!(&parsed);
         for expr in parsed {
             PyBytecode::from_expr(expr, &mut bytecode);
@@ -348,14 +324,12 @@ impl Interpreter {
 
     #[allow(dead_code)]
     fn execute_expr(&mut self, expr: Expression) {
-
         let mut bytecode = vec![];
         PyBytecode::from_expr(expr, &mut bytecode);
         self.vm.execute(bytecode);
     }
 
-    pub fn seralize_bytecode(filename: &str, bytecode: &Vec<PyBytecode>) -> std::io::Result<()>
-    {
+    pub fn seralize_bytecode(filename: &str, bytecode: &Vec<PyBytecode>) -> std::io::Result<()> {
         use std::fs;
         let exists = fs::exists("__pycache__")?;
         if !exists {
