@@ -62,6 +62,8 @@ pub enum Op {
     Set,
 
     Dot,
+    IndexOpen,
+    IndexClose,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -83,23 +85,51 @@ pub enum Keyword {
 
     None,
     Pass,
+    Import,
 }
 
 impl Op {
-    pub fn try_get_prefix_binding(&self) -> Option<Op> {
-        match self {
-            Op::Plus => Some(Op::Pos),
-            Op::Minus => Some(Op::Neg),
-            Op::Asterisk => Some(Op::Unpack),
-            _ => None,
-        }
-    }
 
     pub fn prefix_binding_power(op: &Op) -> ((), f32) {
         match op {
             Op::Pos | Op::Neg => ((), 3.0),
             Op::Unpack => ((), 4.0),
             _ => panic!("Unknown prefix operator {:?}", op),
+        }
+    }
+
+    pub fn infix_binding_power(op: &Op) -> (f32, f32) {
+        match op {
+            Op::RoundBracketsOpen | Op::RoundBracketsClose => (0.0, 0.1),
+            Op::CurlyBracketsOpen | Op::CurlyBracketsClose => (0.0, 0.1),
+            Op::SquareBracketsOpen | Op::SquareBracketsClose => (0.0, 0.1),
+
+            Op::Equals | Op::AddEquals | Op::SubEquals | Op::MulEquals | Op::DivEquals => {
+                (0.2, 0.3)
+            }
+            Op::Eq | Op::Neq | Op::LessEq | Op::LessThan | Op::GreaterEq | Op::GreaterThan => {
+                (0.5, 0.6)
+            }
+            Op::Plus | Op::Minus => (1.0, 1.1),
+            Op::Asterisk | Op::ForwardSlash => (2.0, 2.1),
+            Op::Dot => (4.1, 4.0),
+            _ => panic!("Unknown infix operator {:?}", op),
+        }
+    }
+
+    pub fn postfix_binding_power(op: &Op) -> Option<(f32, ())> {
+        match op {
+            Op::SquareBracketsOpen => Some((3.0, ())),
+            _ => None,
+        }
+    }
+
+    pub fn try_get_prefix_binding(&self) -> Option<Op> {
+        match self {
+            Op::Plus => Some(Op::Pos),
+            Op::Minus => Some(Op::Neg),
+            Op::Asterisk => Some(Op::Unpack),
+            _ => None,
         }
     }
 
@@ -129,24 +159,6 @@ impl Op {
         }
     }
 
-    pub fn infix_binding_power(op: &Op) -> (f32, f32) {
-        match op {
-            Op::RoundBracketsOpen | Op::RoundBracketsClose => (0.0, 0.1),
-            Op::CurlyBracketsOpen | Op::CurlyBracketsClose => (0.0, 0.1),
-            Op::SquareBracketsOpen | Op::SquareBracketsClose => (0.0, 0.1),
-
-            Op::Equals | Op::AddEquals | Op::SubEquals | Op::MulEquals | Op::DivEquals => {
-                (0.2, 0.3)
-            }
-            Op::Eq | Op::Neq | Op::LessEq | Op::LessThan | Op::GreaterEq | Op::GreaterThan => {
-                (0.5, 0.6)
-            }
-            Op::Plus | Op::Minus => (1.0, 1.1),
-            Op::Asterisk | Op::ForwardSlash => (2.0, 2.1),
-            Op::Dot => (4.1, 4.0),
-            _ => panic!("Unknown operator {:?}", op),
-        }
-    }
 }
 
 impl<'a, 'b> PartialEq<Token<'b>> for Token<'a> {
@@ -196,8 +208,8 @@ impl std::fmt::Display for Op {
             Op::RoundBracketsClose => ")",
             Op::CurlyBracketsOpen => "{",
             Op::CurlyBracketsClose => "}",
-            Op::SquareBracketsOpen => "[",
-            Op::SquareBracketsClose => "]",
+            Op::SquareBracketsOpen | Op::IndexOpen => "[",
+            Op::SquareBracketsClose | Op::IndexClose => "]",
             Op::Dot => ".",
             Op::List => "list",
             Op::Tuple => "tuple",
@@ -236,6 +248,7 @@ impl<'a> Token<'a> {
             "None" => Keyword::None,
             "pass" => Keyword::Pass,
             "class" => Keyword::Class,
+            "import" => Keyword::Import,
             _ => return None,
         };
         return Some(Token::Keyword(keyword));
@@ -515,6 +528,14 @@ impl<'a> Lexer<'a> {
                         }
                         return Expression::Keyword(Keyword::Class, conditions, vec![]);
                     }
+                    Keyword::Import => {
+                        let next = self.peek();
+                        let name = match next {
+                            Token::Ident(n) => n,
+                            _ => panic!(),
+                        };
+                        return Expression::Keyword(Keyword::Import, vec![Expression::Ident(name.into())], vec![]);
+                    }
                     Keyword::Pass => {
                         return Expression::Keyword(Keyword::Pass, vec![], vec![]);
                     }
@@ -525,10 +546,9 @@ impl<'a> Lexer<'a> {
                 if let Some(prefix) = op.try_get_prefix_binding() {
                     let ((), r_bp) = Op::prefix_binding_power(&prefix);
                     let rhs = self.parse_expression(r_bp);
-                    return Expression::Operation(prefix, vec![rhs]);
-                }
-
-                match op {
+                    Expression::Operation(prefix, vec![rhs])
+                } else {
+                    match op {
                     Op::Colon => {
                         return Expression::Operation(Op::Colon, vec![]);
                     }
@@ -606,6 +626,7 @@ impl<'a> Lexer<'a> {
                         Expression::Operation(Op::Set, args)
                     }
                     t => panic!("Syntax Error: Unimplemented Op: {:?}", t),
+                    }
                 }
             }
             Token::Sep(_) => return Expression::None,
@@ -621,6 +642,23 @@ impl<'a> Lexer<'a> {
                 Token::Op(o) => o,
                 _ => break,
             };
+
+
+            if let Some((l_bp, ())) = Op::postfix_binding_power(&op) {
+                if l_bp < min_bp {
+                    break;
+                }
+                self.next();
+
+                lhs = if op == Op::SquareBracketsOpen {
+                    let rhs = self.parse_expression(0.0);
+                    assert_eq!(self.next(), Token::Op(Op::SquareBracketsClose));
+                    Expression::Operation(op, vec![lhs, rhs])
+                } else {
+                    Expression::Operation(op, vec![lhs])
+                };
+                continue;
+            }
 
             let (l_bp, r_bp) = Op::infix_binding_power(&op);
             if l_bp < min_bp {
@@ -653,6 +691,7 @@ impl std::fmt::Display for Keyword {
             Keyword::None => "None",
             Keyword::Pass => "pass",
             Keyword::Class => "class",
+            Keyword::Import => "import",
         };
         write!(f, "{}", s)
     }
@@ -836,7 +875,7 @@ impl Expression {
                         let obj = o.eval(variables, funcs)?;
                         objs.push(Arc::from(obj));
                     }
-                    return Ok(Obj::List(objs).into());
+                    return Ok(objs.to_arc());
                 }
 
                 // unary
@@ -882,7 +921,8 @@ impl Expression {
                     condition.to_arc()
                 }
                 _ => panic!("Unimplemented Keyword: {:?}", keyword),
-            }, /*
+            }, 
+            /*
                Expression::Func(func, vals) => {
                    let mut args: Vec<Arc<Obj>> = vec![];
                    for val in vals {

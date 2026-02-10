@@ -1,6 +1,6 @@
 
-class MyClass:
-    i = 1
+def myfn():
+    print("myfn")
 
-x = MyClass
-print(x.__str__())
+x = myfn
+print(x)

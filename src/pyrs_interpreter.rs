@@ -2,15 +2,17 @@ use std::{
     collections::HashMap,
     io::{self, Write},
     sync::Arc,
+    path::{Path, PathBuf},
 };
 
 use crate::{
-    pyrs_bytecode::PyBytecode,
-    pyrs_error::PyException,
-    pyrs_obj::{Obj, PyObj},
-    pyrs_parsing::{Expression, Keyword},
-    pyrs_std::{FnPtr, Funcs},
-    pyrs_utils::get_indent,
+    pyrs_bytecode::PyBytecode, 
+    pyrs_error::{PyError, PyException, PyPanicHandle}, 
+    pyrs_modules::PyModule,
+    pyrs_obj::{Obj, PyObj}, 
+    pyrs_parsing::{Expression, Keyword}, 
+    pyrs_std::{FnPtr, Funcs}, 
+    pyrs_utils::get_indent, 
     pyrs_vm::PyVM,
 };
 
@@ -30,6 +32,7 @@ pub struct Interpreter {
     repr: bool,
 
     vm: PyVM,
+    working_dir: PathBuf,
 }
 
 #[derive(Debug)]
@@ -68,6 +71,7 @@ impl Interpreter {
             debug_mode: false,
             repr: false,
             vm: PyVM::new(),
+            working_dir: std::env::current_dir().unwrap_or(PathBuf::new()),
         }
     }
 
@@ -78,6 +82,19 @@ impl Interpreter {
 
     pub fn get_version() -> &'static str {
         "pyrs-0-1"
+    }
+
+    pub fn set_working_dir(&mut self, path: &str) {
+        self.working_dir = PathBuf::from(path);
+        self.vm.set_working_dir(path);
+    }
+
+    pub fn append_working_dir(&mut self, path: &str) {
+        let paths: Vec<&str> = path.split(&['/', '\\']).collect();
+        for p in paths {
+            self.working_dir.push(p);
+        }
+        self.vm.append_working_dir(path);
     }
 
     pub fn print_help() {
@@ -302,24 +319,54 @@ impl Interpreter {
     }
 
     pub fn interpret_file(&mut self, filepath: &str) {
-        let bytecode = Interpreter::compile_file(filepath);
+        let bytecode = Interpreter::compile_file(filepath).handle();
         self.vm.execute(bytecode);
     }
 
-    // vvvv using byte code vvvv
-    pub fn compile_file(filepath: &str) -> Vec<PyBytecode> {
+    pub fn compile_file(filepath: &str) -> Result<Vec<PyBytecode>, PyException> {
+
         let mut bytecode: Vec<PyBytecode> = vec![];
+        //println!("Current dir:\n{:?}", std::env::current_dir());
+
         let contents = match std::fs::read_to_string(filepath) {
             Ok(f) => f,
-            Err(e) => panic!("Fileread error: {e}"),
+            Err(e) => return Err(PyException{ 
+                error: PyError::FileError,
+                msg: format!("Failed to complile \'{filepath}\'\nFileread error: {e}")
+            }),
         };
+
         let parsed = Expression::from_multiline(contents.as_str());
         //dbg!(&parsed);
         for expr in parsed {
             PyBytecode::from_expr(expr, &mut bytecode);
         }
 
-        bytecode
+        Ok(bytecode)
+    }
+
+    pub fn compile_module(filepath: &str) -> Result<PyModule, PyException>
+    {
+        let path = Path::new(filepath);
+        if let Some(filestem) = path.file_stem() {
+            if let Some(file_str) = filestem.to_str() {
+                let filename = file_str.to_string();
+                let code = match Interpreter::compile_file(filepath) {
+                    Ok(c) => c,
+                    Err(e) => return Err(e),
+                };
+                return Ok(PyModule{
+                    name: filename,
+                    vars: HashMap::new(),
+                    code: code,
+                });
+            };
+        };
+
+        return Err(PyException{
+            error: PyError::UndefinedVariableError,
+            msg: format!("Cannot file .py file to compile into a module at path: {}", filepath),
+        });
     }
 
     #[allow(dead_code)]
@@ -347,4 +394,5 @@ impl Interpreter {
         println!("Compiled: {filename} into {pyc_name}");
         Ok(())
     }
+    
 }

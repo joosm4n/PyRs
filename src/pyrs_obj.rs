@@ -2,14 +2,16 @@ use crate::{
     pyrs_error::{PyError, PyException},
     pyrs_parsing::{Expression, Op},
     pyrs_std::{FnPtr, RangeObj},
-    pyrs_userclass::{UserClassInstance, UserClassDef},
+    pyrs_userclass::{CustomClass},
+    pyrs_codeobject::{CodeObj, FuncObj},
+    pyrs_modules::PyModule,
 };
 use std::{
     collections::HashMap,
     ops::{Add, Mul, Neg, Sub},
     process::{ExitCode, Termination},
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use rug::Integer;
@@ -30,7 +32,7 @@ pub enum Obj {
 
     Except(PyException),
 
-    List(Vec<Arc<Obj>>),  // [], mutable, ordered, duplicates, int indexing,
+    List(Arc<Mutex<Vec<Arc<Obj>>>>),  // [], mutable, ordered, duplicates, int indexing,
     Tuple(Vec<Arc<Obj>>), // (), immutable, ordered, duplicates, int indexing,
     Set(Vec<Arc<Obj>>),   // {}, mutable, unordered, no dupes, no indexing,
     Range(RangeObj),
@@ -39,15 +41,12 @@ pub enum Obj {
 
     Iter(ObjIter),
 
-    Class(UserClassInstance),
-    ClassDef(Arc<UserClassDef>),
+    CustomClass(CustomClass),
 
-    // Iterator
-    // - containters
+    Code(CodeObj),
+    Func(FuncObj),
 
-    // Sequence
-    // - range
-
+    Module(PyModule),
     // Binary
     // - bytes
     // - bytearray,
@@ -59,6 +58,7 @@ pub enum Obj {
     // Mapping
     // - dict (HashMap)
 }
+
 pub trait PyObj: std::fmt::Debug + Clone {
 
     fn compare_op(lhs: &Arc<Self>, rhs: &Arc<Self>, op: &Op) -> bool {
@@ -74,7 +74,7 @@ pub trait PyObj: std::fmt::Debug + Clone {
         ret
     }
 
-    fn __dot__(&self, _ident: &String) -> Result<&Arc<Obj>, PyException> {
+    fn __dict__(&self, _ident: &String) -> Option<&Arc<Obj>> {
         panic!();
     }
 
@@ -245,7 +245,7 @@ impl Obj {
         }
     }
 
-    fn add(lhs: &Obj, rhs: &Obj) -> Obj {
+    pub fn add(lhs: &Obj, rhs: &Obj) -> Obj {
         let err = Obj::Except(PyException {
             error: PyError::TypeError,
             msg: format!("No valid way to add: {} and {}", lhs, rhs.clone(),),
@@ -271,10 +271,12 @@ impl Obj {
             },
             (Obj::List(l1), other) => match other {
                 Obj::List(l2) => {
-                    let mut new_list = Vec::with_capacity(l1.len() + l2.len());
-                    new_list.extend(l1.iter().cloned());
-                    new_list.extend(l2.iter().cloned());
-                    Obj::List(new_list)
+                    let l1_mut = l1.lock().expect("Unable to lock l1");
+                    let l2_mut = l2.lock().expect("Unable to lock l2");
+                    let mut new_list = Vec::with_capacity(l1_mut.len() + l2_mut.len());
+                    new_list.extend(l1_mut.iter().cloned());
+                    new_list.extend(l2_mut.iter().cloned());
+                    Obj::List(Mutex::new(new_list).into())
                 }
                 _ => {
                     return Obj::Except(PyException {
@@ -291,7 +293,7 @@ impl Obj {
         obj
     }
 
-    fn sub(lhs: &Obj, rhs: &Obj) -> Obj {
+    pub fn sub(lhs: &Obj, rhs: &Obj) -> Obj {
         let err = Obj::Except(PyException {
             error: PyError::TypeError,
             msg: format!("No valid way to subtract: {} and {}", lhs, rhs.clone(),),
@@ -316,7 +318,7 @@ impl Obj {
         obj
     }
 
-    fn mul(lhs: &Obj, rhs: &Obj) -> Obj {
+    pub fn mul(lhs: &Obj, rhs: &Obj) -> Obj {
         let err = Obj::Except(PyException {
             error: PyError::TypeError,
             msg: format!("No valid way to subtract: {} and {}", lhs, rhs.clone(),),
@@ -406,12 +408,12 @@ impl PyObj for Obj {
         Obj::None
     }
 
-    fn __dot__(&self, field: &String) -> Result<&Arc<Obj>, PyException> {
+    fn __dict__(&self, field: &String) -> Option<&Arc<Obj>> {
         match self {
-            Obj::Class(o) => {
-                o.get_field(field)
+            Obj::CustomClass(o) => {
+                Some(&o.fields[field])
             },
-            o => panic!("dot op not implemented for obj {o}"),
+            _ => None,
         }
     }
 
@@ -431,7 +433,11 @@ impl PyObj for Obj {
             Obj::Float(v) => *v != 0f64,
             Obj::Int(v) => *v != Integer::ZERO,
             Obj::Str(v) => *v != "",
-            Obj::List(vec) | Obj::Tuple(vec) | Obj::Set(vec) => vec.len() != 0usize,
+            Obj::Tuple(vec) | Obj::Set(vec) => vec.len() != 0usize,
+            Obj::List(vec) => { 
+                let locked = vec.lock().expect("Unable to lock list");
+                locked.len() != 0usize 
+            }
             _ => panic!("TypeError: __bool__() not implemented for: {:?}", self),
         };
         return ret;
@@ -440,10 +446,12 @@ impl PyObj for Obj {
     fn __unpack__(self) -> Result<Vec<Arc<Obj>>, PyException> {
         if self.is_iterable() {
             Ok(match self {
-                Obj::List(vec) |
                 Obj::Set(vec) |
                 Obj::Tuple(vec) => vec, 
-                
+                Obj::List(vec) => {
+                    let lock = vec.lock().expect("Unable to lock list");
+                    lock.clone()
+                }
                 Obj::Range(range) => range.to_vec(),
                 Obj::Dict(dict) => { 
                     dict.into_iter()
@@ -474,7 +482,8 @@ impl PyObj for Obj {
             Obj::Int(val) => format!("{}", val),
             Obj::Function(ptr) => format!("{}", ptr),
             Obj::Except(e) => format!("{}", e),
-            Obj::List(objs) => {
+            Obj::List(v) => {
+                let objs = &*v.lock().expect("Unable to lock list");
                 let mut list = String::from("[");
                 for o in objs {
                     list.push_str(o.__repr__().as_str());
@@ -540,32 +549,14 @@ impl PyObj for Obj {
             Obj::Iter(iter) => {
                 format!("Iter[ {:#?} {} ]", iter.items, iter.index)
             }
-            Obj::Class(instance ) => {
-                let class = &instance.class;
-                
-                let mut c = format!("Class[ {} fields[", class.name);
-                for (name, _) in &class.fields {
-                    c.push_str(name);
-                    c.push_str(": ");
-                    c.push_str(&instance.get_field(name).unwrap().__str__());
-                    c.push('\n');
-                }
-                c.push(']');
-                c
+            Obj::CustomClass(class ) => {
+                format!("<class \'__main__.{}\'>", class.name)
             }
-            Obj::ClassDef(class) => {
-                let mut c = format!("Class[ {} fields[", class.name);
-                for (name, _) in &class.fields {
-                    c.push_str(name);
-                    c.push('\n');
-                }
-                c.push_str("] methods[");
-                for (name, _) in &class.methods {
-                    c.push_str(name);
-                    c.push('\n');
-                }
-                c.push(']');
-                c
+            Obj::Func(func) => {
+                format!("<function {:?} >", func)
+            }
+            Obj::Module(module) => {
+                format!("<module {} >", module.name)
             }
         }
     }
@@ -579,7 +570,10 @@ impl PyObj for Obj {
 
     fn __len__(&self) -> usize {
         match self {
-            Obj::List(list) => list.len(),
+            Obj::List(v) => {
+                let list = v.lock().expect("Unable to lock list");
+                list.len()
+            }
             _ => panic!("TypeError: __len__() not implemented for: {:?}", self),
         }
     }
@@ -805,7 +799,16 @@ impl Default for Obj {
 
 impl Termination for Obj {
     fn report(self) -> std::process::ExitCode {
-        ExitCode::SUCCESS
+        match self {
+            Obj::Null => ExitCode::FAILURE,
+            _ => ExitCode::SUCCESS,
+        }
+    }
+}
+
+impl<T :ToObj> From<T> for Obj {
+    fn from(value: T) -> Self {
+        value.to_obj()
     }
 }
 
@@ -820,10 +823,19 @@ impl ObjIter
 {
     pub fn from(obj: &Arc<Obj>) -> Option<Self> {
         let iter = match obj.as_ref() {
-            Obj::List(v) | Obj::Tuple(v) | Obj::Set(v) => ObjIter {
-                items: v.clone(),
-                index: 0,
-            },
+            Obj::List(v) => {
+                let list = v.lock().expect("Unable to lock list");
+                ObjIter {
+                    items: list.clone(),
+                    index: 0,
+                }
+            }
+            Obj::Tuple(v) | Obj::Set(v) => {
+                ObjIter {
+                    items: v.clone(),
+                    index: 0,
+                }
+            }
             Obj::Str(s) => {
                 let items = s
                     .chars()
@@ -871,10 +883,10 @@ pub struct ObjIntoIter {
 impl ObjIntoIter {
     fn from(obj: Arc<Obj>) -> Option<Self> {
         let iter = match obj.as_ref() {
-            Obj::List(v) | Obj::Tuple(v) | Obj::Set(v) => ObjIntoIter {
-                items: v.clone(),
-                index: 0,
-            },
+            Obj::List(v) => {
+                let list = v.lock().expect("Unable to lock list");
+                ObjIntoIter { items: list.clone(), index: 0 } // not correct
+            }
             Obj::Str(s) => {
                 let items = s
                     .chars()
@@ -920,7 +932,14 @@ impl IntoIterator for Obj {
 impl Obj {
     pub fn iter_py(&self) -> Option<ObjIter> {
         match self {
-            Obj::List(v) | Obj::Tuple(v) | Obj::Set(v) => Some(ObjIter {
+            Obj::List(v) => {
+                let list = v.lock().expect("Unable to lock list");
+                Some(ObjIter {
+                    items: list.clone(),
+                    index: 0,
+                })
+            }
+            Obj::Tuple(v) | Obj::Set(v) => Some(ObjIter {
                 items: v.clone(),
                 index: 0,
             }),
@@ -980,7 +999,7 @@ impl ToObj for Expression {
                     for a in args {
                         objs.push(a.to_arc());
                     }
-                    Obj::List(objs.into())
+                    objs.to_obj()
                 }
                 Op::Plus => {
                     let lhs = args.first().cloned().unwrap().to_obj();
@@ -1019,25 +1038,35 @@ impl ToObj for rug::Integer {
     }
 }
 
+macro_rules! impl_to_obj_for_int {
+    ($($ty:ty),+) => {
+        $(
+            impl ToObj for $ty {
+                fn to_obj(self) -> Obj {
+                    Obj::Int(Integer::from(self))
+                }
+            }
+        )+
+    };
+}
+impl_to_obj_for_int!(i8, u8, u16, i16, u32, i32, u64, i64, usize);
+
+macro_rules! impl_to_obj_for_float {
+    ($($ty:ty),+) => {
+        $(
+            impl ToObj for $ty {
+                fn to_obj(self) -> Obj {
+                    Obj::Float(self as f64)
+                }
+            }
+        )+
+    };
+}
+impl_to_obj_for_float!(f32, f64);
+
 impl ToObj for bool {
     fn to_obj(self) -> Obj {
         Obj::Bool(self)
-    }
-}
-
-impl ToObj for f64 {
-    fn to_obj(self) -> Obj {
-        Obj::Float(self)
-    }
-}
-impl ToObj for f32 {
-    fn to_obj(self) -> Obj {
-        Obj::Float(self as f64)
-    }
-}
-impl ToObj for i64 {
-    fn to_obj(self) -> Obj {
-        Obj::Int(Integer::from(self))
     }
 }
 impl ToObj for String {
@@ -1051,44 +1080,8 @@ impl ToObj for &str {
     }
 }
 
-impl ToObj for usize {
+impl ToObj for Vec<Arc<Obj>> {
     fn to_obj(self) -> Obj {
-        Obj::Int(self.into())
-    }
-}
-impl ToObj for u64 {
-    fn to_obj(self) -> Obj {
-        Obj::Int(self.into())
-    }
-}
-impl ToObj for i32 {
-    fn to_obj(self) -> Obj {
-        Obj::Int(self.into())
-    }
-}
-impl ToObj for i16 {
-    fn to_obj(self) -> Obj {
-        Obj::Int(self.into())
-    }
-}
-impl ToObj for i8 {
-    fn to_obj(self) -> Obj {
-        Obj::Int(self.into())
-    }
-}
-impl ToObj for u32 {
-    fn to_obj(self) -> Obj {
-        Obj::Int(self.into())
-    }
-}
-impl ToObj for u16 {
-    fn to_obj(self) -> Obj {
-        Obj::Int(self.into())
-    }
-}
-
-impl ToObj for u8 {
-    fn to_obj(self) -> Obj {
-        Obj::Int(self.into())
+        Obj::List(Arc::new(Mutex::new(self)))
     }
 }

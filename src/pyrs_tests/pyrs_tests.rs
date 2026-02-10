@@ -63,13 +63,13 @@ mod tests {
     }
 
     #[test]
-    fn memory_size()
+    fn memory_size_types()
     {
-        assert_eq!(56, size_of::<Obj>(), "Obj size not 56 bytes");
+        assert_eq!(96, size_of::<Obj>(), "Obj size not 56 bytes");
         assert_eq!(24, size_of::<Token>(), "Token size not 24 bytes");
         assert_eq!(56, size_of::<Expression>(), "Expression size not 56 bytes");
-        assert_eq!(64, size_of::<PyBytecode>(), "Bytecode size not 64 bytes");
-        assert_eq!(280, size_of::<PyVM>(), "VirtualMachine size not 200 bytes");
+        assert_eq!(104, size_of::<PyBytecode>(), "Bytecode size not 64 bytes");
+        assert_eq!(304, size_of::<PyVM>(), "VirtualMachine size changed");
     }
 
     #[test]
@@ -424,13 +424,117 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    fn file_to_bytecode()
+    fn bytecode_from_file()
     {
-        let code = Interpreter::compile_file("bytecode_t.py");
+        let code = Interpreter::compile_file("src/pyrs_tests/compile_test_1.py").unwrap();
         println!("Bytecode from file:\n{}", PyBytecode::to_string(&code));
+        let expected = vec![
+            PyBytecode::LoadConst("sum_a".into()),
+            PyBytecode::LoadConst(3.into()),
+            PyBytecode::MakeFunction,
+            PyBytecode::JumpForward(27),
+            PyBytecode::StoreName("a".into()),
+            PyBytecode::LoadConst(0.into()),
+            PyBytecode::StoreName("s".into()),
+            PyBytecode::PushNull,
+            PyBytecode::LoadConst(0.into()),
+            PyBytecode::LoadName("a".into()),
+            PyBytecode::LoadConst(1.into()),
+            PyBytecode::BinaryAdd,
+            PyBytecode::LoadConst(1.into()),
+            PyBytecode::CallInstrinsic1(IntrinsicFunc::Range),
+            PyBytecode::StoreName("r".into()),
+            PyBytecode::PushNull,
+            PyBytecode::LoadName("r".into()),
+            PyBytecode::UnpackSequence,
+            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
+            PyBytecode::LoadName("r".into()),
+            PyBytecode::GetIter,
+            PyBytecode::ForIter(6),
+            PyBytecode::StoreName("v".into()),
+            PyBytecode::LoadName("s".into()),
+            PyBytecode::LoadName("v".into()),
+            PyBytecode::BinaryAdd,
+            PyBytecode::StoreName("s".into()),
+            PyBytecode::JumpBackward(7),
+            PyBytecode::LoadName("s".into()),
+            PyBytecode::ReturnValue,
+            PyBytecode::ReturnValue,
+            PyBytecode::LoadConst("choice".into()),
+            PyBytecode::LoadConst(34.into()),
+            PyBytecode::MakeFunction,
+            PyBytecode::JumpForward(11),
+            PyBytecode::StoreName("s".into()),
+            PyBytecode::LoadName("s".into()),
+            PyBytecode::LoadConst("loop".into()),
+            PyBytecode::CompareOp(Op::Eq),
+            PyBytecode::PopJumpIfFalse(3),
+            PyBytecode::LoadConst(true.into()),
+            PyBytecode::ReturnValue,
+            PyBytecode::JumpForward(2),
+            PyBytecode::LoadConst(false.into()),
+            PyBytecode::ReturnValue,
+            PyBytecode::ReturnValue,
+            PyBytecode::LoadConst("empty".into()),
+            PyBytecode::LoadConst(49.into()),
+            PyBytecode::MakeFunction,
+            PyBytecode::JumpForward(2),
+            PyBytecode::NOP,
+            PyBytecode::ReturnValue,
+            PyBytecode::LoadConst(5.into()),
+            PyBytecode::LoadConst("sum_a".into()),
+            PyBytecode::CallFunction(1),
+            PyBytecode::StoreName("x".into()),
+            PyBytecode::PushNull,
+            PyBytecode::LoadName("x".into()),
+            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
+            PyBytecode::LoadConst("loop".into()),
+            PyBytecode::LoadConst("choice".into()),
+            PyBytecode::CallFunction(1),
+            PyBytecode::StoreName("y".into()),
+            PyBytecode::PushNull,
+            PyBytecode::LoadName("y".into()),
+            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
+            PyBytecode::LoadConst("empty".into()),
+            PyBytecode::CallFunction(0),
+            PyBytecode::StoreName("z".into()),
+            PyBytecode::PushNull,
+            PyBytecode::LoadName("z".into()),
+            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print)
+        ];
+        assert_eq!(&code, &expected);
+
         let mut vm = PyVM::new();
         vm.execute(code);
+    }
+
+    #[test]
+    fn module_from_file()
+    {
+        let module = Interpreter::compile_module("src/pyrs_tests/module_test_1.py").unwrap();
+        println!("{:#?}", module);
+        panic!();
+    }
+
+    #[test]
+    fn module_import()
+    {
+        let src = 
+        "import module_test_1\n \
+        module_test_1.mod_fn1()";
+        let exprs = Expression::from_multiline(src);
+        dbg!(&exprs);
+        let mut code = vec![];
+        for e in exprs {
+            PyBytecode::from_expr(e, &mut code);
+        }
+        println!("code: \n{}", PyBytecode::to_string(&code));
+        
+        let mut vm = PyVM::new();
+        vm.append_working_dir("src/pyrs_tests");
+        vm.execute(code);
+
+        panic!();
     }
 
     use std::{
@@ -1048,10 +1152,51 @@ mod tests {
     #[test]
     fn iteration() 
     {
-        let list = Obj::List(vec![1.to_arc(), 2.to_arc()]);
+        let list = vec![1.to_arc(), 2.to_arc()].to_obj();
         for x in list {
             println!("{}", x);
         }
+
+        let list = vec![1.to_arc(), 2.to_arc()].to_obj();
+        for mut x in &mut list.into_iter() {
+            x = Obj::add(x.as_ref(), &2.to_obj()).to_arc();
+            println!("{}", x);
+        }
+    }
+
+    #[test]
+    fn parse_pratt_tests() {
+        let s = Expression::from_line("1");
+        assert_eq!(s.to_string(), "Atom(1)");
+
+        let s = Expression::from_line("1 + 2 * 3");
+        assert_eq!(s.to_string(), "Op[+ Atom(1) Op[* Atom(2) Atom(3)]]");
+
+        let s = Expression::from_line("a + b * c * d + e");
+        assert_eq!(s.to_string(), "Op[+ Op[+ Ident(a) Op[* Op[* Ident(b) Ident(c)] Ident(d)]] Ident(e)]");
+
+        let s = Expression::from_line("f . g . h");
+        assert_eq!(s.to_string(), "Op[. Ident(f) Op[. Ident(g) Ident(h)]]");
+
+        let s = Expression::from_line(" 1 + 2 + f . g . h * 3 * 4");
+        assert_eq!(
+            s.to_string(),
+            "Op[+ Op[+ Atom(1) Atom(2)] Op[* Op[* Op[. Ident(f) Op[. Ident(g) Ident(h)]] Atom(3)] Atom(4)]]",
+        );
+        // "(+ (+ 1 2) (* (* (. f (. g h)) 3) 4))"
+
+        let s = Expression::from_line("--1 * 2");
+        assert_eq!(s.to_string(), "Op[* Op[- Op[- Atom(1)]] Atom(2)]");
+
+        let s = Expression::from_line("--f . g");
+        assert_eq!(s.to_string(), "Op[- Op[- Op[. Ident(f) Ident(g)]]]");
+
+        let s = Expression::from_line("(((0)))");
+        assert_eq!(s.to_string(), "Atom(0)");
+
+        let s = Expression::from_line("x[0][1]");
+        assert_eq!(s.to_string(), "Op[[ Op[[ Ident(x) Atom(0)] Atom(1)]");
+
     }
 
     /*

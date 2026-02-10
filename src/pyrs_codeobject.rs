@@ -1,27 +1,67 @@
 
+use crate::{
+    pyrs_bytecode::PyBytecode,
+    pyrs_obj::{Obj, ToObj},
+};
 
-use crate::pyrs_bytecode::{PyBytecode};
+use std::{
+    sync::{Arc, Mutex},
+    rc::{Rc},
+    cell::{RefCell},
+    collections::HashMap,
+};
+
+pub type Cell = Rc<RefCell<Obj>>;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct CodeObject
-{
-    co_nlocals: usize,
-    co_argcount: usize,
-    co_varnames: Vec<String>,
-    co_names: Vec<String>,
-    co_freevars: Vec<String>,
-    co_cellvars: Vec<String>,
-    co_posonlyargcount: usize,
-    co_kwonlyargcount: usize,
-    co_firstlineno: usize,
-    co_lnotab: usize,
-    co_stacksize: usize,
-    co_code: Vec<PyBytecode>,
-    co_consts: Vec<String>,
-    co_flags: usize,
+enum CodeFlags {
+    None,
 }
 
-impl CodeObject
+#[derive(Debug, Clone, PartialEq)]
+pub struct CodeObj 
 {
-    
+    pub name: String,
+    pub bytecode: Vec<PyBytecode>,
+    pub consts: Vec<Obj>,
+    pub names: Vec<String>,
+    pub varnames: Vec<String>,
+}
+
+impl CodeObj {
+    pub fn new(name: &str, code: Vec<PyBytecode>) -> Self {
+        CodeObj {
+            name: name.to_string(),
+            bytecode: code,
+            consts: vec![],
+            names: vec![],
+            varnames: vec![],
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PyFrame
+{
+    pub code: Arc<CodeObj>,
+    pub ip: usize,
+    pub stack: Vec<Arc<Obj>>,
+    pub locals: Vec<Arc<Obj>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FuncObj
+{
+    pub code: Arc<CodeObj>,
+    pub globals: Arc<HashMap<String, Arc<Obj>>>,
+    pub closure: Vec<Arc<Mutex<Arc<Obj>>>>, // captured cells
+}
+
+impl ToObj for FuncObj {
+    fn to_arc(self) -> Arc<Obj> {
+        self.to_obj().into()
+    }
+    fn to_obj(self) -> Obj {
+        Obj::Func(self)
+    }
 }

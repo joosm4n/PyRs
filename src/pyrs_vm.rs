@@ -1,7 +1,8 @@
+
 use std::{
-    boxed::Box,
     collections::HashMap,
     io::{self, Write},
+    path::PathBuf,
     sync::Arc,
     usize,
 };
@@ -9,53 +10,45 @@ use std::{
 use crate::{
     pyrs_bytecode::PyBytecode,
     pyrs_error::{PyError, PyException},
+    pyrs_interpreter::Interpreter,
     pyrs_obj::{Obj, PyObj, ToObj},
     pyrs_parsing::Op,
     pyrs_std::RangeObj,
-    pyrs_userclass::UserClassDef,
+    pyrs_userclass::{CustomClass},
+    pyrs_codeobject::{PyFrame, FuncObj},
 };
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PyVM {
-    global_vars: HashMap<String, Arc<Obj>>,
+    builtins: HashMap<String, Arc<Obj>>,
+    globals: HashMap<String, Arc<Obj>>,
     var_maps: Vec<HashMap<String, Arc<Obj>>>,
     curr_namespace: String,
 
-    funcs: HashMap<String, usize>,
-    local_stacks: Vec<Vec<Arc<Obj>>>,
+    frames: Vec<PyFrame>,
 
-    cache_vec: Box<[Arc<Obj>; 64]>,
-    cache_ptr: usize,
-
-    class_defs: HashMap<String, Arc<UserClassDef>>,
-
-    instruction_queue: Vec<PyBytecode>,
-    instruction_counter: usize,
     error_state: bool,
 
     debug_mode: bool,
 
-    null_obj: Arc<Obj>,
+    null: Arc<Obj>,
+
+    working_dir: PathBuf,
 }
 
 #[allow(dead_code)]
 impl PyVM {
     pub fn new() -> Self {
         PyVM {
-            global_vars: HashMap::new(),
+            builtins: HashMap::new(),
+            globals: HashMap::new(),
             var_maps: vec![HashMap::new()],
             curr_namespace: String::from(""),
-            funcs: HashMap::new(),
-            local_stacks: vec![Vec::new()],
-            cache_vec: Box::new(core::array::from_fn(|_| Arc::new(Obj::default()))),
-            cache_ptr: 0,
-            class_defs: HashMap::new(),
-            instruction_queue: vec![],
-            instruction_counter: 0,
             error_state: false,
             debug_mode: false,
-            null_obj: Obj::Null.into(),
+            null: Obj::Null.into(),
+            working_dir: std::env::current_dir().unwrap_or(PathBuf::new()),
         }
     }
 
@@ -63,8 +56,9 @@ impl PyVM {
         self.debug_mode = debug;
     }
 
-    pub fn execute(&mut self, queue: Vec<PyBytecode>) {
-        self.instruction_queue = queue;
+    pub fn execute(&mut self, bytecode: Vec<PyBytecode>) {
+        println!("Working in: {:?}", self.working_dir);
+        self.instruction_queue = bytecode;
         if self.debug_mode {
             self.print_instruction_queue();
         }
@@ -88,11 +82,11 @@ impl PyVM {
             PyBytecode::PopTop => self.pop_top(),
             PyBytecode::EndFor => self.end_for(),
 
-            PyBytecode::LoadConst(obj) => self.push(Arc::from(obj)),
+            PyBytecode::LoadConst(namei) => self.load_const(namei),
             PyBytecode::LoadFast(i) => self.load_fast(i),
             PyBytecode::StoreFast(i) => self.store_fast(i),
-            PyBytecode::LoadName(name) => self.load_name(name),
-            PyBytecode::StoreName(name) => self.store_name(name),
+            PyBytecode::LoadName(namei) => self.load_name(namei),
+            PyBytecode::StoreName(namei) => self.store_name(namei),
 
             PyBytecode::PushNull => self.push_null(),
 
@@ -114,6 +108,8 @@ impl PyVM {
             PyBytecode::CallInstrinsic1(ptr) => self.call_intrinsic_1(ptr),
             PyBytecode::ReturnValue => self.return_value(),
 
+            PyBytecode::LoadDeref(name) => self.load_deref(&name),
+
             PyBytecode::PopJumpIfFalse(delta) => self.pop_jump_if_false(delta),
             PyBytecode::PopJumpIfTrue(delta) => self.pop_jump_if_true(delta),
             PyBytecode::JumpForward(delta) => self.jump_forward(delta),
@@ -122,10 +118,10 @@ impl PyVM {
             PyBytecode::CompareOp(op) => self.compare_op(op),
 
             PyBytecode::MakeFunction => self.make_function(),
-            PyBytecode::NewStack => self.push_stack(),
-            PyBytecode::DestroyStack => self.pop_stack(),
 
             PyBytecode::LoadBuildClass => self.load_build_class(),
+            PyBytecode::ImportFrom(name) => self.import_from(&name),
+            PyBytecode::ImportName(name) => self.import_name(&name),
 
             PyBytecode::NOP => {}
             _ => panic!("Instruction {:?} not implemented ", inst),
@@ -140,10 +136,20 @@ impl PyVM {
         &self.var_maps
     }
 
-    pub fn dbg<T: std::fmt::Debug>(&self, p: &T)
-    {
+    pub fn dbg<T: std::fmt::Debug>(&self, p: &T) {
         if self.debug_mode {
             dbg!(p);
+        }
+    }
+
+    pub fn set_working_dir(&mut self, path: &str) {
+        self.working_dir = PathBuf::from(path);
+    }
+
+    pub fn append_working_dir(&mut self, path: &str) {
+        let parts: Vec<&str> = path.split(&['/', '\\']).collect();
+        for p in parts {
+            self.working_dir.push(p);
         }
     }
 
@@ -169,14 +175,14 @@ impl PyVM {
     fn throw(&mut self) {
         let e = self.pop();
         println!();
-        println!("---- PyVM Error ---- ");
+        println!("---- PyVM Error ---- \n");
 
         println!(
             "Error: at bytecode instruction {}",
             self.instruction_counter
         );
         self.print_instruction(self.instruction_counter);
-        println!("{e}");
+        println!("\n{e}");
 
         self.print_debug_info();
 
@@ -211,20 +217,8 @@ impl PyVM {
         return self.var_maps.last_mut().unwrap();
     }
 
-    fn get_global_vars(&self) -> &HashMap<String, Arc<Obj>> {
-        return &self.global_vars;
-    }
-
-    fn get_global_vars_mut(&mut self) -> &mut HashMap<String, Arc<Obj>> {
-        return &mut self.global_vars;
-    }
-
-    fn get_local_stack(&self) -> &Vec<Arc<Obj>> {
-        return self.local_stacks.last().unwrap();
-    }
-
-    fn get_local_stack_mut(&mut self) -> &mut Vec<Arc<Obj>> {
-        return self.local_stacks.last_mut().unwrap();
+    fn frame(&mut self) -> &mut PyFrame {
+        return self.frames.last_mut().unwrap();
     }
 
     fn pop_n(&mut self, count: usize) -> Vec<Arc<Obj>> {
@@ -292,52 +286,66 @@ impl PyVM {
 
     fn print_instruction(&self, index: usize) {
         if index < self.instruction_queue.len() {
-            println!("\t ({}) \t{}", index, self.instruction_queue[index]);
+            println!("({}) \t\t{}", index, self.instruction_queue[index]);
         }
     }
 
     fn print_instruction_queue(&self) {
-        println!("Instructions: ");
+        println!("\nInstructions: ");
         println!("{}", PyBytecode::to_string(&self.instruction_queue));
     }
 
     // -------------- Instructions ----------------
     fn pop_top(&mut self) {
-        self.pop();
+        self.frame().stack.pop().unwrap();
     }
 
     fn end_for(&mut self) {
         self.pop();
     }
 
+    fn copy(&mut self, n: usize) {
+        let frame = self.frame();
+        let val = frame.stack[frame.stack.len() - 1 - n].clone();
+        frame.stack.push(val);
+    }
+
+    fn swap(&mut self, n: usize) {
+        let frame = self.frame();
+        let len = frame.stack.len();
+        frame.stack.swap(len - 1, len - 1 - n);
+    }
+
+    fn load_const(&mut self, i: usize) {
+        let c = self.frame().code.consts[i].clone();
+        self.frame().stack.push(Arc::new(c));
+    }
+
     fn store_fast(&mut self, i: usize) {
-        let obj = self.pop();
-        self.cache_vec[i] = obj;
-        self.cache_ptr += 1;
+        let val = self.frame().stack.pop().unwrap();
+        self.frame().locals[i] = val;
     }
 
-    fn load_fast(&mut self, i: usize) {
-        let obj = std::mem::replace(&mut self.cache_vec[i], self.null_obj.clone());
-        self.push(obj);
+    fn load_fast(&mut self, namei: usize) {
+        let val = self.frame().locals[namei].clone();
+        self.frame().stack.push(val);
     }
 
-    fn store_name(&mut self, name: String) {
-        let obj = self.pop();
-        self.get_local_vars_mut().insert(name, obj);
+    fn store_name(&mut self, namei: usize) {
+        let name = self.frame().code.names[namei].clone();
+        let val = self.frame().stack.pop().unwrap();
+        self.globals.insert(name, val);
     }
 
-    fn load_name(&mut self, name: String) {
-        if let Some(val) = self.get_local_vars().get(&name) {
-            self.push(val.clone());
-        }
-        else if let Some(class) = self.class_defs.get(&name) {
-            self.push(Obj::Class(UserClassDef::new_instance(class)).into());
-        }
-        else {
-            self.push_err(PyException {
-                error: PyError::UndefinedVariableError,
-                msg: format!("No variable with name: \"{}\" in current scope", name),
-            });
+    fn load_name(&mut self, i: usize) {
+        let name = &self.frame().code.names[i];
+
+        if let Some(v) = self.globals.get(name) {
+            self.frame().stack.push(v.clone());
+        } else if let Some(v) = self.builtins.get(name) {
+            self.frame().stack.push(v.clone());
+        } else {
+            panic!("NameError: {name}");
         }
     }
 
@@ -347,7 +355,7 @@ impl PyVM {
 
     fn build_list(&mut self, len: usize) {
         let objs = self.pop_n(len);
-        let list = Arc::from(Obj::List(objs));
+        let list = objs.to_arc();
         self.push(list);
     }
 
@@ -364,39 +372,26 @@ impl PyVM {
     }
 
     fn get_iter(&mut self) {
-        let obj = self.pop();
-        let iter = match obj.iter_py() {
-            Some(i) => Obj::Iter(i),
-            None => Obj::Except(PyException {
-                error: PyError::TypeError,
-                msg: format!("Obj {} not iterable", obj),
-            }),
-        };
-        self.push(iter.into())
+        let obj = self.frame().stack.pop().unwrap();
+        match obj.iter_py() {
+            Some(i) => self.frame().stack.push(Obj::Iter(i).into()),
+            None => panic!("TypeError: not iterable"),
+        }
     }
 
     fn for_iter(&mut self, delta: usize) {
-        let top = self.pop();
-        match top.as_ref() {
-            Obj::Iter(iter) => {
-                let mut iter_clone = iter.clone();
-                match iter_clone.next() {
-                    Some(item) => {
-                        self.push(Arc::from(Obj::Iter(iter_clone)));
-                        self.push(item);
-                    }
-                    None => {
-                        self.instruction_counter += delta;
-                    }
-                }
+        let iter = self.frame().stack.pop().unwrap();
+
+        if let Obj::Iter(mut it) = iter.as_ref().clone() {
+            if let Some(item) = it.next() {
+                self.frame().stack.push(Obj::Iter(it).into());
+                self.frame().stack.push(item);
+            } else {
+                self.frame().ip += delta;
             }
-            _ => {
-                self.push_err(PyException {
-                    error: PyError::TypeError,
-                    msg: format!("FOR_ITER expected iterator, found {}", top),
-                });
-            }
-        };
+        } else {
+            panic!("FOR_ITER expected iterator");
+        }
     }
 
     fn unpack_sequence(&mut self) {
@@ -411,258 +406,192 @@ impl PyVM {
     }
 
     fn pop_jump_if_false(&mut self, delta: usize) {
-        let cond = self.pop();
+        let frame = self.frame();
+        let cond = frame.stack.pop().unwrap();
         if !cond.__bool__() {
-            self.instruction_counter += delta;
+            frame.ip += delta;
         }
     }
 
     fn pop_jump_if_true(&mut self, delta: usize) {
-        let cond = self.pop();
+        let frame = self.frame();
+        let cond = frame.stack.pop().unwrap();
         if cond.__bool__() {
-            self.instruction_counter += delta;
+            frame.ip += delta;
         }
     }
 
     fn jump_forward(&mut self, delta: usize) {
-        self.instruction_counter += delta;
+        self.frame().ip += delta;
     }
 
     fn jump_backward(&mut self, delta: usize) {
-        self.instruction_counter -= delta;
+        self.frame().ip -= delta;
     }
 
     fn compare_op(&mut self, op: Op) {
-        let rhs = self.pop();
-        let lhs = self.pop();
-        let cond = Obj::compare_op(&lhs, &rhs, &op);
-        // dbg!(&rhs, &lhs, &op, &cond);
-        self.push(cond.to_arc());
+        let rhs = self.frame().stack.pop().unwrap();
+        let lhs = self.frame().stack.pop().unwrap();
+        let res = Obj::compare_op(&lhs, &rhs, &op);
+        self.frame().stack.push(res.to_arc());
     }
 
     fn binary_add(&mut self) {
-        let rhs = self.pop();
-        let lhs = self.pop();
+        let rhs = self.frame().stack.pop().unwrap();
+        let lhs = self.frame().stack.pop().unwrap();
         match Obj::__add__(&lhs, &rhs) {
-            Ok(val) => self.push(Arc::from(val)),
-            Err(e) => self.push_err(e),
+            Ok(v) => self.frame().stack.push(v),
+            Err(e) => panic!("{e}"),
         }
     }
 
     fn binary_subtract(&mut self) {
-        let rhs = self.pop();
-        let lhs = self.pop();
+        let rhs = self.frame().stack.pop().unwrap();
+        let lhs = self.frame().stack.pop().unwrap();
         match Obj::__sub__(&lhs, &rhs) {
-            Ok(val) => self.push(val),
-            Err(e) => self.push_err(e),
+            Ok(v) => self.frame().stack.push(v),
+            Err(e) => panic!("{e}"),
         };
     }
 
     fn binary_multiply(&mut self) {
-        let rhs = self.pop();
-        let lhs = self.pop();
-        let ret = match Obj::__mul__(&lhs, &rhs) {
-            Ok(val) => val,
-            Err(e) => {
-                println!("{e}");
-                e.to_arc()
-            }
+        let rhs = self.frame().stack.pop().unwrap();
+        let lhs = self.frame().stack.pop().unwrap();
+        match Obj::__mul__(&lhs, &rhs) {
+            Ok(v) => self.frame().stack.push(v),
+            Err(e) => panic!("{e}"),
         };
-        self.push(Arc::from(ret));
     }
 
     fn binary_divide(&mut self) {
-        let rhs = self.pop();
-        let lhs = self.pop();
-        let ret = match Obj::__div__(&lhs, &rhs) {
-            Ok(val) => val,
-            Err(e) => {
-                println!("{e}");
-                e.to_arc()
-            }
+        let rhs = self.frame().stack.pop().unwrap();
+        let lhs = self.frame().stack.pop().unwrap();
+        match Obj::__div__(&lhs, &rhs) {
+            Ok(v) => self.frame().stack.push(v),
+            Err(e) => panic!("{e}"),
         };
-        self.push(Arc::from(ret));
     }
 
     fn unary_negative(&mut self) {
-        let obj = self.pop();
-        match Obj::__neg__(&obj) {
-            Ok(o) => self.push(o),
-            Err(e) => self.push_err(e),
+        let v = self.frame().stack.pop().unwrap();
+        match Obj::__neg__(&v) {
+            Ok(o) => self.frame().stack.push(o),
+            Err(e) => panic!("{e}"),
         }
     }
 
     fn call_function(&mut self, argc: usize) {
-        let func = self.pop();
-        let args = self.pop_n_or(argc, Obj::None.into());
+       let args = self.frame().stack.split_off(
+            self.frame().stack.len() - argc
+        );
 
-        self.push_stack();
-        let return_addr = self.instruction_counter;
-        self.push(Obj::Int(return_addr.into()).into()); // return pos pointer
+        let func = self.frame().stack.pop().unwrap();
 
-        for a in args {
-            self.push(a);
+        let func = match func.as_ref() {
+            Obj::Func(f) => f.clone(),
+            _ => panic!("Not callable"),
+        };
+
+        let mut new_frame = PyFrame {
+            code: func.code.clone(),
+            ip: 0,
+            stack: Vec::new(),
+            locals: vec![self.null.clone(); func.code.varnames.len()],
+        };
+
+        for (i, arg) in args.into_iter().enumerate() {
+            new_frame.locals[i] = arg;
         }
 
-        let func_name = func.__str__();
-        /*
-        let mut namespaces: Vec<_> = func_name
-            .split(&['.'])
-            .filter(|k| !k.is_empty())
-            .collect();
-        namespaces.pop();
-        
-        for n in namespaces {
-            let map = self.var_maps;
-        }
-        */
-        
-        match self.funcs.get(&func_name) {
-            Some(addr) => {
-                self.instruction_counter = *addr;
-            }
-            None => {
-                self.push_err(PyException {
-                    error: PyError::SyntaxError,
-                    msg: format!("not a name of a func: {}", func_name),
-                });
-            }
-        }
+        self.frames.push(new_frame);
     }
 
     fn return_value(&mut self) {
-        let mut fn_objs = vec![self.null_obj.clone()];
+        let ret = self.frame()
+            .stack
+            .pop()
+            .unwrap_or(self.null.clone());
 
-        let fn_stack = self.get_local_stack_mut();
-        while let Some(obj) = fn_stack.pop() {
-            fn_objs.push(obj);
+        self.frames.pop();
+
+        if let Some(f) = self.frames.last_mut() {
+            f.stack.push(ret);
         }
-
-        let ret_ptr = fn_objs.pop().unwrap_or(self.null_obj.clone());
-
-        if ret_ptr.as_ref() == self.null_obj.as_ref() {
-            self.push_err(PyException {
-                error: PyError::StackError,
-                msg: "Must have already popped the return pointer ".to_string(),
-            });
-            self.throw();
-        }
-        self.instruction_counter = ret_ptr.__int__() as usize;
-        self.pop_stack();
-
-        self.push(match fn_objs.len() {
-            0 => PyException {
-                error: PyError::StackError,
-                msg: "Popped too many objs when returning from function".to_string(),
-            }
-            .to_arc(),
-            1 => Obj::None.into(),
-            _ => fn_objs.pop().unwrap(),
-        });
     }
 
-    fn call_intrinsic_1(&mut self, ptr: IntrinsicFunc) {
-        let args = self.pop_until_null();
-        self.pop();
-
-        let ret = match ptr {
-            IntrinsicFunc::Print => IntrinsicFunc::print(&args),
-            IntrinsicFunc::Input => IntrinsicFunc::input(&args),
-            IntrinsicFunc::Range => IntrinsicFunc::range(&args),
-        };
-        match ret {
-            Some(val) => {
-                self.push(Arc::from(val));
-            }
-            None => {}
+    fn call_intrinsic_1(&mut self, f: IntrinsicFunc) {
+        let arg = self.frame().stack.pop().unwrap();
+        if let Some(v) = f.call(vec![arg]) {
+            self.frame().stack.push(v);
         }
     }
 
     fn make_function(&mut self) {
-        let addr = self.pop();
-        let name = self.pop();
+        let code = match self.frame().stack.pop().unwrap().as_ref() {
+            Obj::Code(c) => c.clone(),
+            _ => panic!("MAKE_FUNCTION expects CodeObj"),
+        };
 
-        self.funcs.insert(name.__str__(), addr.__int__() as usize);
+        let func = Obj::Func(FuncObj {
+            code: code.into(),
+            globals: self.globals.clone().into(),
+            closure: vec![],
+        });
+
+        self.frame().stack.push(func.into());
+    }
+
+    fn load_deref(&mut self, field: &String) {
+        let obj = self.pop();
+        let ret = match obj.__dict__(field) {
+            Some(o) => o.clone(),
+            None => PyException {
+                error: PyError::UndefinedVariableError,
+                msg: format!("No variable with name \'{field}\' in obj {obj}"),
+            }
+            .to_arc(),
+        };
+        self.push(ret);
     }
 
     fn load_build_class(&mut self) {
-        match self.pop().as_ref() {
-            Obj::ClassDef(def) => {
-                self.class_defs.insert(def.name.clone(), def.clone().into());
-            },
-            _ => panic!(),
-        }
+        panic!();
     }
 
-    fn push_stack(&mut self) {
-        self.local_stacks.push(vec![]);
+    fn import_from(&mut self, name: &str) {
+        let filepath: String = self.working_dir.to_str().unwrap().to_owned() + name + ".py";
+        let module = match Interpreter::compile_module(&filepath) {
+            Ok(m) => m,
+            Err(e) => {
+                self.push_err(e);
+                self.throw();
+                unreachable!();
+            }
+        };
+
+        let name = module.name.clone();
+        self.push(Arc::new(Obj::Module(module)));
+        self.store_name(name);
     }
 
-    fn pop_stack(&mut self) {
-        self.local_stacks.pop();
-    }
+    fn import_name(&mut self, name: &str) {
+        let filepath: String = self.working_dir.to_str().unwrap().to_owned() + "/" + name + ".py";
+        let module = match Interpreter::compile_module(&filepath) {
+            Ok(m) => m,
+            Err(e) => {
+                self.push_err(e);
+                self.throw();
+                unreachable!();
+            }
+        };
 
-    #[allow(dead_code)]
-    fn get_fn_array() -> [fn(); 255] {
-        let a: [fn(); 255] = [no_instruction as fn(); 255];
-
-        /*
-
-        // Empty
-        a[u8::from(PyBytecode::NOP) as usize] = no_instruction as fn();
-
-        a[u8::from(PyBytecode::PopTop) as usize] = other_fn as fn();
-        a[u8::from(PyBytecode::Copy) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::Swap) as usize] = no_instruction as fn();
-
-        a[u8::from(PyBytecode::UnaryNegative) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::UnaryNot) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::UnaryInvert) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::ToBool) as usize] = no_instruction as fn();
-
-        a[u8::from(PyBytecode::BinaryOp) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::BinaryAdd) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::BinaryMultiply) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::BinarySubtract) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::BinaryDivide) as usize] = no_instruction as fn();
-
-        a[u8::from(PyBytecode::LoadConst) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::LoadFast) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::StoreFast) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::LoadName) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::StoreName) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::LoadGlobal) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::StoreGlobal) as usize] = no_instruction as fn();
-
-        a[u8::from(PyBytecode::CallFunction) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::CallInstrinsic1) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::CallInstrinsic2) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::ReturnValue) as usize] = no_instruction as fn();
-
-        a[u8::from(PyBytecode::PopJumpIfFalse) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::PopJumpIfTrue) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::JumpForward) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::JumpBackward) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::JumpIfFalse) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::JumpAbsolute) as usize] = no_instruction as fn();
-
-        a[u8::from(PyBytecode::CompareOp) as usize] = no_instruction as fn();
-
-        a[u8::from(PyBytecode::MakeFunction) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::BuildList) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::GetIter) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::ForIter) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::ListAppend) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::BuildMap) as usize] = no_instruction as fn();
-        a[u8::from(PyBytecode::BinaryXOR) as usize] = no_instruction as fn();
-
-        a[u8::from(PyBytecode::Error) as usize] = no_instruction as fn();
-
-        */
-        return a;
+        let name = module.name.clone();
+        self.push(Arc::new(Obj::Module(module)));
+        self.store_name(name);
     }
 }
 
+#[allow(dead_code)]
 fn no_instruction() {}
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -723,6 +652,6 @@ impl IntrinsicFunc {
 
         let r = RangeObj::from(start, end, inc);
         let objs = r.to_vec();
-        Some(Obj::List(objs).into())
+        Some(objs.to_arc())
     }
 }
