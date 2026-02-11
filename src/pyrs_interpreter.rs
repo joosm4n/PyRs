@@ -1,18 +1,19 @@
 use std::{
     collections::HashMap,
     io::{self, Write},
-    sync::Arc,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use crate::{
-    pyrs_bytecode::PyBytecode, 
-    pyrs_error::{PyError, PyException, PyPanicHandle}, 
+    pyrs_bytecode::PyBytecode,
+    pyrs_codeobject::{CodeObj, CompileCtx},
+    pyrs_error::{PyError, PyException, PyPanicHandle},
     pyrs_modules::PyModule,
-    pyrs_obj::{Obj, PyObj}, 
-    pyrs_parsing::{Expression, Keyword}, 
-    pyrs_std::{FnPtr, Funcs}, 
-    pyrs_utils::get_indent, 
+    pyrs_obj::{Obj, PyObj},
+    pyrs_parsing::{Expression, Keyword},
+    pyrs_std::{FnPtr, Funcs},
+    pyrs_utils::get_indent,
     pyrs_vm::PyVM,
 };
 
@@ -42,13 +43,11 @@ struct BlockContext {
     body: Vec<Expression>,    // Expressions in this block
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-
 pub enum InterpreterFlags {
     Debug,
     AnyFile,
     Compile,
 }
-
 pub enum InterpreterCommand {
     Error(&'static str),
     Live,
@@ -323,60 +322,57 @@ impl Interpreter {
         self.vm.execute(bytecode);
     }
 
-    pub fn compile_file(filepath: &str) -> Result<Vec<PyBytecode>, PyException> {
-
-        let mut bytecode: Vec<PyBytecode> = vec![];
-        //println!("Current dir:\n{:?}", std::env::current_dir());
+    pub fn compile_file(filepath: &str) -> Result<CodeObj, PyException> {
+        let mut code: CompileCtx;
+        let path = Path::new(filepath);
+        match path.file_stem() {
+            Some(filestem) => match filestem.to_str() {
+                Some(file_str) => {
+                    let filename = file_str.to_string();
+                    code = CompileCtx::new(filename);
+                }
+                None => {
+                    return Err(PyException {
+                        error: PyError::FileError,
+                        msg: format!("Failed to complile \'{filepath}\'\nFileread error"),
+                    });
+                }
+            },
+            None => {
+                return Err(PyException {
+                    error: PyError::FileError,
+                    msg: format!("Failed to complile \'{filepath}\'\nFileread error"),
+                });
+            }
+        }
 
         let contents = match std::fs::read_to_string(filepath) {
             Ok(f) => f,
-            Err(e) => return Err(PyException{ 
-                error: PyError::FileError,
-                msg: format!("Failed to complile \'{filepath}\'\nFileread error: {e}")
-            }),
+            Err(e) => {
+                return Err(PyException {
+                    error: PyError::FileError,
+                    msg: format!("Failed to complile \'{filepath}\'\nFileread error: {e}"),
+                })
+            }
         };
 
         let parsed = Expression::from_multiline(contents.as_str());
         //dbg!(&parsed);
         for expr in parsed {
-            PyBytecode::from_expr(expr, &mut bytecode);
+            PyBytecode::from_expr(expr, &mut code);
         }
 
-        Ok(bytecode)
-    }
-
-    pub fn compile_module(filepath: &str) -> Result<PyModule, PyException>
-    {
-        let path = Path::new(filepath);
-        if let Some(filestem) = path.file_stem() {
-            if let Some(file_str) = filestem.to_str() {
-                let filename = file_str.to_string();
-                let code = match Interpreter::compile_file(filepath) {
-                    Ok(c) => c,
-                    Err(e) => return Err(e),
-                };
-                return Ok(PyModule{
-                    name: filename,
-                    vars: HashMap::new(),
-                    code: code,
-                });
-            };
-        };
-
-        return Err(PyException{
-            error: PyError::UndefinedVariableError,
-            msg: format!("Cannot file .py file to compile into a module at path: {}", filepath),
-        });
+        Ok(code.finish())
     }
 
     #[allow(dead_code)]
     fn execute_expr(&mut self, expr: Expression) {
-        let mut bytecode = vec![];
-        PyBytecode::from_expr(expr, &mut bytecode);
-        self.vm.execute(bytecode);
+        let mut code = CompileCtx::new("__temp__");
+        PyBytecode::from_expr(expr, &mut code);
+        self.vm.execute(code.finish());
     }
 
-    pub fn seralize_bytecode(filename: &str, bytecode: &Vec<PyBytecode>) -> std::io::Result<()> {
+    pub fn seralize_codeobj(filename: &str, codeobj: &CodeObj) -> std::io::Result<()> {
         use std::fs;
         let exists = fs::exists("__pycache__")?;
         if !exists {
@@ -388,11 +384,10 @@ impl Interpreter {
         let pyc_name = format!("__pycache__/{}.{}.pyc", name, Interpreter::get_version());
         let mut file = fs::File::create(&pyc_name)?;
 
-        let contents = PyBytecode::to_string(bytecode);
+        let contents = format!("{:?}", codeobj);
         file.write_all(contents.as_bytes())?;
 
         println!("Compiled: {filename} into {pyc_name}");
         Ok(())
     }
-    
 }

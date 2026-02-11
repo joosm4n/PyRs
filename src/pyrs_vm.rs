@@ -1,4 +1,3 @@
-
 use std::{
     collections::HashMap,
     io::{self, Write},
@@ -9,13 +8,13 @@ use std::{
 
 use crate::{
     pyrs_bytecode::PyBytecode,
+    pyrs_codeobject::{CodeObj, FuncObj, PyFrame},
     pyrs_error::{PyError, PyException},
     pyrs_interpreter::Interpreter,
     pyrs_obj::{Obj, PyObj, ToObj},
     pyrs_parsing::Op,
     pyrs_std::RangeObj,
-    pyrs_userclass::{CustomClass},
-    pyrs_codeobject::{PyFrame, FuncObj},
+    pyrs_userclass::CustomClass,
 };
 
 #[allow(dead_code)]
@@ -23,7 +22,6 @@ use crate::{
 pub struct PyVM {
     builtins: HashMap<String, Arc<Obj>>,
     globals: HashMap<String, Arc<Obj>>,
-    var_maps: Vec<HashMap<String, Arc<Obj>>>,
     curr_namespace: String,
 
     frames: Vec<PyFrame>,
@@ -43,8 +41,8 @@ impl PyVM {
         PyVM {
             builtins: HashMap::new(),
             globals: HashMap::new(),
-            var_maps: vec![HashMap::new()],
             curr_namespace: String::from(""),
+            frames: vec![],
             error_state: false,
             debug_mode: false,
             null: Obj::Null.into(),
@@ -56,25 +54,49 @@ impl PyVM {
         self.debug_mode = debug;
     }
 
-    pub fn execute(&mut self, bytecode: Vec<PyBytecode>) {
+    pub fn execute(&mut self, code: CodeObj) {
         println!("Working in: {:?}", self.working_dir);
-        self.instruction_queue = bytecode;
+
+        self.frames.push(PyFrame {
+            code: Arc::new(code),
+            ip: 0,
+            stack: vec![],
+            locals: vec![],
+        });
+
         if self.debug_mode {
             self.print_instruction_queue();
         }
-        while let Some(instruction) = self.instruction_queue.get(self.instruction_counter) {
-            self.execute_instruction(instruction.clone());
+
+        loop {
+            let frame = self.frame_mut();
+            if frame.ip >= frame.code.bytecode.len() {
+                break;
+            }
+
+            let instr = frame.code.bytecode[frame.ip].clone();
+            frame.ip += 1;
+            self.execute_instruction(instr);
+
+            if self.frames.is_empty() {
+                break;
+            }
         }
     }
 
     fn execute_instruction(&mut self, inst: PyBytecode) {
         if inst == PyBytecode::NOP {
-            self.instruction_counter += 1;
             return;
         }
 
         if self.debug_mode {
-            println!("Executing: ({})   {:?}", self.instruction_counter, inst);
+            println!(
+                "Executing: ({})   {:?}\nStack for ({}):\n",
+                self.frame().ip,
+                &inst,
+                self.frame().ip
+            );
+
             self.print_stack();
         }
 
@@ -108,7 +130,7 @@ impl PyVM {
             PyBytecode::CallInstrinsic1(ptr) => self.call_intrinsic_1(ptr),
             PyBytecode::ReturnValue => self.return_value(),
 
-            PyBytecode::LoadDeref(name) => self.load_deref(&name),
+            PyBytecode::LoadDeref(namei) => self.load_deref(namei),
 
             PyBytecode::PopJumpIfFalse(delta) => self.pop_jump_if_false(delta),
             PyBytecode::PopJumpIfTrue(delta) => self.pop_jump_if_true(delta),
@@ -120,20 +142,11 @@ impl PyVM {
             PyBytecode::MakeFunction => self.make_function(),
 
             PyBytecode::LoadBuildClass => self.load_build_class(),
-            PyBytecode::ImportFrom(name) => self.import_from(&name),
-            PyBytecode::ImportName(name) => self.import_name(&name),
+            PyBytecode::ImportName(namei) => self.import_name(namei),
 
             PyBytecode::NOP => {}
             _ => panic!("Instruction {:?} not implemented ", inst),
         }
-        if self.error_state {
-            self.throw();
-        }
-        self.instruction_counter += 1;
-    }
-
-    pub fn get_vars(&self) -> &Vec<HashMap<String, Arc<Obj>>> {
-        &self.var_maps
     }
 
     pub fn dbg<T: std::fmt::Debug>(&self, p: &T) {
@@ -158,30 +171,29 @@ impl PyVM {
         self.error_state = true;
     }
 
-    fn print_debug_info(&self) {
+    fn print_debug_info(&mut self) {
         self.print_instruction_queue();
+        let frame = self.frames.last().unwrap();
         println!(
             "Curr Instruction: \n({}) \t{}",
-            self.instruction_counter, self.instruction_queue[self.instruction_counter]
+            frame.ip, frame.code.bytecode[frame.ip]
         );
 
         println!("\nStack Trace: ");
         self.print_stack();
 
-        println!("\nVariableMaps: ");
-        self.get_vars();
+        println!("\nVariableMaps: \n{:#?}", self.frame().locals);
     }
 
     fn throw(&mut self) {
+        let ip = self.frame_mut().ip;
         let e = self.pop();
         println!();
         println!("---- PyVM Error ---- \n");
 
-        println!(
-            "Error: at bytecode instruction {}",
-            self.instruction_counter
-        );
-        self.print_instruction(self.instruction_counter);
+        println!("Error: at bytecode instruction {}", ip,);
+
+        self.print_instruction(ip);
         println!("\n{e}");
 
         self.print_debug_info();
@@ -191,11 +203,12 @@ impl PyVM {
     }
 
     fn push(&mut self, obj: Arc<Obj>) {
-        self.local_stacks.last_mut().unwrap().push(obj);
+        //self.local_stacks.last_mut().unwrap().push(obj);
+        self.frame_mut().stack.push(obj);
     }
 
     fn pop(&mut self) -> Arc<Obj> {
-        match self.local_stacks.last_mut().unwrap().pop() {
+        match self.frame_mut().stack.pop() {
             Some(obj) => obj,
             None => {
                 let e = PyException {
@@ -209,15 +222,11 @@ impl PyVM {
         }
     }
 
-    fn get_local_vars(&self) -> &HashMap<String, Arc<Obj>> {
-        return self.var_maps.last().unwrap();
+    fn frame(&self) -> &PyFrame {
+        return self.frames.last().unwrap();
     }
 
-    fn get_local_vars_mut(&mut self) -> &mut HashMap<String, Arc<Obj>> {
-        return self.var_maps.last_mut().unwrap();
-    }
-
-    fn frame(&mut self) -> &mut PyFrame {
+    fn frame_mut(&mut self) -> &mut PyFrame {
         return self.frames.last_mut().unwrap();
     }
 
@@ -233,7 +242,7 @@ impl PyVM {
     fn pop_n_or(&mut self, count: usize, or: Arc<Obj>) -> Vec<Arc<Obj>> {
         let mut objs = vec![];
         for _ in 0..count {
-            if let Some(obj) = self.get_local_stack_mut().pop() {
+            if let Some(obj) = self.frame_mut().stack.pop() {
                 objs.push(obj);
             } else {
                 objs.push(or.clone().into());
@@ -243,9 +252,9 @@ impl PyVM {
         objs
     }
 
-    fn pop_until(&mut self, stop_obj: &Obj) -> Vec<Arc<Obj>> {
+    fn pop_until(&mut self, stop_obj: &Arc<Obj>) -> Vec<Arc<Obj>> {
         let mut objs = vec![];
-        while self.top().as_ref() != stop_obj {
+        while self.top() != stop_obj {
             objs.push(self.pop());
         }
 
@@ -255,49 +264,43 @@ impl PyVM {
 
     fn pop_until_null(&mut self) -> Vec<Arc<Obj>> {
         let mut objs = vec![];
-        while self.top().as_ref() != self.null_obj.as_ref() {
+        loop {
+            if self.top().as_ref() == self.null.as_ref() {
+                break;
+            }
             objs.push(self.pop());
         }
         objs.reverse();
         objs
     }
 
-    fn top(&self) -> Arc<Obj> {
-        self.local_stacks.last().unwrap().last().unwrap().clone()
+    fn top(&self) -> &Arc<Obj> {
+        self.frames.last().unwrap().stack.last().unwrap()
     }
 
-    pub fn print_stack(&self) {
-        for (idx, a) in self.local_stacks.iter().enumerate() {
-            println!(" ({:?}) \t{:?}", idx, a);
+    pub fn print_stack(&mut self) {
+        for (idx, a) in self.frame_mut().stack.iter().enumerate() {
+            println!(" [{:?}] \t{}", idx, a.__str__());
         }
         println!();
     }
 
-    pub fn print_var_maps(&self) {
-        for (idx, a) in self.var_maps.iter().enumerate() {
-            println!(" ({:?}) \t{:?}", idx, a);
-        }
-        println!();
-    }
-
-    pub fn view_stack(&self) -> &Vec<Vec<Arc<Obj>>> {
-        return &self.local_stacks;
-    }
-
-    fn print_instruction(&self, index: usize) {
-        if index < self.instruction_queue.len() {
-            println!("({}) \t\t{}", index, self.instruction_queue[index]);
+    fn print_instruction(&mut self, index: usize) {
+        let inst_queue = &self.frame_mut().code.bytecode;
+        if index < inst_queue.len() {
+            println!("({}) \t\t{}", index, inst_queue[index]);
         }
     }
 
-    fn print_instruction_queue(&self) {
+    fn print_instruction_queue(&mut self) {
+        let inst_queue = &self.frame_mut().code.bytecode;
         println!("\nInstructions: ");
-        println!("{}", PyBytecode::to_string(&self.instruction_queue));
+        println!("{}", PyBytecode::to_string(inst_queue));
     }
 
     // -------------- Instructions ----------------
     fn pop_top(&mut self) {
-        self.frame().stack.pop().unwrap();
+        self.frame_mut().stack.pop().unwrap();
     }
 
     fn end_for(&mut self) {
@@ -305,52 +308,52 @@ impl PyVM {
     }
 
     fn copy(&mut self, n: usize) {
-        let frame = self.frame();
+        let frame = self.frame_mut();
         let val = frame.stack[frame.stack.len() - 1 - n].clone();
         frame.stack.push(val);
     }
 
     fn swap(&mut self, n: usize) {
-        let frame = self.frame();
+        let frame = self.frame_mut();
         let len = frame.stack.len();
         frame.stack.swap(len - 1, len - 1 - n);
     }
 
     fn load_const(&mut self, i: usize) {
-        let c = self.frame().code.consts[i].clone();
-        self.frame().stack.push(Arc::new(c));
+        let obj = self.frame_mut().code.consts[i].clone();
+        self.frame_mut().stack.push(Arc::new(obj));
     }
 
     fn store_fast(&mut self, i: usize) {
-        let val = self.frame().stack.pop().unwrap();
-        self.frame().locals[i] = val;
+        let val = self.frame_mut().stack.pop().unwrap();
+        self.frame_mut().locals[i] = val;
     }
 
     fn load_fast(&mut self, namei: usize) {
-        let val = self.frame().locals[namei].clone();
-        self.frame().stack.push(val);
+        let val = self.frame_mut().locals[namei].clone();
+        self.frame_mut().stack.push(val);
     }
 
     fn store_name(&mut self, namei: usize) {
-        let name = self.frame().code.names[namei].clone();
-        let val = self.frame().stack.pop().unwrap();
+        let name = self.frame_mut().code.names[namei].clone();
+        let val = self.frame_mut().stack.pop().unwrap();
         self.globals.insert(name, val);
     }
 
     fn load_name(&mut self, i: usize) {
-        let name = &self.frame().code.names[i];
+        let name = self.frame().code.names[i].clone();
 
-        if let Some(v) = self.globals.get(name) {
-            self.frame().stack.push(v.clone());
-        } else if let Some(v) = self.builtins.get(name) {
-            self.frame().stack.push(v.clone());
+        if let Some(v) = self.globals.get(&name).cloned() {
+            self.frame_mut().stack.push(v);
+        } else if let Some(v) = self.builtins.get(&name).cloned() {
+            self.frame_mut().stack.push(v);
         } else {
             panic!("NameError: {name}");
         }
     }
 
     fn push_null(&mut self) {
-        self.push(self.null_obj.clone());
+        self.push(self.null.clone());
     }
 
     fn build_list(&mut self, len: usize) {
@@ -372,22 +375,21 @@ impl PyVM {
     }
 
     fn get_iter(&mut self) {
-        let obj = self.frame().stack.pop().unwrap();
+        let obj = self.frame_mut().stack.pop().unwrap();
         match obj.iter_py() {
-            Some(i) => self.frame().stack.push(Obj::Iter(i).into()),
+            Some(i) => self.frame_mut().stack.push(Obj::Iter(i).into()),
             None => panic!("TypeError: not iterable"),
         }
     }
 
     fn for_iter(&mut self, delta: usize) {
-        let iter = self.frame().stack.pop().unwrap();
-
+        let iter = self.frame_mut().stack.pop().unwrap();
         if let Obj::Iter(mut it) = iter.as_ref().clone() {
             if let Some(item) = it.next() {
-                self.frame().stack.push(Obj::Iter(it).into());
-                self.frame().stack.push(item);
+                self.frame_mut().stack.push(Obj::Iter(it).into());
+                self.frame_mut().stack.push(item);
             } else {
-                self.frame().ip += delta;
+                self.frame_mut().ip += delta;
             }
         } else {
             panic!("FOR_ITER expected iterator");
@@ -406,7 +408,7 @@ impl PyVM {
     }
 
     fn pop_jump_if_false(&mut self, delta: usize) {
-        let frame = self.frame();
+        let frame = self.frame_mut();
         let cond = frame.stack.pop().unwrap();
         if !cond.__bool__() {
             frame.ip += delta;
@@ -414,7 +416,7 @@ impl PyVM {
     }
 
     fn pop_jump_if_true(&mut self, delta: usize) {
-        let frame = self.frame();
+        let frame = self.frame_mut();
         let cond = frame.stack.pop().unwrap();
         if cond.__bool__() {
             frame.ip += delta;
@@ -422,74 +424,73 @@ impl PyVM {
     }
 
     fn jump_forward(&mut self, delta: usize) {
-        self.frame().ip += delta;
+        self.frame_mut().ip += delta;
     }
 
     fn jump_backward(&mut self, delta: usize) {
-        self.frame().ip -= delta;
+        self.frame_mut().ip -= delta;
     }
 
     fn compare_op(&mut self, op: Op) {
-        let rhs = self.frame().stack.pop().unwrap();
-        let lhs = self.frame().stack.pop().unwrap();
+        let rhs = self.frame_mut().stack.pop().unwrap();
+        let lhs = self.frame_mut().stack.pop().unwrap();
         let res = Obj::compare_op(&lhs, &rhs, &op);
-        self.frame().stack.push(res.to_arc());
+        self.frame_mut().stack.push(res.to_arc());
     }
 
     fn binary_add(&mut self) {
-        let rhs = self.frame().stack.pop().unwrap();
-        let lhs = self.frame().stack.pop().unwrap();
+        let rhs = self.frame_mut().stack.pop().unwrap();
+        let lhs = self.frame_mut().stack.pop().unwrap();
         match Obj::__add__(&lhs, &rhs) {
-            Ok(v) => self.frame().stack.push(v),
+            Ok(v) => self.frame_mut().stack.push(v),
             Err(e) => panic!("{e}"),
         }
     }
 
     fn binary_subtract(&mut self) {
-        let rhs = self.frame().stack.pop().unwrap();
-        let lhs = self.frame().stack.pop().unwrap();
+        let rhs = self.frame_mut().stack.pop().unwrap();
+        let lhs = self.frame_mut().stack.pop().unwrap();
         match Obj::__sub__(&lhs, &rhs) {
-            Ok(v) => self.frame().stack.push(v),
+            Ok(v) => self.frame_mut().stack.push(v),
             Err(e) => panic!("{e}"),
         };
     }
 
     fn binary_multiply(&mut self) {
-        let rhs = self.frame().stack.pop().unwrap();
-        let lhs = self.frame().stack.pop().unwrap();
+        let rhs = self.frame_mut().stack.pop().unwrap();
+        let lhs = self.frame_mut().stack.pop().unwrap();
         match Obj::__mul__(&lhs, &rhs) {
-            Ok(v) => self.frame().stack.push(v),
+            Ok(v) => self.frame_mut().stack.push(v),
             Err(e) => panic!("{e}"),
         };
     }
 
     fn binary_divide(&mut self) {
-        let rhs = self.frame().stack.pop().unwrap();
-        let lhs = self.frame().stack.pop().unwrap();
+        let rhs = self.frame_mut().stack.pop().unwrap();
+        let lhs = self.frame_mut().stack.pop().unwrap();
         match Obj::__div__(&lhs, &rhs) {
-            Ok(v) => self.frame().stack.push(v),
+            Ok(v) => self.frame_mut().stack.push(v),
             Err(e) => panic!("{e}"),
         };
     }
 
     fn unary_negative(&mut self) {
-        let v = self.frame().stack.pop().unwrap();
+        let v = self.frame_mut().stack.pop().unwrap();
         match Obj::__neg__(&v) {
-            Ok(o) => self.frame().stack.push(o),
+            Ok(o) => self.frame_mut().stack.push(o),
             Err(e) => panic!("{e}"),
         }
     }
 
     fn call_function(&mut self, argc: usize) {
-       let args = self.frame().stack.split_off(
-            self.frame().stack.len() - argc
-        );
+        let call_pos = self.frame().stack.len() - argc;
+        let args = self.frame_mut().stack.split_off(call_pos);
 
-        let func = self.frame().stack.pop().unwrap();
+        let func = self.frame_mut().stack.pop().unwrap();
 
         let func = match func.as_ref() {
             Obj::Func(f) => f.clone(),
-            _ => panic!("Not callable"),
+            o => panic!("Obj {:?} is not callable", o),
         };
 
         let mut new_frame = PyFrame {
@@ -507,10 +508,7 @@ impl PyVM {
     }
 
     fn return_value(&mut self) {
-        let ret = self.frame()
-            .stack
-            .pop()
-            .unwrap_or(self.null.clone());
+        let ret = self.frame_mut().stack.pop().unwrap_or(self.null.clone());
 
         self.frames.pop();
 
@@ -520,14 +518,14 @@ impl PyVM {
     }
 
     fn call_intrinsic_1(&mut self, f: IntrinsicFunc) {
-        let arg = self.frame().stack.pop().unwrap();
-        if let Some(v) = f.call(vec![arg]) {
-            self.frame().stack.push(v);
+        let arg = self.frame_mut().stack.pop().unwrap();
+        if let Some(v) = f.call(&vec![arg]) {
+            self.frame_mut().stack.push(v);
         }
     }
 
     fn make_function(&mut self) {
-        let code = match self.frame().stack.pop().unwrap().as_ref() {
+        let code = match self.frame_mut().stack.pop().unwrap().as_ref() {
             Obj::Code(c) => c.clone(),
             _ => panic!("MAKE_FUNCTION expects CodeObj"),
         };
@@ -538,12 +536,12 @@ impl PyVM {
             closure: vec![],
         });
 
-        self.frame().stack.push(func.into());
+        self.frame_mut().stack.push(func.into());
     }
 
-    fn load_deref(&mut self, field: &String) {
+    fn load_deref(&mut self, field: usize) {
         let obj = self.pop();
-        let ret = match obj.__dict__(field) {
+        let ret = match obj.__dict__(&field.to_string()) {
             Some(o) => o.clone(),
             None => PyException {
                 error: PyError::UndefinedVariableError,
@@ -558,36 +556,15 @@ impl PyVM {
         panic!();
     }
 
-    fn import_from(&mut self, name: &str) {
-        let filepath: String = self.working_dir.to_str().unwrap().to_owned() + name + ".py";
-        let module = match Interpreter::compile_module(&filepath) {
+    fn import_name(&mut self, namei: usize) {
+        self.load_name(namei);
+        let name = self.pop().__str__();
+
+        let filepath: String = self.working_dir.to_str().unwrap().to_owned() + "/" + &name + ".py";
+        let module = match Interpreter::compile_file(&filepath) {
             Ok(m) => m,
-            Err(e) => {
-                self.push_err(e);
-                self.throw();
-                unreachable!();
-            }
+            Err(e) => panic!("can't load module \'{}\': {}", &name, e),
         };
-
-        let name = module.name.clone();
-        self.push(Arc::new(Obj::Module(module)));
-        self.store_name(name);
-    }
-
-    fn import_name(&mut self, name: &str) {
-        let filepath: String = self.working_dir.to_str().unwrap().to_owned() + "/" + name + ".py";
-        let module = match Interpreter::compile_module(&filepath) {
-            Ok(m) => m,
-            Err(e) => {
-                self.push_err(e);
-                self.throw();
-                unreachable!();
-            }
-        };
-
-        let name = module.name.clone();
-        self.push(Arc::new(Obj::Module(module)));
-        self.store_name(name);
     }
 }
 
@@ -602,6 +579,14 @@ pub enum IntrinsicFunc {
 }
 
 impl IntrinsicFunc {
+    pub fn call(&self, args: &Vec<Arc<Obj>>) -> Option<Arc<Obj>> {
+        match self {
+            IntrinsicFunc::Print => IntrinsicFunc::input(args),
+            IntrinsicFunc::Input => IntrinsicFunc::print(args),
+            IntrinsicFunc::Range => IntrinsicFunc::range(args),
+        }
+    }
+
     pub fn try_get(name: &str) -> Option<IntrinsicFunc> {
         let func = match name {
             "print" => IntrinsicFunc::Print,

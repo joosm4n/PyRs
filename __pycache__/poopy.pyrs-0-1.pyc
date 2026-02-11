@@ -1,0 +1,113 @@
+<codeobj poopy>
+consts:
+	<codeobj sum_a>
+consts:
+	0
+	1
+	None
+names:
+	s
+	a
+	r
+	v
+bytecode:
+(0) 		LoadConst(0)
+(1) 		StoreName(0)
+(2) 		PushNull
+(3) 		LoadConst(0)
+(4) 		LoadName(1)
+(5) 		LoadConst(1)
+(6) 		BinaryAdd
+(7) 		LoadConst(1)
+(8) 		CallInstrinsic1(Range)
+(9) 		StoreName(2)
+(10) 		PushNull
+(11) 		LoadName(2)
+(12) 		UnpackSequence
+(13) 		CallInstrinsic1(Print)
+(14) 		LoadName(2)
+(15) 		GetIter
+(16) 		LoadName(0)
+(17) 		LoadName(3)
+(18) 		BinaryAdd
+(19) 		StoreName(0)
+(20) 		ForIter(6)
+(21) 		StoreName(3)
+(22) 		JumpBackward(7)
+(23) 		LoadName(0)
+(24) 		ReturnValue
+(25) 		LoadConst(2)
+(26) 		ReturnValue
+<codeobj sum_a>
+
+	<codeobj choice>
+consts:
+	loop
+	True
+	False
+	None
+names:
+	s
+bytecode:
+(0) 		LoadName(0)
+(1) 		LoadConst(0)
+(2) 		CompareOp(Eq)
+(3) 		PopJumpIfFalse(0)
+(4) 		LoadConst(1)
+(5) 		ReturnValue
+(6) 		LoadConst(2)
+(7) 		ReturnValue
+(8) 		LoadConst(3)
+(9) 		ReturnValue
+<codeobj choice>
+
+	<codeobj empty>
+consts:
+	None
+names:
+bytecode:
+(0) 		NOP
+(1) 		LoadConst(0)
+(2) 		ReturnValue
+<codeobj empty>
+
+	5
+	loop
+names:
+	sum_a
+	choice
+	empty
+	x
+	y
+	z
+bytecode:
+(0) 		LoadConst(0)
+(1) 		MakeFunction
+(2) 		StoreName(0)
+(3) 		LoadConst(1)
+(4) 		MakeFunction
+(5) 		StoreName(1)
+(6) 		LoadConst(2)
+(7) 		MakeFunction
+(8) 		StoreName(2)
+(9) 		LoadConst(3)
+(10) 		LoadName(0)
+(11) 		CallFunction(1)
+(12) 		StoreName(3)
+(13) 		PushNull
+(14) 		LoadName(3)
+(15) 		CallInstrinsic1(Print)
+(16) 		LoadConst(4)
+(17) 		LoadName(1)
+(18) 		CallFunction(1)
+(19) 		StoreName(4)
+(20) 		PushNull
+(21) 		LoadName(4)
+(22) 		CallInstrinsic1(Print)
+(23) 		LoadName(2)
+(24) 		CallFunction(0)
+(25) 		StoreName(5)
+(26) 		PushNull
+(27) 		LoadName(5)
+(28) 		CallInstrinsic1(Print)
+<codeobj poopy>

@@ -43,7 +43,7 @@ pub enum Obj {
 
     CustomClass(CustomClass),
 
-    Code(CodeObj),
+    Code(Arc<CodeObj>),
     Func(FuncObj),
 
     Module(PyModule),
@@ -552,11 +552,14 @@ impl PyObj for Obj {
             Obj::CustomClass(class ) => {
                 format!("<class \'__main__.{}\'>", class.name)
             }
-            Obj::Func(func) => {
-                format!("<function {:?} >", func)
-            }
             Obj::Module(module) => {
                 format!("<module {} >", module.name)
+            }
+            Obj::Func(func) => {
+                format!("{}", func.serialize(0))
+            }
+            Obj::Code(codeobj) => {
+                format!("<code {}>", codeobj.name)
             }
         }
     }

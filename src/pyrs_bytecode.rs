@@ -2,11 +2,11 @@ use crate::{
     pyrs_obj::{Obj, ToObj},
     pyrs_parsing::{Expression, Keyword, Op},
     pyrs_userclass::{CustomClass},
-    pyrs_codeobject::{CodeObj},
+    pyrs_codeobject::{CodeObj, CompileCtx},
     pyrs_vm::IntrinsicFunc,
 };
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc,};
 
 // Format: offset INSTRUCTION argument (value)
 // 0 LOAD_CONST 0 (0)      # Load constant at index 0, which is the integer 0
@@ -19,8 +19,8 @@ pub enum PyBytecode {
     NOP = 0,
 
     // Import
-    ImportName(String) = 10,
-    ImportFrom(String) = 11,
+    ImportName(usize) = 10,
+    ImportFrom(usize) = 11,
 
     // Fundamentals
     PopTop = 20,
@@ -88,32 +88,46 @@ pub enum PyBytecode {
 
 impl PyBytecode {
 
-    pub fn compile_block(exprs: Vec<Expression>) -> CodeObj {
-        let mut bytecode = vec![];
+    fn compile_fn(body: Expression) -> Arc<CodeObj> {
 
-        for expr in exprs {
-            PyBytecode::from_expr(expr, &mut bytecode);
+        match body {
+            Expression::Keyword(Keyword::Def, mut args, body) => {
+                let _func_args = args.split_off(1);
+
+                let name = match args.pop() {
+                    Some(Expression::Ident(ident)) => ident,
+                    _ => panic!("function name must be identifier"),
+                };
+
+                // Compile function body into its OWN bytecode
+                let mut fn_ctx = CompileCtx::new(name.clone());
+
+                for b in body {
+                    PyBytecode::from_expr(b, &mut fn_ctx);
+                }
+
+                let const_num = fn_ctx.add_const(Obj::None);
+                fn_ctx.push(PyBytecode::LoadConst(const_num));
+                fn_ctx.push(PyBytecode::ReturnValue);
+
+                Arc::new(fn_ctx.finish())
+            }
+            _ => unreachable!(),
         }
 
-        bytecode.push(PyBytecode::LoadConst(0));
-        bytecode.push(PyBytecode::ReturnValue);
-
-        CodeObj {
-            name: "<block>".into(),
-            bytecode,
-            consts: vec![],
-            names: vec![],
-            varnames: vec![],
-        }
     }
 
-    pub fn from_expr(expr: Expression, queue: &mut Vec<PyBytecode>) {
+    pub fn from_expr(expr: Expression, context: &mut CompileCtx) {
         // println!("Compiling: {}", expr.to_string());
         match expr {
             Expression::Ident(x) => {
-                queue.push(PyBytecode::LoadName(x));
+                let namei = context.add_name(x);
+                context.push(PyBytecode::LoadName(namei));
             }
-            Expression::Atom(a) => queue.push(PyBytecode::LoadConst(a.to_obj())),
+            Expression::Atom(a) => { 
+                let i = context.add_const(a.to_obj());
+                context.push(PyBytecode::LoadConst(i));
+            }
             Expression::Operation(op, args) => {
                 let mut name = String::new();
                 match op {
@@ -125,14 +139,15 @@ impl PyBytecode {
                                     _ => panic!(),
                                 };
                             } else {
-                                PyBytecode::from_expr(a, queue);
+                                PyBytecode::from_expr(a, context);
                             }
                         }
                         if name.is_empty() {
                             panic!();
                         }
 
-                        queue.push(PyBytecode::StoreName(name));
+                        let namei = context.add_name(name);
+                        context.push(PyBytecode::StoreName(namei));
                         return;
                     }
                     Op::AddEquals | Op::SubEquals | Op::MulEquals | Op::DivEquals => {
@@ -141,21 +156,23 @@ impl PyBytecode {
                                 match a {
                                     Expression::Ident(ident) => {
                                         name = ident;
-                                        queue.push(PyBytecode::LoadName(name.clone()));
+                                        let namei = context.add_name(name.clone());
+                                        context.push(PyBytecode::LoadName(namei));
                                     }
                                     _ => panic!(),
                                 };
                             } else if idx == 1 {
-                                PyBytecode::from_expr(a, queue);
+                                PyBytecode::from_expr(a, context);
                             } else {
                                 panic!("Only 2 args possible for add/sub/mul/div assign op");
                             }
                         }
+
                         if name.is_empty() {
-                            panic!();
+                            panic!("SyntaxError: name is empty\n{} ", context.serialize(0));
                         }
 
-                        queue.push(match op {
+                        context.push(match op {
                             Op::AddEquals => PyBytecode::BinaryAdd,
                             Op::SubEquals => PyBytecode::BinarySubtract,
                             Op::MulEquals => PyBytecode::BinaryMultiply,
@@ -163,31 +180,32 @@ impl PyBytecode {
                             _ => unreachable!(),
                         });
 
-                        queue.push(PyBytecode::StoreName(name));
+                        let namei = context.add_name(name);
+                        context.push(PyBytecode::StoreName(namei));
                         return;
                     }
                     Op::List => {
                         let obj_count = args.len();
                         for a in args {
-                            PyBytecode::from_expr(a, queue);
+                            PyBytecode::from_expr(a, context);
                         }
-                        queue.push(PyBytecode::BuildList(obj_count));
+                        context.push(PyBytecode::BuildList(obj_count));
                         return;
                     }
                     Op::Set => {
                         let obj_cound = args.len();
                         for a in args {
-                            PyBytecode::from_expr(a, queue);
+                            PyBytecode::from_expr(a, context);
                         }
-                        queue.push(PyBytecode::BuildSet(obj_cound));
+                        context.push(PyBytecode::BuildSet(obj_cound));
                         return;
                     }
                     Op::Tuple => {
                         let obj_cound = args.len();
                         for a in args {
-                            PyBytecode::from_expr(a, queue);
+                            PyBytecode::from_expr(a, context);
                         }
-                        queue.push(PyBytecode::BuildTuple(obj_cound));
+                        context.push(PyBytecode::BuildTuple(obj_cound));
                         return;
                     }
                     Op::Dot => {
@@ -208,19 +226,23 @@ impl PyBytecode {
                             }
                         }
 
-                        queue.push(PyBytecode::LoadName(lhs.into()));
-                        queue.push(PyBytecode::LoadDeref(rhs.into()));
-                        PyBytecode::from_expr(body, queue);
+                        let namei = context.add_name(lhs.into());
+                        context.push(PyBytecode::LoadName(namei));
+
+                        let namei = context.add_name(rhs.into());
+                        context.push(PyBytecode::LoadDeref(namei));
+
+                        PyBytecode::from_expr(body, context);
                         return;
                     }
                     _ => {
                         for a in args {
-                            PyBytecode::from_expr(a, queue);
+                            PyBytecode::from_expr(a, context);
                         }
                     }
                 }
 
-                queue.push( match op {
+                context.push( match op {
                     Op::Plus => PyBytecode::BinaryAdd,
                     Op::Minus => PyBytecode::BinarySubtract,
                     Op::Asterisk => PyBytecode::BinaryMultiply,
@@ -248,39 +270,48 @@ impl PyBytecode {
 
                 let intrinsic_option = IntrinsicFunc::try_get(&name);
                 if intrinsic_option.is_some() {
-                    queue.push(PyBytecode::PushNull);
+                    context.push(PyBytecode::PushNull);
                 }
 
                 for a in args {
                     //dbg!(&a);
-                    PyBytecode::from_expr(a, queue);
+                    PyBytecode::from_expr(a, context);
                 }
 
                 if let Some(intrinsic) = intrinsic_option {
-                    queue.push(PyBytecode::CallInstrinsic1(intrinsic));
+                    context.push(PyBytecode::CallInstrinsic1(intrinsic));
                 } else {
-                    queue.push(PyBytecode::LoadName(name));
-                    queue.push(PyBytecode::CallFunction(argc));
+                    let namei = context.add_name(name);
+                    context.push(PyBytecode::LoadName(namei));
+                    context.push(PyBytecode::CallFunction(argc));
                 }
             }
             Expression::Keyword(keyword, mut args, body) => {
                 match keyword {
-                    Keyword::True => queue.push(PyBytecode::LoadConst(Obj::Bool(true))),
-                    Keyword::False => queue.push(PyBytecode::LoadConst(Obj::Bool(false))),
+                    Keyword::True => { 
+                        let i = context.add_const(Obj::Bool(true));
+                        context.push(PyBytecode::LoadConst(i));
+                    }
+                    Keyword::False => {
+                        let i = context.add_const(Obj::Bool(false));
+                        context.push(PyBytecode::LoadConst(i));
+                    }
                     Keyword::Elif | Keyword::Else => {
                         panic!("Shouldn't have a stand alone elif/else expression")
                     }
                     Keyword::If => {
+
+
                         // Evaluate the if condition first
                         for c in args {
-                            PyBytecode::from_expr(c, queue);
+                            PyBytecode::from_expr(c, context);
                         }
 
                         let parts = Expression::split_if_elif_else(body);
 
-                        // Generate the main if body
-                        let mut if_body = vec![];
                         let mut elif_else_parts = vec![];
+                        let jump_spot = context.len();
+                        context.push(PyBytecode::PopJumpIfFalse(0)); // placeholder
 
                         for part in parts {
                             match part {
@@ -291,97 +322,76 @@ impl PyBytecode {
                                     elif_else_parts.push((vec![], body)); // Empty condition for else
                                 }
                                 other => {
-                                    PyBytecode::from_expr(other, &mut if_body);
+                                    PyBytecode::from_expr(other, context);
                                 }
                             }
                         }
 
                         if elif_else_parts.is_empty() {
-                            // Simple if statement
-                            queue.push(PyBytecode::PopJumpIfFalse(if_body.len()));
-                            queue.append(&mut if_body);
-                        } else {
-                            // Complex if-elif-else
-                            // For now, let's implement a simpler approach that works correctly
-                            // even if not optimally efficient
+                            let if_body_len = context.len() - jump_spot;
+                            context[jump_spot] = PyBytecode::PopJumpIfFalse(if_body_len);
+                        } 
 
-                            // Generate all the elif/else bytecode first to know sizes
-                            let mut all_elif_else_code = vec![];
+
+                        else {
+                            let start_elif_else_spot = context.len();
+                            let mut place_holders: Vec<(usize, usize)> = vec![]; // (part_len, jump_to_end_pos)
 
                             for (conds, body_exprs) in elif_else_parts {
-                                let mut block_code = vec![];
 
                                 if !conds.is_empty() {
-                                    // elif block
+
+                                    let start_cond = context.len();
                                     for cond in conds {
-                                        PyBytecode::from_expr(cond, &mut block_code);
+                                        PyBytecode::from_expr(cond, context);
+                                    }
+                                    let jump_spot = context.len();
+                                    context.push(PyBytecode::PopJumpIfFalse(0)); // placeholder to skip body
+
+                                    for expr in body_exprs {
+                                        PyBytecode::from_expr(expr, context);
                                     }
 
-                                    let mut body_code = vec![];
-                                    for expr in body_exprs {
-                                        PyBytecode::from_expr(expr, &mut body_code);
-                                    }
+                                    let body_code_len = context.len() - jump_spot;
+                                    context[jump_spot] = PyBytecode::PopJumpIfFalse(body_code_len + 1);
 
-                                    block_code
-                                        .push(PyBytecode::PopJumpIfFalse(body_code.len() + 1));
-                                    block_code.append(&mut body_code);
-                                    block_code.push(PyBytecode::JumpForward(0));
-                                // Placeholder, will fix later
-                                } else {
-                                    // else block - no condition
+                                    place_holders.push((start_cond, context.len()));
+                                    context.push(PyBytecode::JumpForward(0)); // placeholder to jump to end
+                                }
+                                else {
                                     for expr in body_exprs {
-                                        PyBytecode::from_expr(expr, &mut block_code);
+                                        PyBytecode::from_expr(expr, context);
                                     }
                                 }
-
-                                all_elif_else_code.append(&mut block_code);
                             }
+                            let end_spot = context.len();
+                            let mut dist_to_end = end_spot - start_elif_else_spot;
 
-                            // Fix the JumpForward placeholders
-                            let mut jump_fixups = vec![];
-                            for (i, instr) in all_elif_else_code.iter().enumerate() {
-                                if matches!(instr, PyBytecode::JumpForward(0)) {
-                                    let remaining = all_elif_else_code.len() - i - 1;
-                                    jump_fixups.push((i, remaining));
-                                }
+                            for (part_len, jump_to_end_spot) in place_holders {
+                                dist_to_end -= part_len;
+                                context[jump_to_end_spot] = PyBytecode::JumpForward(dist_to_end);
                             }
-
-                            for (idx, distance) in jump_fixups {
-                                all_elif_else_code[idx] = PyBytecode::JumpForward(distance);
-                            }
-
-                            // Now emit the main if
-                            //let skip_distance = if_body.len() + 1 + all_elif_else_code.len();
-                            queue.push(PyBytecode::PopJumpIfFalse(if_body.len() + 1));
-                            queue.append(&mut if_body);
-                            queue.push(PyBytecode::JumpForward(all_elif_else_code.len()));
-                            queue.append(&mut all_elif_else_code);
                         }
                     }
                     Keyword::While => {
-                        let condition_start = queue.len();
-                        let mut condition_code = vec![];
+                        let condition_start = context.len();
                         for c in args {
-                            PyBytecode::from_expr(c, &mut condition_code);
+                            PyBytecode::from_expr(c, context);
                         }
-                        for inst in condition_code.iter() {
-                            queue.push(inst.clone());
-                        }
+                        let jump_spot = context.len();
+                        context.push(PyBytecode::PopJumpIfFalse(0)); // place holder
 
-                        let mut contents_code: Vec<PyBytecode> = vec![];
                         for a in body {
-                            PyBytecode::from_expr(a, &mut contents_code);
+                            PyBytecode::from_expr(a, context);
                         }
+                        let delta = (context.len() - jump_spot) + 1;
+                        context[jump_spot] = PyBytecode::PopJumpIfFalse(delta); // skip entire while loop
 
-                        let delta = contents_code.len() + 1;
-                        queue.push(Self::PopJumpIfFalse(delta)); // skip entire while loop
+                        let return_delta = context.len() - condition_start + 1;
+                        context.push(PyBytecode::JumpBackward(return_delta));
 
-                        queue.append(&mut contents_code);
-
-                        let return_delta = queue.len() - condition_start + 1;
-                        queue.push(PyBytecode::JumpBackward(return_delta));
-
-                        queue.push(PyBytecode::LoadConst(Obj::None));
+                        let i = context.add_const(Obj::None);
+                        context.push(PyBytecode::LoadConst(i));
                     }
                     Keyword::For => {
                         let for_err =
@@ -390,10 +400,11 @@ impl PyBytecode {
 
                         match args.pop().unwrap() {
                             Expression::Ident(ident) => {
-                                queue.push(PyBytecode::LoadName(ident.clone()))
+                                let namei = context.add_name(ident.clone());
+                                context.push(PyBytecode::LoadName(namei))
                             }
                             c if matches!(c, Expression::Call(_, _)) => {
-                                PyBytecode::from_expr(c, queue)
+                                PyBytecode::from_expr(c, context)
                             }
                             e => panic!("{} found {}", for_err, e),
                         };
@@ -403,54 +414,30 @@ impl PyBytecode {
                             e => panic!("{} found {}", for_err, e),
                         };
 
-                        queue.push(PyBytecode::GetIter);
+                        context.push(PyBytecode::GetIter);
 
-                        let mut for_code = vec![];
+                        let start_for_code_spot = context.len();
                         for b in body {
-                            PyBytecode::from_expr(b, &mut for_code);
+                            PyBytecode::from_expr(b, context);
                         }
-                        let contents_len = for_code.len(); // length of for loops contents
+                        let contents_len = context.len() - start_for_code_spot; // length of for loops contents
 
-                        queue.push(PyBytecode::ForIter(contents_len + 2));
-                        queue.push(PyBytecode::StoreName(x.into()));
+                        context.push(PyBytecode::ForIter(contents_len + 2));
 
-                        queue.append(&mut for_code);
-                        queue.push(PyBytecode::JumpBackward(contents_len + 3));
+                        let namei = context.add_name(x.into());
+                        context.push(PyBytecode::StoreName(namei));
+                        context.push(PyBytecode::JumpBackward(contents_len + 3));
                     }
                     Keyword::Def => {
-                        let func_args = args.split_off(1);
-
-                        let name = match args.pop() {
-                            Some(Expression::Ident(ident)) => ident,
-                            _ => panic!("function name must be identifier"),
-                        };
-
-                        // Compile function body into its OWN bytecode
-                        let mut body_bytecode = vec![];
-
-                        for b in body {
-                            PyBytecode::from_expr(b, &mut body_bytecode);
-                        }
-
-                        body_bytecode.push(PyBytecode::LoadConst(Obj::None));
-                        body_bytecode.push(PyBytecode::ReturnValue);
-
-                        // Build CodeObj
-                        let code_obj = CodeObj {
-                            name: name.clone(),
-                            bytecode: body_bytecode,
-                            consts: vec![],
-                            names: vec![],
-                            varnames: func_args
-                                .iter()
-                                .map(|a| a.get_value_string())
-                                .collect(),
-                        };
+                        let fn_code = PyBytecode::compile_fn(Expression::Keyword(Keyword::Def, args, body));
+                        let name = fn_code.name.clone();
+                        let idx = context.add_const(Obj::Code(fn_code));
 
                         // Emit instructions for *creating* the function
-                        queue.push(PyBytecode::LoadConst(Obj::Code(code_obj)));
-                        queue.push(PyBytecode::MakeFunction);
-                        queue.push(PyBytecode::StoreName(name));
+                        context.push(PyBytecode::LoadConst(idx));
+                        context.push(PyBytecode::MakeFunction);
+                        let namei = context.add_name(name);
+                        context.push(PyBytecode::StoreName(namei));
                     }
                     Keyword::Class => {
                         //println!("\nClass");
@@ -470,15 +457,14 @@ impl PyBytecode {
                                     fields.insert(v[0].get_value_string(), default_val.to_arc());
                                 }
                                 Expression::Keyword(Keyword::Def, conds, body) => {
-                                    let fn_name = conds.first().unwrap().get_value_string();
-                                    let mut fn_code = vec![];
-                                    PyBytecode::from_expr(
-                                        Expression::Keyword(Keyword::Def, conds, body),
-                                        &mut fn_code,
-                                    );
+                                    let fn_code = PyBytecode::compile_fn(Expression::Keyword(Keyword::Def, conds, body));
+                                    let name = fn_code.name.clone();
+                                    let idx = context.add_const(Obj::Code(fn_code));
 
-                                    let callable = Obj::Func(FuncObj::new(&fn_name, fn_code));
-                                    fields.insert(fn_name, callable.into());
+                                    context.push(PyBytecode::LoadConst(idx));
+                                    context.push(PyBytecode::MakeFunction);
+                                    let namei = context.add_name(name);
+                                    context.push(PyBytecode::StoreName(namei));
                                 }
                                 _ => panic!("invalid expr for default"),
                             }
@@ -489,26 +475,30 @@ impl PyBytecode {
                             fields: fields,
                         };
 
-                        queue.push(PyBytecode::LoadConst(Obj::CustomClass(class).into()));
-                        queue.push(PyBytecode::StoreName(name));
+                        let i = context.add_const(Obj::CustomClass(class));
+                        context.push(PyBytecode::LoadConst(i));
+                        let namei = context.add_name(name);
+                        context.push(PyBytecode::StoreName(namei));
 
                         //panic!("testing class");
                     }
                     Keyword::Import => {
                         let name = args.first().unwrap().get_value_string();
-                        queue.push(PyBytecode::ImportName(name));
+                        let namei = context.add_name(name);
+                        context.push(PyBytecode::ImportName(namei));
                     }
                     Keyword::Return => {
                         for a in args {
-                            PyBytecode::from_expr(a, queue);
+                            PyBytecode::from_expr(a, context);
                         }
-                        queue.push(PyBytecode::ReturnValue);
+                        context.push(PyBytecode::ReturnValue);
                     }
                     Keyword::None => {
-                        queue.push(PyBytecode::LoadConst(Obj::None));
+                        let i = context.add_const(Obj::None);
+                        context.push(PyBytecode::LoadConst(i));
                     }
                     Keyword::Pass => {
-                        queue.push(PyBytecode::NOP);
+                        context.push(PyBytecode::NOP);
                     }
                     k => panic!("Unknown keyword: {k}"),
                 }
@@ -517,7 +507,8 @@ impl PyBytecode {
         }
     }
 
-    pub fn from_str(s: &str) -> Vec<PyBytecode> {
+    pub fn from_str(s: &str) -> CodeObj {
+
         use crate::pyrs_interpreter::Interpreter;
         use std::fs;
         use std::io::Write;

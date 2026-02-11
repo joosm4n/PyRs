@@ -2,7 +2,7 @@
 def sum_a(a):
     s = 0
     r = range(0, a + 1, 1)
-    print(*r)
+    print(r)
     for v in r:
         s += v
     return s

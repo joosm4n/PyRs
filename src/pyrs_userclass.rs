@@ -1,5 +1,4 @@
 use crate::{
-    pyrs_bytecode::PyBytecode,
     pyrs_obj::{Obj, ToObj},
 };
 use std::{collections::HashMap, sync::Arc};

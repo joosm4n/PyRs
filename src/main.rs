@@ -1,11 +1,11 @@
 pub mod pyrs_bytecode;
+pub mod pyrs_codeobject;
 pub mod pyrs_error;
 pub mod pyrs_interpreter;
 pub mod pyrs_modules;
 pub mod pyrs_obj;
 pub mod pyrs_parsing;
 pub mod pyrs_std;
-pub mod pyrs_codeobject;
 mod pyrs_tests;
 pub mod pyrs_userclass;
 pub mod pyrs_utils;
@@ -22,8 +22,7 @@ use crate::{
     pyrs_vm::{IntrinsicFunc, PyVM},
 };
 
-fn main() -> std::io::Result<()> 
-{
+fn main() -> std::io::Result<()> {
     let args = std::env::args();
     let mut argv: Vec<String> = vec![];
     for a in args {
@@ -48,7 +47,7 @@ fn main() -> std::io::Result<()>
 
                 if flags.contains(&InterpreterFlags::Compile) {
                     let bytecode = Interpreter::compile_file(&filepath).handle();
-                    Interpreter::seralize_bytecode(&filepath, &bytecode)?;
+                    Interpreter::seralize_codeobj(&filepath, &bytecode)?;
                 } else {
                     interp.interpret_file(&filepath);
                 }
