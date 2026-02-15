@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+int-enum = "1.2.0"
 rug = "1.28.1"
 
 [dev-dependencies]

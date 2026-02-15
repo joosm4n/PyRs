@@ -19,6 +19,7 @@ pub enum Token<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[repr(usize)]
 pub enum Op {
     Plus,
     Minus,
@@ -159,6 +160,16 @@ impl Op {
         }
     }
 
+    pub const fn from_usize(value: usize) -> Op {
+        unsafe { std::mem::transmute(value) }
+    }
+
+}
+
+impl std::convert::From<usize> for Op {
+    fn from(value: usize) -> Op {
+        unsafe { std::mem::transmute(value) }
+    }
 }
 
 impl<'a, 'b> PartialEq<Token<'b>> for Token<'a> {
@@ -602,7 +613,7 @@ impl<'a> Lexer<'a> {
                                 _ => args.push(self.parse_expression(0.0)),
                             }
                         }
-                        dbg!(&args);
+                        //dbg!(&args);
                         Expression::Operation(Op::List, args)
                     }
                     Op::CurlyBracketsOpen => {
@@ -935,23 +946,22 @@ impl Expression {
         Ok(ret)
     }
 
-    pub fn print_vec(exprs: &Vec<Expression>) {
+    pub fn to_string_vec(exprs: &Vec<Expression>) -> String {
+        let mut s = String::new();
         for e in exprs {
-            println!("{e}");
+            s.push_str(&format!("{e}\n"));
         }
+        s
     }
 
-    pub fn split_if_elif_else(body: Vec<Expression>) -> Vec<Expression> {
-        let mut result = vec![];
+    pub fn split_if_elif_else(if_conds: Vec<Expression>, body: Vec<Expression>) -> Vec<Expression> {
+        let mut result = vec![Expression::Keyword(Keyword::If, if_conds, vec![])];
+        let mut if_body = vec![];
         let mut current_keyword: Option<(Keyword, Vec<Expression>, Vec<Expression>)> = None;
 
         for expr in body {
             match &expr {
-                Expression::Keyword(
-                    kw @ (Keyword::If | Keyword::Elif | Keyword::Else),
-                    conds,
-                    _,
-                ) => {
+                Expression::Keyword(kw @ (Keyword::If | Keyword::Elif | Keyword::Else), conds, _, ) => {
                     if let Some((kw, conds, body)) = current_keyword.take() {
                         result.push(Expression::Keyword(kw, conds, body));
                     }
@@ -961,7 +971,7 @@ impl Expression {
                     if let Some((_, _, ref mut body)) = current_keyword {
                         body.push(expr);
                     } else {
-                        result.push(expr);
+                        if_body.push(expr);
                     }
                 }
             }
@@ -969,6 +979,13 @@ impl Expression {
 
         if let Some((kw, conds, body)) = current_keyword {
             result.push(Expression::Keyword(kw, conds, body));
+        }
+
+        match result.get_mut(0).unwrap() {
+            Expression::Keyword(Keyword::If, _conds, args) => {
+                *args = if_body;
+            }
+            _ => panic!(),
         }
 
         result

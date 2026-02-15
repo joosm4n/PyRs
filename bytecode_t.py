@@ -1,6 +1,11 @@
 
-def myfn():
-    print("myfn")
+x = 15
+result = "nothing"
+if x < 10:
+    result = "small"
+elif x < 20:
+    result = "medium"
+else:
+    result = "large"
 
-x = myfn
-print(x)
+print(result)

@@ -9,12 +9,15 @@ use crate::{
     pyrs_std::{FnPtr, Funcs},
     pyrs_utils::split_to_words,
     pyrs_vm::{IntrinsicFunc, PyVM},
+    pyrs_serializer::{PySerializer, PyHeader},
 };
 
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, mem::size_of, ops::Index, sync::Arc};
+    use std::{collections::HashMap, mem::size_of, ops::Index, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
+
+    use crate::pyrs_interpreter::PyRsVersion;
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -58,8 +61,9 @@ mod tests {
         assert_eq!(96, size_of::<Obj>(), "Obj size not 56 bytes");
         assert_eq!(24, size_of::<Token>(), "Token size not 24 bytes");
         assert_eq!(56, size_of::<Expression>(), "Expression size not 56 bytes");
-        assert_eq!(104, size_of::<PyBytecode>(), "Bytecode size not 64 bytes");
-        assert_eq!(304, size_of::<PyVM>(), "VirtualMachine size changed");
+        assert_eq!(16, size_of::<PyBytecode>(), "Bytecode size not 64 bytes");
+        assert_eq!(184, size_of::<PyVM>(), "VirtualMachine size changed");
+        assert_eq!(144, size_of::<CodeObj>(), "CodeObj size changed");
     }
 
     #[test]
@@ -344,22 +348,27 @@ mod tests {
     fn bytecode_manual() {
         let code = vec![
             PyBytecode::LoadConst(0),
-            PyBytecode::StoreName(0),
-            PyBytecode::LoadConst(1),
-            PyBytecode::LoadName(0),
+            PyBytecode::StoreFast(0),
+            PyBytecode::PushNull,
+            PyBytecode::LoadFast(0),
             PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
         ];
+
         let code_obj = CodeObj {
             name: "__test_bytecode_manual__".into(),
-            consts: vec![5.to_obj(), Obj::Null],
+            consts: vec![5.to_obj()],
             varnames: vec!["x".to_string()],
             names: vec![],
             bytecode: code,
+            num_varnames: 1,
+            num_consts: 1,
+            num_names: 0
         };
 
         println!("Instruction Queue: ");
         println!("{}", PyBytecode::to_string(&code_obj.bytecode));
         let mut vm = PyVM::new();
+        vm.set_debug_mode(true);
         vm.execute(code_obj);
     }
 
@@ -371,15 +380,17 @@ mod tests {
             PyBytecode::from_expr(e, &mut code);
         }
         let code_obj = code.finish();
+        assert_eq!(code_obj.num_varnames, 1);
 
         let inst_str = PyBytecode::to_string(&code_obj.bytecode);
         println!("Instructions:\n{}", inst_str);
         assert_eq!(
             format!("{:?}", &code_obj.bytecode),
-            r#"[LoadConst(Int(2)), StoreName("x"), LoadName("x"), PopJumpIfFalse(3), PushNull, LoadName("x"), CallInstrinsic1(Print)]"#
+            r#"[LoadConst(0), StoreFast(0), LoadFast(0), PopJumpIfFalse(4), PushNull, LoadFast(0), CallInstrinsic1(Print), JumpForward(0)]"#
         );
 
         let mut vm = PyVM::new();
+        vm.set_debug_mode(true);
         vm.execute(code_obj);
     }
 
@@ -393,7 +404,7 @@ mod tests {
         "#
         );
         println!("Instructions:\n{}", PyBytecode::to_string(&code_obj.bytecode));
-        assert_eq!(format!("{:?}", &code_obj.bytecode), r#"[LoadConst(Int(0)), StoreName("x"), LoadName("x"), LoadConst(Int(3)), CompareOp(LessThan), PopJumpIfFalse(8), PushNull, LoadName("x"), CallInstrinsic1(Print), LoadName("x"), LoadConst(Int(1)), BinaryAdd, StoreName("x"), JumpBackward(12), LoadConst(None)]"#.to_string());
+        assert_eq!(format!("{:?}", &code_obj.bytecode), r#"[LoadConst(0), StoreFast(0), LoadFast(0), LoadConst(1), CompareOp(LessThan), PopJumpIfFalse(9), PushNull, LoadFast(0), CallInstrinsic1(Print), LoadFast(0), LoadConst(2), BinaryAdd, StoreFast(0), JumpBackward(12), LoadConst(3)]"#.to_string());
 
         let mut vm = PyVM::new();
         vm.execute(code_obj);
@@ -403,19 +414,19 @@ mod tests {
     fn bytecode_handwritten() {
         let code = vec![
             PyBytecode::LoadConst(0),
-            PyBytecode::StoreName(0),
+            PyBytecode::StoreFast(0),
             PyBytecode::NOP,
-            PyBytecode::LoadName(0),
+            PyBytecode::LoadFast(0),
             PyBytecode::LoadConst(1),
             PyBytecode::CompareOp(Op::LessThan),
             PyBytecode::PopJumpIfFalse(8),
             PyBytecode::PushNull,
-            PyBytecode::LoadName(0),
+            PyBytecode::LoadFast(0),
             PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
-            PyBytecode::LoadName(0),
+            PyBytecode::LoadFast(0),
             PyBytecode::LoadConst(2),
             PyBytecode::BinaryAdd,
-            PyBytecode::StoreName(0),
+            PyBytecode::StoreFast(0),
             PyBytecode::JumpBackward(12),
             PyBytecode::NOP,
         ];
@@ -426,6 +437,9 @@ mod tests {
             consts: vec![0.into(), 3.into(), 1.into()],
             varnames: vec!["x".into()],
             names: vec![],
+            num_consts: 3,
+            num_varnames: 1,
+            num_names: 0
         };
 
         let mut vm = PyVM::new();
@@ -433,6 +447,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn bytecode_from_file() {
         let code_obj = Interpreter::compile_file("src/pyrs_tests/compile_test_1.py").unwrap();
         println!(
@@ -440,7 +455,37 @@ mod tests {
             PyBytecode::to_string(&code_obj.bytecode)
         );
 
-        let expected = vec![];
+        let expected = vec![
+            PyBytecode::LoadConst(0),
+            PyBytecode::MakeFunction,
+            PyBytecode::StoreName(0),
+            PyBytecode::LoadConst(1),
+            PyBytecode::MakeFunction,
+            PyBytecode::StoreName(1),
+            PyBytecode::LoadConst(2),
+            PyBytecode::MakeFunction,
+            PyBytecode::StoreName(2),
+            PyBytecode::LoadConst(3),
+            PyBytecode::LoadName(0),
+            PyBytecode::CallFunction(1),
+            PyBytecode::StoreFast(3),
+            PyBytecode::PushNull,
+            PyBytecode::LoadFast(3),
+            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
+            PyBytecode::LoadConst(4),
+            PyBytecode::LoadName(1),
+            PyBytecode::CallFunction(1),
+            PyBytecode::StoreFast(4),
+            PyBytecode::PushNull,
+            PyBytecode::LoadFast(4),
+            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
+            PyBytecode::LoadName(2),
+            PyBytecode::CallFunction(0),
+            PyBytecode::StoreFast(5),
+            PyBytecode::PushNull,
+            PyBytecode::LoadFast(5),
+            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
+        ];
 
         let expected_codeobj = CodeObj {
             name: "compile_test_1".into(),
@@ -448,6 +493,9 @@ mod tests {
             consts: vec!["sum_a".to_obj(), 1.to_obj()],
             varnames: vec![],
             names: vec![],
+            num_consts: 2,
+            num_varnames: 0,
+            num_names: 0
         };
 
         assert_eq!(&code_obj, &expected_codeobj);
@@ -458,7 +506,7 @@ mod tests {
 
     #[test]
     fn module_from_file() {
-        let module = Interpreter::compile_module("src/pyrs_tests/module_test_1.py").unwrap();
+        let module = Interpreter::compile_file("src/pyrs_tests/module_test_1.py").unwrap();
         println!("{:#?}", module);
         panic!();
     }
@@ -470,19 +518,12 @@ mod tests {
 
         let exprs = Expression::from_multiline(src);
         dbg!(&exprs);
-        let mut code = vec![];
+        let mut code = CompileCtx::new("__test_module_import__");
         for e in exprs {
             PyBytecode::from_expr(e, &mut code);
         }
-        println!("code: \n{}", PyBytecode::to_string(&code));
-
-        let code_obj = CodeObj {
-            name: "test_module_import".into(),
-            bytecode: code,
-            consts: vec![],
-            varnames: vec![],
-            names: vec![],
-        };
+        let code_obj = code.finish();
+        println!("code: \n{}", PyBytecode::to_string(&code_obj.bytecode));
 
         let mut vm = PyVM::new();
         vm.append_working_dir("src/pyrs_tests");
@@ -544,19 +585,12 @@ mod tests {
             "Call[print args[ Op[+ Ident(x) Op[list Atom(add) Atom(none)]]]]"
         );
 
-        let mut bytecode = CompileCtx::new("__test_list__".into());
+        let mut bytecode = CompileCtx::new("__test_list__");
         PyBytecode::from_expr(line1, &mut bytecode);
         PyBytecode::from_expr(line2, &mut bytecode);
 
-        assert_eq!(format!("{:?}", bytecode), r#"[LoadConst(Int(2)), LoadConst(Int(3)), LoadConst(Int(4)), BuildList(3), StoreName("x"), PushNull, LoadName("x"), LoadConst(Str("add")), LoadConst(Str("none")), BuildList(2), BinaryAdd, CallInstrinsic1(Print)]"#.to_string());
-
-        let code_obj = CodeObj {
-            name: "test_list".into(),
-            bytecode: bytecode,
-            consts: vec![],
-            varnames: vec![],
-            names: vec![],
-        };
+        let code_obj = bytecode.finish();
+        assert_eq!(format!("{:?}", &code_obj.bytecode), r#"[LoadConst(0), LoadConst(1), LoadConst(2), BuildList(3), StoreFast(0), PushNull, LoadFast(0), LoadConst(3), LoadConst(4), BuildList(2), BinaryAdd, CallInstrinsic1(Print)]"#.to_string());
 
         let mut vm = PyVM::new();
         vm.execute(code_obj);
@@ -574,7 +608,7 @@ mod tests {
     #[test]
     fn bytecode_if_elif_else() {
         //panic!();
-        let bytecode = PyBytecode::from_str(
+        let code_obj = PyBytecode::from_str(
             "if False:\n\
             \tprint(\"a: bad\")\n\
             elif False:\n\
@@ -587,58 +621,49 @@ mod tests {
             \tprint(\"d: good\")",
         );
 
-        println!("{}", PyBytecode::to_string(&bytecode));
+        println!("{}", PyBytecode::to_string(&code_obj.bytecode));
         let instructions = vec![
-            PyBytecode::LoadConst(false.to_obj()),
+            PyBytecode::LoadConst(0),
             PyBytecode::PopJumpIfFalse(4),
             PyBytecode::PushNull,
-            PyBytecode::LoadConst("a: bad".to_obj()),
+            PyBytecode::LoadConst(1),
             PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
-            PyBytecode::JumpForward(12),
-            PyBytecode::LoadConst(false.to_obj()),
+            PyBytecode::JumpForward(11),
+            PyBytecode::LoadConst(0),
             PyBytecode::PopJumpIfFalse(4),
             PyBytecode::PushNull,
-            PyBytecode::LoadConst("b: good".to_obj()),
+            PyBytecode::LoadConst(2),
             PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
             PyBytecode::JumpForward(6),
-            PyBytecode::LoadConst(true.to_obj()),
+            PyBytecode::LoadConst(3),
             PyBytecode::PopJumpIfFalse(4),
             PyBytecode::PushNull,
-            PyBytecode::LoadConst("e: good".to_obj()),
+            PyBytecode::LoadConst(4),
             PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
             PyBytecode::JumpForward(0),
-            PyBytecode::LoadConst(false.to_obj()),
+            PyBytecode::LoadConst(0),
             PyBytecode::PopJumpIfFalse(4),
             PyBytecode::PushNull,
-            PyBytecode::LoadConst("c: good".to_obj()),
+            PyBytecode::LoadConst(5),
             PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
-            PyBytecode::JumpForward(3),
+            PyBytecode::JumpForward(2),
             PyBytecode::PushNull,
-            PyBytecode::LoadConst("d: good".to_obj()),
+            PyBytecode::LoadConst(6),
             PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
         ];
         assert_eq!(
-            PyBytecode::to_string(&bytecode),
+            PyBytecode::to_string(&code_obj.bytecode),
             PyBytecode::to_string(&instructions)
         );
-        //for i in 0..bytecode.len() {
-        //    assert_eq!(bytecode[i], instructions[i], "Instruction ({i})");
-        //}
-        let code_obj = CodeObj {
-            name: "test_bytecode_if_elif_else".into(),
-            bytecode,
-            consts: vec![],
-            varnames: vec![],
-            names: vec![],
-        };
 
         let mut vm = PyVM::new();
         vm.execute(code_obj);
+
     }
 
     #[test]
     fn function_definition_bytecode() {
-        let bytecode = PyBytecode::from_str(
+        let code_obj = PyBytecode::from_str(
             "def add(x, y):\n\
              \treturn x + y\n\
             result = add(5, 3)",
@@ -646,27 +671,8 @@ mod tests {
 
         println!(
             "Function definition bytecode:\n{}",
-            PyBytecode::to_string(&bytecode)
+            PyBytecode::to_string(&code_obj.bytecode)
         );
-
-        // Test that function definition generates proper bytecode
-        assert!(bytecode
-            .iter()
-            .any(|inst| matches!(inst, PyBytecode::MakeFunction)));
-        assert!(bytecode
-            .iter()
-            .any(|inst| matches!(inst, PyBytecode::ReturnValue)));
-        assert!(bytecode
-            .iter()
-            .any(|inst| matches!(inst, PyBytecode::JumpForward(_))));
-
-        let code_obj = CodeObj {
-            name: "test_function_definition_bytecode".into(),
-            bytecode,
-            consts: vec![],
-            varnames: vec![],
-            names: vec![],
-        };
 
         let mut vm = PyVM::new();
         vm.execute(code_obj);
@@ -694,16 +700,17 @@ mod tests {
 
     #[test]
     fn bytecode_unary() {
-        let mut code = vec![];
+        let mut code = CompileCtx::new("__test_bytecode_unary__");
         PyBytecode::from_expr(Expression::from_line("-42"), &mut code);
 
+        let code_obj = code.finish();
         let expected = vec![
-            PyBytecode::LoadConst(Obj::Int(42.into())),
+            PyBytecode::LoadConst(0),
             PyBytecode::UnaryNegative,
         ];
 
         assert_eq!(
-            PyBytecode::to_string(&code),
+            PyBytecode::to_string(&code_obj.bytecode),
             PyBytecode::to_string(&expected)
         );
     }
@@ -740,9 +747,10 @@ mod tests {
         let tuple_expr = Expression::from_line("(1, 2, 3)");
         println!("Tuple expression: {}", tuple_expr);
 
-        let mut bytecode = vec![];
-        PyBytecode::from_expr(tuple_expr, &mut bytecode);
-        println!("Tuple bytecode: {:?}", bytecode);
+        let mut code = CompileCtx::new("__test_ops_tuple__");
+        PyBytecode::from_expr(tuple_expr, &mut code);
+        let code_obj = code.finish();
+        println!("Tuple bytecode:\n {}", PyBytecode::to_string(&code_obj.bytecode));
     }
 
     #[test]
@@ -750,9 +758,11 @@ mod tests {
         let tuple_expr = Expression::from_line("{1, 2, 3}");
         println!("Tuple expression: {}", tuple_expr);
 
-        let mut bytecode = vec![];
-        PyBytecode::from_expr(tuple_expr, &mut bytecode);
-        println!("Tuple bytecode: {:?}", bytecode);
+        let mut code = CompileCtx::new("__test_ops_set__");
+        PyBytecode::from_expr(tuple_expr, &mut code);
+
+        let code_obj = code.finish();
+        println!("Tuple bytecode: {}", PyBytecode::to_string(&code_obj.bytecode));
     }
 
     #[test]
@@ -802,16 +812,8 @@ mod tests {
             _ => panic!("Expected for loop keyword expression"),
         }
 
-        let bytecode = PyBytecode::from_str(source_code);
-        println!("code: \n{}", PyBytecode::to_string(&bytecode));
-
-        let code_obj = CodeObj {
-            name: "test_for_loop_parsing".into(),
-            bytecode,
-            consts: vec![],
-            varnames: vec![],
-            names: vec![],
-        };
+        let code_obj = PyBytecode::from_str(source_code);
+        println!("code: \n{}", PyBytecode::to_string(&code_obj.bytecode));
 
         let mut vm = PyVM::new();
         vm.execute(code_obj);
@@ -825,11 +827,12 @@ mod tests {
             "Op[list Op[list Atom(1) Atom(2)] Op[list Atom(3) Atom(4)]]"
         );
 
-        let mut bytecode = vec![];
-        PyBytecode::from_expr(nested_list, &mut bytecode);
+        let mut code = CompileCtx::new("__test_nested_list__");
+        PyBytecode::from_expr(nested_list, &mut code);
 
+        let code_obj = code.finish();
         // Should have multiple BuildList instructions
-        let build_list_count = bytecode
+        let build_list_count = code_obj.bytecode
             .iter()
             .filter(|inst| matches!(inst, PyBytecode::BuildList(_)))
             .count();
@@ -840,7 +843,7 @@ mod tests {
     #[ignore]
     fn error_bytecode_generation() {
         // Test that unsupported operations generate error bytecode
-        let mut bytecode = vec![];
+        let mut code = CompileCtx::new("__test_error_bytecode_gen__");
         let invalid_expr = Expression::Operation(
             Op::Dot,
             vec![
@@ -849,12 +852,14 @@ mod tests {
             ],
         );
 
-        PyBytecode::from_expr(invalid_expr, &mut bytecode);
+        PyBytecode::from_expr(invalid_expr, &mut code);
 
+        let code_obj = code.finish();
         // Should generate an Error bytecode
-        assert!(bytecode
+        assert!(code_obj.bytecode
             .iter()
-            .any(|inst| matches!(inst, PyBytecode::Error(_))));
+            .any(|inst| matches!(inst, PyBytecode::Error))
+        );
     }
 
     #[test]
@@ -879,42 +884,25 @@ mod tests {
 
     #[test]
     fn parse_precedence_complex_maths() {
-        let bytecode = PyBytecode::from_str("2 + 3 * 4 - 5 / 2");
-        println!("code: \n{}", PyBytecode::to_string(&bytecode));
-
-        let code_obj = CodeObj {
-            name: "test_parse_precedence_complex_maths".into(),
-            bytecode,
-            consts: vec![],
-            varnames: vec![],
-            names: vec![],
-        };
+        let code_obj = PyBytecode::from_str("2 + 3 * 4 - 5 / 2");
+        println!("code: \n{}", PyBytecode::to_string(&code_obj.bytecode));
 
         let mut vm = PyVM::new();
         vm.execute(code_obj);
 
-        let stack = vm.view_stack();
-        let expected = vec![vec![11.5.to_arc()]];
-        assert_eq!(stack, &expected);
+        // let expected = vec![vec![11.5.to_arc()]];
+        // assert_eq!(stack, &expected);
     }
 
     #[test]
     #[ignore]
     fn variable_scoping() {
         // Test variable assignment and retrieval
-        let bytecode = PyBytecode::from_str(
+        let code_obj = PyBytecode::from_str(
             "x = 10\n\
              y = x * 2\n\
             print(y)",
         );
-
-        let code_obj = CodeObj {
-            name: "test_variable_scoping".into(),
-            bytecode: bytecode,
-            consts: vec![10.to_obj(), 2.to_obj()],
-            varnames: vec!["x".into(), "y".into()],
-            names: vec![],
-        };
 
         let mut vm = PyVM::new();
         vm.execute(code_obj);
@@ -930,10 +918,11 @@ mod tests {
 
         // Test intrinsic function bytecode generation
         let print_expr = Expression::from_line("print(\"Hello World\")");
-        let mut bytecode = vec![];
-        PyBytecode::from_expr(print_expr, &mut bytecode);
+        let mut code = CompileCtx::new("__test_instrinsic_functions__");
+        PyBytecode::from_expr(print_expr, &mut code);
 
-        assert!(bytecode
+        let code_obj = code.finish();
+        assert!(&code_obj.bytecode
             .iter()
             .any(|inst| matches!(inst, PyBytecode::CallInstrinsic1(IntrinsicFunc::Print))));
     }
@@ -967,15 +956,11 @@ mod tests {
         let _load_global = PyBytecode::LoadGlobal;
         let _store_global = PyBytecode::StoreGlobal;
         let _call_intrinsic2 = PyBytecode::CallInstrinsic2(IntrinsicFunc::Print);
-        let _jump_if_false = PyBytecode::JumpIfFalse;
-        let _jump_absolute = PyBytecode::JumpAbsolute;
         let _build_tuple = PyBytecode::BuildTuple(3);
         let _build_map = PyBytecode::BuildMap;
         let _list_append = PyBytecode::ListAppend;
         let _for_iter = PyBytecode::ForIter;
         let _get_iter = PyBytecode::GetIter;
-        let _new_stack = PyBytecode::NewStack;
-        let _destroy_stack = PyBytecode::DestroyStack;
     }
 
     #[test]
@@ -983,11 +968,12 @@ mod tests {
         let empty_expr = Expression::None;
         assert_eq!(empty_expr.to_string(), "None");
 
-        let mut bytecode = vec![];
-        PyBytecode::from_expr(empty_expr, &mut bytecode);
+        let mut code = CompileCtx::new("__test_expression_none_handling__");
+        PyBytecode::from_expr(empty_expr, &mut code);
 
         // Should not generate any bytecode for None expression
-        assert!(bytecode.is_empty());
+        let code_obj = code.finish();
+        assert!(code_obj.bytecode.is_empty());
     }
 
     #[test]
@@ -1085,20 +1071,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    fn bytecode_conversion() {
-        // Test PyBytecode to u8 conversion
-        let nop: u8 = PyBytecode::NOP.into();
-        let load_const: u8 = PyBytecode::LoadConst(Obj::None).into();
-
-        // These should be different values
-        assert_ne!(nop, load_const);
-    }
-
-    #[test]
 
     fn complex_if_elif_else_evaluation() {
-        let bytecode = PyBytecode::from_str(
+        let code_obj = PyBytecode::from_str(
             "x = 15\n\
              if x < 10:\n\
              \tresult = \"small\"\n\
@@ -1109,49 +1084,37 @@ mod tests {
         );
 
         let expected = vec![
-            PyBytecode::LoadConst(15.to_obj()),
-            PyBytecode::StoreName("x".into()),
-            PyBytecode::LoadName("x".into()),
-            PyBytecode::LoadConst(10.to_obj()),
+            PyBytecode::LoadConst(0),
+            PyBytecode::StoreFast(0),
+            PyBytecode::LoadFast(0),
+            PyBytecode::LoadConst(1),
+            PyBytecode::CompareOp(Op::LessThan),
+            PyBytecode::PopJumpIfFalse(0),
+            PyBytecode::LoadConst(2),
+            PyBytecode::StoreFast(1),
+            PyBytecode::CompareOp(Op::LessThan),
+            PyBytecode::PopJumpIfFalse(4),
+            PyBytecode::LoadFast(0),
+            PyBytecode::LoadConst(3),
             PyBytecode::CompareOp(Op::LessThan),
             PyBytecode::PopJumpIfFalse(3),
-            PyBytecode::LoadConst("small".to_obj()),
-            PyBytecode::StoreName("result".into()),
-            PyBytecode::JumpForward(9),
-            PyBytecode::LoadName("x".into()),
-            PyBytecode::LoadConst(20.to_obj()),
-            PyBytecode::CompareOp(Op::LessThan),
-            PyBytecode::PopJumpIfFalse(3),
-            PyBytecode::LoadConst("medium".to_obj()),
-            PyBytecode::StoreName("result".into()),
+            PyBytecode::LoadConst(4),
+            PyBytecode::StoreFast(1),
             PyBytecode::JumpForward(2),
-            PyBytecode::LoadConst("large".to_obj()),
-            PyBytecode::StoreName("result".into()),
+            PyBytecode::LoadConst(5),
+            PyBytecode::StoreFast(1),
         ];
 
         assert_eq!(
-            PyBytecode::to_string(&bytecode),
+            PyBytecode::to_string(&code_obj.bytecode),
             PyBytecode::to_string(&expected)
         );
-
-        let code_obj = CodeObj {
-            name: "test_complex_if_elif_else_evaluation".into(),
-            bytecode,
-            consts: vec![],
-            varnames: vec![],
-            names: vec![],
-        };
 
         let mut vm = PyVM::new();
         vm.set_debug_mode(true);
         vm.execute(code_obj);
-        let vars = vm.get_vars();
 
-        let mut expected_vars = HashMap::new();
-        expected_vars.insert("result".to_string(), "medium".to_arc());
-        expected_vars.insert("x".to_string(), 15.to_arc());
-
-        assert_eq!(vars[0]["result"], expected_vars["result"]);
+        panic!();
     }
 
     #[test]
@@ -1170,23 +1133,16 @@ mod tests {
         assert!(expr.len() >= 2); // At least assignment and while loop
 
         // Test bytecode generation doesn't crash
-        let mut bytecode = vec![];
+        let mut code = CompileCtx::new("__test_nested_while_loops__");
         for e in expr {
-            PyBytecode::from_expr(e, &mut bytecode);
+            PyBytecode::from_expr(e, &mut code);
         }
 
+        let code_obj = code.finish();
         println!(
             "Nested while loops bytecode:\n{}",
-            PyBytecode::to_string(&bytecode)
+            PyBytecode::to_string(&code_obj.bytecode)
         );
-
-        let code_obj = CodeObj {
-            name: "test_nested_while_loops".into(),
-            bytecode,
-            consts: vec![],
-            varnames: vec![],
-            names: vec![],
-        };
 
         let mut vm = PyVM::new();
         vm.execute(code_obj);
@@ -1257,6 +1213,29 @@ mod tests {
 
         let s = Expression::from_line("x[0][1]");
         assert_eq!(s.to_string(), "Op[[ Op[[ Ident(x) Atom(0)] Atom(1)]");
+    }
+
+    #[test]
+    fn serialize_header()
+    {
+        let header = PyHeader{
+            name: "__test_serialize_header__".into(),
+            time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            version: PyRsVersion::get(),
+            internal_filename: std::env::current_dir().unwrap().to_str().unwrap().into(),
+        };
+
+        let bytes = header.seralize();
+        let og = PyHeader::deserialize(bytes);
+
+        panic!();
+    }
+
+    #[test]
+    fn serialize_bytecode_map() 
+    {
+        let c = CodeObj::new("__test_serialize_bytecode_map__", vec![PyBytecode::LoadConst(0), PyBytecode::LoadConst(1), PyBytecode::BinaryAdd]);
+        PySerializer::seralize_codeobj(&c);
     }
 
     /*

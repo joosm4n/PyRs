@@ -9,13 +9,31 @@ use crate::{
     pyrs_bytecode::PyBytecode,
     pyrs_codeobject::{CodeObj, CompileCtx},
     pyrs_error::{PyError, PyException, PyPanicHandle},
-    pyrs_modules::PyModule,
     pyrs_obj::{Obj, PyObj},
     pyrs_parsing::{Expression, Keyword},
     pyrs_std::{FnPtr, Funcs},
     pyrs_utils::get_indent,
     pyrs_vm::PyVM,
 };
+
+const PYRS_MAJOR_VERSION: u8 = 0;
+const PYRS_MINOR_VERSION: u8 = 0;
+const PYRS_PATCH_VERSION: u8 = 1;
+pub struct PyRsVersion {
+    pub major: u8,
+    pub minor: u8,
+    pub patch: u8,
+}
+impl PyRsVersion {
+    pub const fn get() -> Self {
+        PyRsVersion { major: PYRS_MAJOR_VERSION, minor: PYRS_MINOR_VERSION, patch: PYRS_PATCH_VERSION }
+    }
+}
+impl std::fmt::Display for PyRsVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "pyrs-{}{}{}", self.major, self.minor, self.patch)
+    }
+}
 
 pub struct Interpreter {
     variables: HashMap<String, Arc<Obj>>,
@@ -77,10 +95,6 @@ impl Interpreter {
     pub fn set_debug_mode(&mut self, debug: bool) {
         self.debug_mode = debug;
         self.vm.set_debug_mode(debug);
-    }
-
-    pub fn get_version() -> &'static str {
-        "pyrs-0-1"
     }
 
     pub fn set_working_dir(&mut self, path: &str) {
@@ -329,7 +343,7 @@ impl Interpreter {
             Some(filestem) => match filestem.to_str() {
                 Some(file_str) => {
                     let filename = file_str.to_string();
-                    code = CompileCtx::new(filename);
+                    code = CompileCtx::new(&filename);
                 }
                 None => {
                     return Err(PyException {
@@ -358,6 +372,7 @@ impl Interpreter {
 
         let parsed = Expression::from_multiline(contents.as_str());
         //dbg!(&parsed);
+        //println!("Exprs: \n{}", Expression::to_string_vec(&parsed));
         for expr in parsed {
             PyBytecode::from_expr(expr, &mut code);
         }
@@ -381,10 +396,10 @@ impl Interpreter {
 
         println!("Compiling \'{}\'... ", filename);
         let name = filename.strip_suffix(".py").unwrap();
-        let pyc_name = format!("__pycache__/{}.{}.pyc", name, Interpreter::get_version());
+        let pyc_name = format!("__pycache__/{}.{}.pyc", name, PyRsVersion::get());
         let mut file = fs::File::create(&pyc_name)?;
 
-        let contents = format!("{:?}", codeobj);
+        let contents = format!("{}", codeobj.serialize(0));
         file.write_all(contents.as_bytes())?;
 
         println!("Compiled: {filename} into {pyc_name}");

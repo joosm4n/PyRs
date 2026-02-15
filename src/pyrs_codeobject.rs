@@ -1,12 +1,10 @@
 
 use crate::{
-    pyrs_bytecode::PyBytecode,
-    pyrs_obj::{Obj, ToObj, PyObj},
+    pyrs_bytecode::PyBytecode, pyrs_obj::{Obj, PyObj, ToObj}
 };
 
 use std::{ 
     collections::HashMap, 
-    rc::Rc, 
     sync::{Arc, Mutex},
     ops::{Deref, DerefMut}
 };
@@ -68,6 +66,9 @@ pub struct CodeObj
     pub consts: Vec<Obj>,
     pub names: Vec<String>,
     pub varnames: Vec<String>,
+    pub num_consts: usize,
+    pub num_varnames: usize,
+    pub num_names: usize,
 }
 
 impl CodeObj {
@@ -78,6 +79,9 @@ impl CodeObj {
             consts: vec![],
             names: vec![],
             varnames: vec![],
+            num_consts: 0,
+            num_names: 0,
+            num_varnames: 0,
         }
     }
 
@@ -92,9 +96,9 @@ impl CodeObj {
 
         contents.push_str(&format!("{tabs}<codeobj {}>\n", &self.name));
         contents.push_str(&format!("{tabs}consts:\n"));
-        for c in &self.consts {
+        for (i, c) in self.consts.iter().enumerate() {
             match c {
-                Obj::Code(code) => contents.push_str(&format!("{tabs}\t{}\n", code.serialize(indent + 1))),
+                Obj::Code(code) => contents.push_str(&format!("{tabs}\t[{i}] {}\n", code.serialize(indent + 1))),
                 _ => contents.push_str(&format!("{tabs}\t{}\n", c)),
             }
         }
@@ -106,7 +110,7 @@ impl CodeObj {
 
         contents.push_str(&format!("\n{tabs}bytecode:\n"));
         contents.push_str(&format!("{}", &PyBytecode::to_string(&self.bytecode)));
-        contents.push_str(&format!("{tabs}<codeobj {}>\n", &self.name));
+        contents.push_str(&format!("{tabs}<end {}>\n", &self.name));
         return contents;
     }
 }
@@ -123,7 +127,7 @@ pub struct CompileCtx
 
 impl CompileCtx {
 
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
             name: name.into(),
             bytecode: vec![],
@@ -144,11 +148,11 @@ impl CompileCtx {
     }
 
     pub fn add_name(&mut self, name: String) -> usize {
-        if let Some(i) = self.names.iter().position(|n| n == &name) {
+        if let Some(i) = self.varnames.iter().position(|n| n == &name) {
             i
         } else {
-            let i = self.names.len();
-            self.names.push(name);
+            let i = self.varnames.len();
+            self.varnames.push(name);
             i
         }
     }
@@ -158,12 +162,18 @@ impl CompileCtx {
     }
 
     pub fn finish(self) -> CodeObj {
+        let n_c = self.consts.len();
+        let n_v = self.varnames.len();
+        let n_n = self.names.len();
         CodeObj {
             name: self.name,
             bytecode: self.bytecode,
             consts: self.consts,
             names: self.names,
             varnames: self.varnames,
+            num_consts: n_c,
+            num_names: n_n,
+            num_varnames: n_v,
         }
     }
 

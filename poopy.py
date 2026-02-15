@@ -2,7 +2,6 @@
 def sum_a(a):
     s = 0
     r = range(0, a + 1, 1)
-    print(r)
     for v in r:
         s += v
     return s
@@ -13,8 +12,9 @@ def choice(s):
     else:
         return False
 
-def empty():
+def empty_fn():
     pass
+
 
 x = sum_a(5)
 print(x)
@@ -22,5 +22,5 @@ print(x)
 y = choice("loop")
 print(y)
 
-z = empty()
+z = empty_fn()
 print(z)

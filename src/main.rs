@@ -6,10 +6,11 @@ pub mod pyrs_modules;
 pub mod pyrs_obj;
 pub mod pyrs_parsing;
 pub mod pyrs_std;
-mod pyrs_tests;
 pub mod pyrs_userclass;
 pub mod pyrs_utils;
 pub mod pyrs_vm;
+pub mod pyrs_serializer;
+mod pyrs_tests;
 
 #[allow(unused_imports)]
 use crate::{
@@ -46,8 +47,8 @@ fn main() -> std::io::Result<()> {
                 }
 
                 if flags.contains(&InterpreterFlags::Compile) {
-                    let bytecode = Interpreter::compile_file(&filepath).handle();
-                    Interpreter::seralize_codeobj(&filepath, &bytecode)?;
+                    let code_obj = Interpreter::compile_file(&filepath).handle();
+                    Interpreter::seralize_codeobj(&filepath, &code_obj)?;
                 } else {
                     interp.interpret_file(&filepath);
                 }

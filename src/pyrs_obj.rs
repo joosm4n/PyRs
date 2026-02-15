@@ -39,7 +39,7 @@ pub enum Obj {
 
     Dict(HashMap<Obj, Arc<Obj>>),
 
-    Iter(ObjIter),
+    Iter(Arc<Mutex<ObjIter>>),
 
     CustomClass(CustomClass),
 
@@ -98,6 +98,10 @@ pub trait PyObj: std::fmt::Debug + Clone {
     }
 
     fn __int__(&self) -> isize {
+        panic!();
+    }
+
+    fn __integer__(&self) -> Option<Integer> {
         panic!();
     }
 
@@ -240,7 +244,7 @@ impl Obj {
 
     pub fn iter_next(&mut self) -> Option<Arc<Obj>> {
         match self {
-            Obj::Iter(i) => i.next(),
+            Obj::Iter(i) => i.lock().expect("unable to lock Iter").next(),
             _ => None,
         }
     }
@@ -426,6 +430,13 @@ impl PyObj for Obj {
         }
     }
 
+    fn __integer__(&self) -> Option<Integer> {
+        match self {
+            Obj::Int(v) => Some(v.clone()),
+            _ => None,
+        }
+    }
+
     fn __bool__(&self) -> bool {
         let ret = match self {
             Obj::None => false,
@@ -544,10 +555,12 @@ impl PyObj for Obj {
                 if let Some(inc) = &range.inc {
                     r.push_str(&format!(", {}", inc.to_string()));
                 };
+                r.push(')');
                 r
             }
-            Obj::Iter(iter) => {
-                format!("Iter[ {:#?} {} ]", iter.items, iter.index)
+            Obj::Iter(it) => {
+                let iter = it.lock().expect("Unable to lock Iter");
+                format!("Iter[ index({}) {:?} ]", iter.index, iter.items)
             }
             Obj::CustomClass(class ) => {
                 format!("<class \'__main__.{}\'>", class.name)
@@ -556,7 +569,7 @@ impl PyObj for Obj {
                 format!("<module {} >", module.name)
             }
             Obj::Func(func) => {
-                format!("{}", func.serialize(0))
+                format!("<func {}>", func.code.name)
             }
             Obj::Code(codeobj) => {
                 format!("<code {}>", codeobj.name)
@@ -901,6 +914,10 @@ impl ObjIntoIter {
                 let items = m.keys().cloned().map(|k| Arc::new(k)).collect();
                 ObjIntoIter { items, index: 0 }
             }
+            Obj::Range(r) => {
+                let items = r.clone().to_vec();
+                ObjIntoIter{ items, index: 0 }
+            }
             _ => return None,
         };
         Some(iter)
@@ -933,6 +950,7 @@ impl IntoIterator for Obj {
 
 // Add this near the other iterator impls (after ObjIntoIter)
 impl Obj {
+
     pub fn iter_py(&self) -> Option<ObjIter> {
         match self {
             Obj::List(v) => {
@@ -956,6 +974,10 @@ impl Obj {
             Obj::Dict(m) => {
                 let items = m.keys().cloned().map(|k| Arc::new(k)).collect();
                 Some(ObjIter { items, index: 0 })
+            }
+            Obj::Range(r) => {
+                let items = r.clone().to_vec();
+                Some(ObjIter{ items, index: 0 }) 
             }
             _ => None,
         }
@@ -1040,6 +1062,16 @@ impl ToObj for rug::Integer {
         self.to_obj().into()
     }
 }
+
+impl ToObj for ObjIter {
+    fn to_obj(self) -> Obj {
+        Obj::Iter(Arc::new(Mutex::new(self)))
+    }
+    fn to_arc(self) -> Arc<Obj> {
+        self.to_obj().into()
+    }
+}
+
 
 macro_rules! impl_to_obj_for_int {
     ($($ty:ty),+) => {
