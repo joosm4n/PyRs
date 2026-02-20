@@ -16,3 +16,10 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(_YES_)'] }
 [features]
 default = ["_YES_"]
 _YES_ = []
+
+[dependencies.uuid]
+version = "1.21.0"
+# Lets you generate random UUIDs
+features = [
+    "v4",
+]

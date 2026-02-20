@@ -1,7 +1,6 @@
 use crate::{
-    pyrs_codeobject::CodeObj,
+    pyrs_codeobject::PyCodeObj,
     pyrs_interpreter::PyRsVersion,
-    pyrs_obj::PyObj,
     pyrs_utils::{FromBytes, PyUtils},
 };
 
@@ -81,7 +80,7 @@ impl PyHeader {
         let mut filename = String::new();
         i += 11;
         for x in s[i..s.len()].chars() {
-            i += 1;
+            //i += 1;
             if x == '\0' {
                 break;
             }
@@ -104,7 +103,7 @@ impl PyHeader {
 pub struct PySerializer {}
 
 impl PySerializer {
-    pub fn seralize_codeobj(code_obj: &CodeObj) -> Vec<u8> {
+    pub fn seralize_codeobj(code_obj: &PyCodeObj) -> Vec<u8> {
         // byte for instruction
         // byte for number
 
@@ -196,7 +195,7 @@ impl PySerializer {
         final_bytes
     }
 
-    pub fn deserialize_codeobj(bytes: Vec<u8>) -> CodeObj {
+    pub fn deserialize_codeobj(bytes: Vec<u8>) -> PyCodeObj {
         // final
         let _header = PyHeader::deserialize(&bytes);
 
@@ -212,6 +211,6 @@ impl PySerializer {
             num_names:
         }
         */
-        CodeObj::new("__empty__", vec![])
+        PyCodeObj::new("__empty__", vec![])
     }
 }

@@ -7,9 +7,9 @@ use std::{
 
 use crate::{
     pyrs_bytecode::PyBytecode,
-    pyrs_codeobject::{CodeObj, CompileCtx},
+    pyrs_codeobject::{PyCodeObj, PyCompileCtx},
     pyrs_error::{PyError, PyException, PyPanicHandle},
-    pyrs_obj::{Obj, PyObj},
+    pyrs_obj::{Obj},
     pyrs_parsing::{Expression, Keyword},
     pyrs_std::{FnPtr, Funcs},
     pyrs_utils::PyUtils,
@@ -338,14 +338,14 @@ impl Interpreter {
         self.vm.execute(bytecode);
     }
 
-    pub fn compile_file(filepath: &str) -> Result<CodeObj, PyException> {
-        let mut code: CompileCtx;
+    pub fn compile_file(filepath: &str) -> Result<PyCodeObj, PyException> {
+        let mut code: PyCompileCtx;
         let path = Path::new(filepath);
         match path.file_stem() {
             Some(filestem) => match filestem.to_str() {
                 Some(file_str) => {
                     let filename = file_str.to_string();
-                    code = CompileCtx::new(&filename);
+                    code = PyCompileCtx::new(&filename);
                 }
                 None => {
                     return Err(PyException {
@@ -384,12 +384,12 @@ impl Interpreter {
 
     #[allow(dead_code)]
     fn execute_expr(&mut self, expr: Expression) {
-        let mut code = CompileCtx::new("__temp__");
+        let mut code = PyCompileCtx::new("__temp__");
         PyBytecode::from_expr(expr, &mut code);
         self.vm.execute(code.finish());
     }
 
-    pub fn seralize_codeobj(filename: &str, codeobj: &CodeObj) -> std::io::Result<()> {
+    pub fn seralize_codeobj(filename: &str, codeobj: &PyCodeObj) -> std::io::Result<()> {
         use std::fs;
         let exists = fs::exists("__pycache__")?;
         if !exists {

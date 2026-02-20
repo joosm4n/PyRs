@@ -1,5 +1,5 @@
 use crate::{
-    pyrs_codeobject::{CodeObj, FuncObj, ClassObj},
+    pyrs_codeobject::{PyCodeObj, FuncObj, PyTypeObj, PyClassInst, PyClassBase},
     pyrs_error::{PyError, PyException},
     pyrs_modules::PyModule,
     pyrs_parsing::{Expression, Op},
@@ -40,9 +40,10 @@ pub enum Obj {
 
     Iter(Arc<Mutex<ObjIter>>),
 
-    ClassObject(Arc<Mutex<ClassObj>>),
+    Type(Arc<PyTypeObj>),
+    ClassInst(Arc<Mutex<PyClassInst>>),
 
-    Code(Arc<CodeObj>),
+    Code(Arc<PyCodeObj>),
     FunctionObj(FuncObj),
 
     Module(PyModule),
@@ -70,10 +71,6 @@ pub trait PyObj: std::fmt::Debug + Clone {
             _ => return Self::__default__().__bool__(),
         };
         ret
-    }
-
-    fn __dict__(&self, _ident: &String, _val: Arc<Obj>) -> Option<PyException> {
-        panic!();
     }
 
     fn __default__() -> Self {
@@ -283,10 +280,7 @@ impl Obj {
                 _ => {
                     return Obj::Except(PyException {
                         error: PyError::TypeError,
-                        msg: format!(
-                            "TypeError: can only concatenate list (not \"{:?}\") to list",
-                            other
-                        ),
+                        msg: format!("can only concatenate list (not \"{:?}\") to list", other),
                     });
                 }
             },
@@ -403,45 +397,34 @@ impl Obj {
         };
         obj.into()
     }
-}
 
-impl PyObj for Obj {
-    fn __default__() -> Self {
-        Obj::None
-    }
-
-    fn __dict__(&self, field: &String, val: Arc<Obj>) -> Option<PyException> {
+    pub fn __typestr__(&self) -> &'static str {
         match self {
-            Obj::ClassObject(o) => {
-                let mut locked = o.lock().expect("unable to lock class");
-                let namei: usize;
-                if let Some(i) = locked.code.names.iter().position(|s| s == field) {
-                    namei = i;
-                    
-                }
-                else {
-                    return Some(PyException {
-                        error: PyError::UndefinedVariableError,
-                        msg: format!("no field \'{field}\' in obj {self}"),
-                    });
-                }
-
-                match locked.fields.get_mut(namei) {
-                    Some(obj) => {
-                        *obj = val;
-                        None
-                    }
-                    None => Some(PyException {
-                        error: PyError::UndefinedVariableError,
-                        msg: format!("no field \'{field}\' in obj {self}"),
-                    }),
-                }
-            }
-            _ => None,
+            Obj::None => "None",
+            Obj::Int(_) => "int",
+            Obj::Float(_) => "float",
+            Obj::Bool(_) => "bool",
+            Obj::Str(_) => "str",
+            Obj::List(_) => "list",
+            Obj::Tuple(_) => "tuple",
+            Obj::FunctionObj(_) => "function",
+            _ => "Not Implemented", 
         }
     }
 
-    fn __int__(&self) -> isize {
+    pub fn __new__(&self) -> Arc<Obj> {
+        match self {
+            Obj::Type(class) => class.new_instance().to_arc(),
+            _ => panic!(),
+        }
+    }
+
+    
+    pub fn __default__() -> Self {
+        Obj::None
+    }
+
+    pub fn __int__(&self) -> isize {
         match self {
             Obj::Bool(v) => *v as isize,
             Obj::Int(v) => v.to_isize_wrapping(),
@@ -450,14 +433,14 @@ impl PyObj for Obj {
         }
     }
 
-    fn __integer__(&self) -> Option<Integer> {
+    pub fn __integer__(&self) -> Option<Integer> {
         match self {
             Obj::Int(v) => Some(v.clone()),
             _ => None,
         }
     }
 
-    fn __bool__(&self) -> bool {
+    pub fn __bool__(&self) -> bool {
         let ret = match self {
             Obj::None => false,
             Obj::Bool(v) => *v,
@@ -474,7 +457,7 @@ impl PyObj for Obj {
         return ret;
     }
 
-    fn __unpack__(self) -> Result<Vec<Arc<Obj>>, PyException> {
+    pub fn __unpack__(self) -> Result<Vec<Arc<Obj>>, PyException> {
         if self.is_iterable() {
             Ok(match self {
                 Obj::Set(vec) | Obj::Tuple(vec) => vec,
@@ -494,7 +477,7 @@ impl PyObj for Obj {
         }
     }
 
-    fn __str__(&self) -> String {
+    pub fn __str__(&self) -> String {
         match self {
             Obj::Null => format!(""),
             Obj::None => format!("None"),
@@ -578,10 +561,16 @@ impl PyObj for Obj {
                 let iter = it.lock().expect("Unable to lock Iter");
                 format!("Iter[ index({}) {:?} ]", iter.index, iter.items)
             }
-            Obj::ClassObject(class) => {
+            Obj::ClassInst(class) => {
                 format!(
                     "<class \'__main__.{}\'>",
-                    class.lock().expect("unable to lock class").code.name
+                    class.lock().expect("unable to lock class").class_base.name
+                )
+            }
+            Obj::Type(class) => {
+                format!(
+                    "<class \'__main__.{}\'>",
+                    class.name
                 )
             }
             Obj::Module(module) => {
@@ -596,14 +585,14 @@ impl PyObj for Obj {
         }
     }
 
-    fn __repr__(&self) -> String {
+    pub fn __repr__(&self) -> String {
         match self {
             Obj::Str(s) => format!("\'{}\'", s),
             _ => self.__str__(),
         }
     }
 
-    fn __len__(&self) -> usize {
+    pub fn __len__(&self) -> usize {
         match self {
             Obj::List(v) => {
                 let list = v.lock().expect("Unable to lock list");
@@ -613,7 +602,7 @@ impl PyObj for Obj {
         }
     }
 
-    fn compare_op(lhs: &Arc<Obj>, rhs: &Arc<Obj>, op: &Op) -> bool {
+    pub fn compare_op(lhs: &Arc<Obj>, rhs: &Arc<Obj>, op: &Op) -> bool {
         let ret = match op {
             Op::Eq => lhs.eq(rhs),
             Op::Neq => lhs.ne(rhs),
@@ -626,62 +615,62 @@ impl PyObj for Obj {
         ret
     }
 
-    fn __lt__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
+    pub fn __lt__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
         lhs.as_ref().lt(rhs.as_ref())
     }
 
-    fn __gt__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
+    pub fn __gt__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
         lhs.as_ref().gt(rhs.as_ref())
     }
 
-    fn __le__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
+    pub fn __le__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
         Obj::__lt__(lhs, rhs) || Obj::__eq__(lhs, rhs)
     }
-    fn __ge__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
+    pub fn __ge__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
         Obj::__gt__(lhs, rhs) || Obj::__eq__(lhs, rhs)
     }
 
-    fn __add__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+    pub fn __add__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
         match Obj::add(lhs.as_ref(), rhs.as_ref()) {
             Obj::Except(e) => Err(e),
             o => Ok(o.into()),
         }
     }
 
-    fn __sub__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+    pub fn __sub__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
         match Obj::sub(lhs.as_ref(), rhs.as_ref()) {
             Obj::Except(e) => Err(e),
             o => Ok(o.into()),
         }
     }
 
-    fn __mul__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+    pub fn __mul__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
         match Obj::mul(lhs.as_ref(), rhs.as_ref()) {
             Obj::Except(e) => Err(e),
             o => Ok(o.into()),
         }
     }
 
-    fn __div__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
+    pub fn __div__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
         match Obj::div(lhs.as_ref(), rhs.as_ref()) {
             Obj::Except(e) => Err(e),
             o => Ok(o.into()),
         }
     }
 
-    fn __eq__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
+    pub fn __eq__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
         lhs.eq(rhs)
     }
 
-    fn __ne__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
+    pub fn __ne__(lhs: &Arc<Obj>, rhs: &Arc<Obj>) -> bool {
         !Obj::__eq__(lhs, rhs)
     }
 
-    fn __pos__(obj: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
+    pub fn __pos__(obj: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
         Ok(Arc::from(obj.clone()))
     }
 
-    fn __neg__(obj: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
+    pub fn __neg__(obj: &Arc<Obj>) -> Result<Arc<Obj>, PyException> {
         let ret = match obj.as_ref() {
             Obj::None => Obj::None,
             Obj::Bool(b) => Obj::Bool(!b),
@@ -697,7 +686,7 @@ impl PyObj for Obj {
         Ok(ret.into())
     }
 
-    fn __call__(&self, objs: &Vec<Arc<Obj>>) -> Result<Arc<Obj>, PyException> {
+    pub fn __call__(&self, objs: &Vec<Arc<Obj>>) -> Result<Arc<Obj>, PyException> {
         match self {
             Obj::FuncPtr(fn_ptr) => Ok((fn_ptr.ptr)(objs)),
             _ => Err(PyException {
@@ -707,9 +696,10 @@ impl PyObj for Obj {
         }
     }
 
-    fn to_arc(self) -> Arc<Self> {
+    pub fn to_arc(self) -> Arc<Self> {
         Arc::from(self)
     }
+
 }
 
 impl PartialEq for Obj {
@@ -863,7 +853,8 @@ impl core::hash::Hash for Obj {
             Obj::Range(v) => v.hash(state),
             Obj::Dict(h) => PyUtils::hash_hashmap(h, state),
             Obj::Iter(a) => a.lock().unwrap().hash(state),
-            Obj::ClassObject(c) => c.lock().expect("unable to lock class").hash(state),
+            Obj::Type(c) => c.hash(state),
+            Obj::ClassInst(c) => c.lock().expect("unable to lock class").hash(state),
             Obj::Code(c) => c.hash(state),
             Obj::FunctionObj(f) => f.hash(state),
             Obj::Module(m) => m.hash(state),
@@ -1023,6 +1014,48 @@ impl Obj {
             _ => None,
         }
     }
+
+    pub fn __get_attr__(&self, field: &String) -> Result<Arc<Obj>, PyException> {
+        match self {
+            Obj::ClassInst(inst) => {
+                let locked = inst.lock().expect("Unable to lock class inst");
+                match locked.fields.get(field) {
+                    Some(obj) => Ok(obj.clone()),
+                    None => { 
+                        Err(PyException {
+                            error: PyError::UndefinedVariableError,
+                            msg: format!("no field \'{field}\' in obj {:?}", self),
+                        })
+                    }
+                }
+            }
+            _ => {
+                Err(PyException {
+                    error: PyError::NotImplementedError,
+                    msg: format!("cannot use __get_attr__ for {:?}", self),
+                })
+            }
+        }
+    }
+
+    pub fn __set_attr__(&self, field: &String, val: Arc<Obj>) -> Option<PyException> {
+        match self {
+            Obj::ClassInst(inst) => {
+                let mut locked = inst.lock().expect("Unable to lock class inst");
+                match locked.fields.get_mut(field) {
+                    Some(obj) => {
+                        *obj = val;
+                        None
+                    }
+                    None => Some(PyException {
+                        error: PyError::UndefinedVariableError,
+                        msg: format!("no field \'{field}\' in obj {:?}", self),
+                    }),
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 // Extension trait so Arc<Obj>.iter() and Arc<Obj>.into_obj_iter() are available
@@ -1044,7 +1077,7 @@ impl ArcObjIterExt for Arc<Obj> {
 
 pub trait ToObj: Sized + Clone {
     fn to_obj(self) -> Obj {
-        PyObj::__default__()
+        Obj::__default__()
     }
     fn to_arc(self) -> Arc<Obj> {
         self.to_obj().into()
@@ -1095,12 +1128,18 @@ impl ToObj for PyException {
     }
 }
 
-impl ToObj for ClassObj {
+impl ToObj for PyClassInst {
+    fn to_obj(self) -> Obj {
+        Obj::ClassInst(Arc::new(Mutex::new(self)))
+    }
+}
+
+impl ToObj for PyTypeObj {
     fn to_arc(self) -> Arc<Obj> {
         self.to_obj().into()
     }
     fn to_obj(self) -> Obj {
-        Obj::ClassObject(Arc::new(Mutex::new(self)))
+        Obj::Type(Arc::new(self))
     }
 }
 

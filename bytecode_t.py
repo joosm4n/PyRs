@@ -2,20 +2,12 @@
 import dis
 
 class vec2:
-    y = 0
-    def y():
-        print("\ny\n")
-
-class bec:
-    x = vec2
+    x = 0
 
 def a():
-    v = bec
-    v.x = 1
+    x = vec2
+    x.x = 1
+    print(x)
 
-def b():
-    v = bec
-    v.x.y = 1
-
+print(dis.code_info(a))
 print(dis.dis(a))
-print(dis.dis(b))

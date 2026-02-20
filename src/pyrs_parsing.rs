@@ -1,6 +1,6 @@
 use crate::{
     pyrs_error::{PyError, PyException},
-    pyrs_obj::{Obj, PyObj, ToObj},
+    pyrs_obj::{Obj, ToObj},
     pyrs_std::FnPtr,
     pyrs_utils::PyUtils,
 };
@@ -440,6 +440,7 @@ impl<'a> Lexer<'a> {
                         return Expression::Keyword(Keyword::For, objs, vec![]);
                     }
                     Keyword::Def => {
+                        dbg!(&self);
                         let name = match self.next() {
                             Token::Ident(ident) => ident.to_string(),
                             t => panic!("Syntax Error: must be ident after def, not {}", t),
@@ -907,16 +908,16 @@ impl Expression {
 
                 // binary
                 let val: Arc<Obj> = match operator {
-                    Op::Plus => PyObj::__add__(&lhs, &rhs)?,
-                    Op::Minus => PyObj::__sub__(&lhs, &rhs)?,
-                    Op::Asterisk => PyObj::__mul__(&lhs, &rhs)?,
-                    Op::ForwardSlash => PyObj::__div__(&lhs, &rhs)?,
-                    Op::Eq => PyObj::__eq__(&lhs, &rhs).to_arc(),
-                    Op::Neq => PyObj::__ne__(&lhs, &rhs).to_arc(),
-                    Op::LessThan => PyObj::__lt__(&lhs, &rhs).to_arc(),
-                    Op::GreaterThan => PyObj::__gt__(&lhs, &rhs).to_arc(),
-                    Op::LessEq => PyObj::__le__(&lhs, &rhs).to_arc(),
-                    Op::GreaterEq => PyObj::__ge__(&lhs, &rhs).to_arc(),
+                    Op::Plus => Obj::__add__(&lhs, &rhs)?,
+                    Op::Minus => Obj::__sub__(&lhs, &rhs)?,
+                    Op::Asterisk => Obj::__mul__(&lhs, &rhs)?,
+                    Op::ForwardSlash => Obj::__div__(&lhs, &rhs)?,
+                    Op::Eq => Obj::__eq__(&lhs, &rhs).to_arc(),
+                    Op::Neq => Obj::__ne__(&lhs, &rhs).to_arc(),
+                    Op::LessThan => Obj::__lt__(&lhs, &rhs).to_arc(),
+                    Op::GreaterThan => Obj::__gt__(&lhs, &rhs).to_arc(),
+                    Op::LessEq => Obj::__le__(&lhs, &rhs).to_arc(),
+                    Op::GreaterEq => Obj::__ge__(&lhs, &rhs).to_arc(),
                     Op::Equals => Obj::__default__().into(),
                     op => panic!("Bad operator: {}", op),
                 };

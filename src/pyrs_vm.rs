@@ -1,32 +1,31 @@
 use std::{
-    collections::HashMap, io::{self, Write}, path::PathBuf, sync::Arc, usize
+    collections::HashMap, io::{self, Write}, path::PathBuf, sync::{Arc, Mutex}, usize
 };
 
 use crate::{
     pyrs_bytecode::PyBytecode,
-    pyrs_codeobject::{CodeObj, FuncObj},
+    pyrs_codeobject::{FuncObj, PyClassBase, PyCodeObj},
     pyrs_error::{PyError, PyException},
     pyrs_interpreter::Interpreter,
-    pyrs_obj::{Obj, PyObj, ToObj},
+    pyrs_obj::{Obj, ToObj},
     pyrs_parsing::Op,
     pyrs_std::{FnPtr, RangeObj},
 };
 
-#[derive(Debug, Clone, PartialEq)]
-struct PyFrame {
-    pub code: Arc<CodeObj>,
+#[derive(Debug, Clone)]
+pub struct PyFrame {
+    pub code: Arc<PyCodeObj>,
     pub ip: usize,
     pub stack: Vec<Arc<Obj>>,
     pub locals: Vec<Arc<Obj>>,
+    pub globals: Arc<Mutex<HashMap<String, Arc<Obj>>>>,
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PyVM {
     builtins: HashMap<String, Arc<Obj>>,
-    globals: Vec<Arc<Obj>>,
     curr_namespace: String,
-
     frames: Vec<PyFrame>,
 
     error_state: bool,
@@ -39,8 +38,7 @@ pub struct PyVM {
 impl PyVM {
     pub fn new() -> Self {
         PyVM {
-            builtins: HashMap::new(),
-            globals: IntrinsicFunc::new_builtins(),
+            builtins: HashMap::new(), // placeholder for now 
             curr_namespace: String::from(""),
             frames: vec![],
             error_state: false,
@@ -54,18 +52,20 @@ impl PyVM {
         self.debug_mode = debug;
     }
 
-    pub fn execute(&mut self, code_obj: CodeObj) {
+    pub fn execute(&mut self, code_obj: PyCodeObj) {
 
         if self.debug_mode {
             println!("Working dir: {:?}", self.working_dir);
         }
 
         let num_vars = code_obj.num_varnames;
+        let frame_globals = Arc::new(Mutex::new(code_obj.globals.clone()));
         self.frames.push(PyFrame {
             code: Arc::new(code_obj),
             ip: 0,
             stack: vec![],
             locals: vec![Obj::None.to_arc(); num_vars],
+            globals: frame_globals,
         });
 
         if self.debug_mode {
@@ -117,6 +117,8 @@ impl PyVM {
             PyBytecode::StoreName(namei) => self.store_name(namei),
             PyBytecode::LoadGlobal(namei) => self.load_global(namei),
             PyBytecode::StoreGlobal(namei) => self.store_global(namei),
+            PyBytecode::LoadAttr(namei) => self.load_attr(namei),
+            PyBytecode::StoreAttr(namei) => self.store_attr(namei),
 
             PyBytecode::PushNull => self.push_null(),
 
@@ -330,6 +332,14 @@ impl PyVM {
         }
     }
 
+    fn get_name(&self, namei: u8) -> Option<&String> {
+        self.frame().code.names.get(namei as usize)
+    }
+
+    fn get_varname(&self, namei: u8) -> Option<&String> {
+        self.frame().code.varnames.get(namei as usize)
+    }
+
     pub fn print_stack(&self) {
         for (idx, a) in self.frame().stack.iter().enumerate() {
             println!(" [{}] \t{}", idx, a.__str__());
@@ -342,7 +352,7 @@ impl PyVM {
     }
 
     fn print_frame(&self) {
-        println!("\n{}", self.frame().code.serialize(0));
+        println!("\n{}", self.frame().code.pretty_format());
     }
 
     fn print_instruction(&self, index: usize) {
@@ -410,40 +420,106 @@ impl PyVM {
     }
 
     fn load_name(&mut self, i: u8) {
-
         if let Some(v) = self.frame().locals.get(i as usize).cloned() {
             self.frame_mut().stack.push(v);
             return;
         }
 
         let name = self.frame().code.names[i as usize].clone();
-        if let Some(v) = self.globals.get(i as usize).cloned() {
-            self.frame_mut().stack.push(v);
-        } else if let Some(v) = self.builtins.get(&name).cloned() {
-            self.frame_mut().stack.push(v);
-        } else {
-            self.throw_err(PyException { 
-                error: PyError::UndefinedVariableError, 
-                msg: format!("unknown variable \'{name}\'"),
-            });
+        {    
+            let frame = self.frame_mut();
+            if let Some(v) = frame.globals.lock().expect("unable to lock globals").get(&name).cloned() {
+                frame.stack.push(v);
+                return;
+            }
         }
+        
+        if let Some(v) = self.builtins.get(&name).cloned() {
+            self.frame_mut().stack.push(v);
+            return;
+        }
+        
+        self.throw_err(PyException { 
+            error: PyError::UndefinedVariableError, 
+            msg: format!("unknown variable \'{name}\'"),
+        });
     }
 
     fn store_global(&mut self, namei: u8) {
         let val = self.pop();
-        // let name = self.frame().code.names[namei as usize].clone();
-        self.globals[namei as usize] = val;
+        let name = self.frame().code.names[namei as usize].clone();
+        self.frame_mut().globals.lock().expect("unable to lock globals").insert(name, val);
     }
 
     fn load_global(&mut self, namei: u8) {
-        if let Some(v) = self.globals.get(namei as usize).cloned() {
-            self.frame_mut().stack.push(v);
-        } else {
-            self.throw_err(PyException { 
-                error: PyError::UndefinedVariableError, 
-                msg: format!("unknown global variable \'{}\'", self.frame().code.names[namei as usize].clone()),
-            });
+        let namei = namei as usize;
+
+        {
+            let frame = self.frame_mut();
+            let name = frame.code.names[namei].clone();
+            let locked = frame.globals.lock().expect("unable to lock globals");
+
+            if let Some(v) = locked.get(&name).cloned() {
+                let val = match v.as_ref() {
+                    Obj::Type(ty) => ty.new_instance().to_arc(),
+                    _ => v.clone(),
+                };
+                frame.stack.push(val);
+                return;
+            }
+            
+            if let Some(intrinsic) = IntrinsicFunc::try_get(name) {
+                frame.stack.push(intrinsic.get_funcptr());
+                return;
+            }
         }
+
+        self.throw_err( PyException {
+            error: PyError::UndefinedVariableError, 
+            msg: format!("unknown global variable \'{}\'", self.frame().code.names[namei as usize].clone()),
+        });
+    }
+
+    fn store_attr(&mut self, namei: u8) {
+        let obj = self.pop();
+        let value = self.pop();
+        let name = match self.get_name(namei) {
+            Some(s) => s,
+            None => {
+                self.throw_err(PyException { 
+                    error: PyError::UndefinedVariableError, 
+                    msg: format!("no name at name[{}] of current codeobj", namei),
+                });
+                unreachable!();
+            }
+        };
+
+        match obj.__set_attr__(name, value) {
+            None => {},
+            Some(e) => self.throw_err(e),
+        }
+    }
+
+    fn load_attr(&mut self, namei: u8) {
+        let obj = self.pop();
+        let name = match self.get_name(namei) {
+            Some(s) => s,
+            None => {
+                self.throw_err(PyException { 
+                    error: PyError::UndefinedVariableError, 
+                    msg: format!("could not find variable at names[{}] in current code_obj", namei) 
+                });
+                unreachable!();
+            }
+        };
+
+        match obj.__get_attr__(&name) {
+            Ok(val) => self.push(val),
+            Err(e) => { 
+                self.throw_err(e);
+                unreachable!();
+            }
+        };
     }
 
     fn push_null(&mut self) {
@@ -484,7 +560,7 @@ impl PyVM {
                     msg: format!(" {:?} at stack[{}] cannot be appended to", o, stack_idx), 
                 }),
             }
-        } 
+        }
         else {
             self.throw_err(PyException { 
                 error: PyError::StackError, 
@@ -629,6 +705,8 @@ impl PyVM {
         let args = self.pop_n(argc);
         let func = self.pop();
 
+
+
         //dbg!(&args);
         //dbg!(&func);
 
@@ -650,6 +728,7 @@ impl PyVM {
                     ip: 0,
                     stack: Vec::new(),
                     locals: vec![Obj::None.to_arc(); func.code.varnames.len()],
+                    globals: self.frame().globals.clone(),
                 };
 
                 for (i, arg) in args.into_iter().enumerate() {
@@ -686,7 +765,6 @@ impl PyVM {
 
         let func = Obj::FunctionObj(FuncObj {
             code: code.into(),
-            globals: self.globals.clone().into(),
             closure: vec![],
         });
 
@@ -723,6 +801,8 @@ pub enum IntrinsicFunc {
 
 impl IntrinsicFunc {
 
+    pub const SHIFT_AMOUNT: u8 = 122;
+
     pub fn call(&self, args: &Vec<Arc<Obj>>) -> Arc<Obj> {
         match self {
             IntrinsicFunc::Print => IntrinsicFunc::print(args),
@@ -732,8 +812,8 @@ impl IntrinsicFunc {
         }
     }
 
-    pub fn try_get(name: &str) -> Option<IntrinsicFunc> {
-        let func = match name {
+    pub fn try_get<'a, T: AsRef<str>>(name: T) -> Option<IntrinsicFunc> {
+        let func = match name.as_ref() {
             "print" => IntrinsicFunc::Print,
             "input" => IntrinsicFunc::Input,
             "range" => IntrinsicFunc::Range,
@@ -743,6 +823,27 @@ impl IntrinsicFunc {
         Some(func)
     }
 
+    pub fn get_funcptr(&self) -> Arc<Obj> {
+        match self {
+            &IntrinsicFunc::Print => FnPtr{
+                ptr: IntrinsicFunc::print, 
+                name: "print".into(),
+            }.to_arc(),
+            &IntrinsicFunc::Input => FnPtr{
+                    ptr: IntrinsicFunc::input, 
+                    name: "input".into(),
+                }.to_arc(),
+            &IntrinsicFunc::Range => FnPtr{
+                    ptr: IntrinsicFunc::range, 
+                    name: "range".into(),
+                }.to_arc(),
+            &IntrinsicFunc::Exit => FnPtr{
+                    ptr: IntrinsicFunc::exit, 
+                    name: "exit".into(),
+                }.to_arc(),
+        }
+    }
+ 
     fn print(objs: &Vec<Arc<Obj>>) -> Arc<Obj> {
         for o in objs {
             print!("{} ", o.__str__());
@@ -800,25 +901,37 @@ impl IntrinsicFunc {
         unsafe { std::mem::transmute(value) }
     }
 
-    pub fn new_builtins() -> Vec<Arc<Obj>> {
-        vec![
+    pub fn new_builtins() -> HashMap<String, Arc<Obj>> {
+        let mut map = HashMap::new();
+        map.insert(
+            "print".to_string(),
             FnPtr{
                 ptr: IntrinsicFunc::print, 
                 name: "print".into(),
-            }.to_arc(),
+            }.to_arc()
+        );
+        map.insert( 
+            "input".to_string(),
             FnPtr{
                 ptr: IntrinsicFunc::input, 
                 name: "input".into(),
-            }.to_arc(),
+            }.to_arc()
+        );
+        map.insert( 
+            "range".to_string(),
             FnPtr{
                 ptr: IntrinsicFunc::range, 
                 name: "range".into(),
-            }.to_arc(),
+            }.to_arc()
+        );
+        map.insert(
+            "exit".to_string(),
             FnPtr{
                 ptr: IntrinsicFunc::exit, 
                 name: "exit".into(),
             }.to_arc(),
-        ]
+        );
+        map
     }
 
 }
