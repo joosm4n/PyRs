@@ -440,7 +440,7 @@ impl<'a> Lexer<'a> {
                         return Expression::Keyword(Keyword::For, objs, vec![]);
                     }
                     Keyword::Def => {
-                        dbg!(&self);
+                        // dbg!(&self);
                         let name = match self.next() {
                             Token::Ident(ident) => ident.to_string(),
                             t => panic!("Syntax Error: must be ident after def, not {}", t),

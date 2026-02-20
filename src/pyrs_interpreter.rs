@@ -373,7 +373,7 @@ impl Interpreter {
         };
 
         let parsed = Expression::from_multiline(contents.as_str());
-        //dbg!(&parsed);
+        dbg!(&parsed);
         //println!("Exprs: \n{}", Expression::to_string_vec(&parsed));
         for expr in parsed {
             PyBytecode::from_expr(expr, &mut code);

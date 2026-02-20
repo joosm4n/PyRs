@@ -115,7 +115,7 @@ impl PyBytecode {
                         for (idx, a) in args.into_iter().enumerate() {
                             if idx == 0 {
                                 match a {
-                                    Expression::Ident(ident) => { 
+                                    Expression::Ident(ident) => {
                                         name = ident;
                                     },
                                     dot @ Expression::Operation(Op::Dot, _) => attr = Some(dot),

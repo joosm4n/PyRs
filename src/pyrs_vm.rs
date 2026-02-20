@@ -426,6 +426,7 @@ impl PyVM {
         }
 
         let name = self.frame().code.names[i as usize].clone();
+        dbg!(&name);
         {    
             let frame = self.frame_mut();
             if let Some(v) = frame.globals.lock().expect("unable to lock globals").get(&name).cloned() {
@@ -433,15 +434,15 @@ impl PyVM {
                 return;
             }
         }
-        
+
         if let Some(v) = self.builtins.get(&name).cloned() {
             self.frame_mut().stack.push(v);
             return;
         }
         
-        self.throw_err(PyException { 
-            error: PyError::UndefinedVariableError, 
-            msg: format!("unknown variable \'{name}\'"),
+        self.throw_err(PyException {
+            error: PyError::UndefinedVariableError,
+            msg: format!("unknown variable \'{name}\' (fn load_name)"),
         });
     }
 
