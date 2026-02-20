@@ -1,12 +1,13 @@
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PyException
 {
     pub error: PyError,
     pub msg: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
 pub enum PyError 
 {
     ArithmeticError,
@@ -21,6 +22,7 @@ pub enum PyError
     StackError,
     SyntaxError,
     FileError,
+    FrameError,
 }
 
 impl PyException

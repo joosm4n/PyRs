@@ -12,13 +12,15 @@ use crate::{
     pyrs_obj::{Obj, PyObj},
     pyrs_parsing::{Expression, Keyword},
     pyrs_std::{FnPtr, Funcs},
-    pyrs_utils::get_indent,
+    pyrs_utils::PyUtils,
     pyrs_vm::PyVM,
 };
 
 const PYRS_MAJOR_VERSION: u8 = 0;
 const PYRS_MINOR_VERSION: u8 = 0;
 const PYRS_PATCH_VERSION: u8 = 1;
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct PyRsVersion {
     pub major: u8,
     pub minor: u8,
@@ -208,7 +210,7 @@ impl Interpreter {
     pub fn interpret_line(&mut self, line_in: &str) {
         let mut line = line_in;
         self.curr_line += 1;
-        let line_indent = get_indent(line);
+        let line_indent = PyUtils::get_indent(line);
 
         if let Some(top) = self.block_stack.last() {
             if line_indent < top.indent_level {
@@ -348,14 +350,14 @@ impl Interpreter {
                 None => {
                     return Err(PyException {
                         error: PyError::FileError,
-                        msg: format!("Failed to complile \'{filepath}\'\nFileread error"),
+                        msg: format!("Failed to complile \'{filepath}\'. Failed at {} line {}", file!(), line!()),
                     });
                 }
             },
             None => {
                 return Err(PyException {
                     error: PyError::FileError,
-                    msg: format!("Failed to complile \'{filepath}\'\nFileread error"),
+                    msg: format!("Failed to complile \'{filepath}\'. Failed at {} line {}", file!(), line!()),
                 });
             }
         }
@@ -365,7 +367,7 @@ impl Interpreter {
             Err(e) => {
                 return Err(PyException {
                     error: PyError::FileError,
-                    msg: format!("Failed to complile \'{filepath}\'\nFileread error: {e}"),
+                    msg: format!("Failed to complile \'{filepath}\'. Fileread error: {e}. Failed at {} line {}", file!(), line!()),
                 })
             }
         };

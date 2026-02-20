@@ -6,10 +6,10 @@ pub mod pyrs_modules;
 pub mod pyrs_obj;
 pub mod pyrs_parsing;
 pub mod pyrs_std;
-pub mod pyrs_userclass;
 pub mod pyrs_utils;
 pub mod pyrs_vm;
 pub mod pyrs_serializer;
+pub mod pyrs_pyc;
 mod pyrs_tests;
 
 #[allow(unused_imports)]

@@ -1,9 +1,11 @@
-
-
 use crate::{
-    pyrs_bytecode::PyBytecode, pyrs_codeobject::CodeObj, pyrs_interpreter::PyRsVersion
+    pyrs_codeobject::CodeObj,
+    pyrs_interpreter::PyRsVersion,
+    pyrs_obj::PyObj,
+    pyrs_utils::{FromBytes, PyUtils},
 };
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct PyHeader {
     pub name: String,
     pub time: u64,
@@ -12,10 +14,9 @@ pub struct PyHeader {
 }
 
 impl PyHeader {
-    
     // Header
     // <"pyrs"> <name (null_terminated)> <compile_time> <pyrs_version(u8 + u8 + u8)> <internal_filename>
-    // 
+    //
     pub fn seralize(&self) -> Vec<u8> {
         let mut vec: Vec<u8> = vec![];
 
@@ -24,45 +25,86 @@ impl PyHeader {
         for c in starter.as_bytes() {
             vec.push(*c);
         }
-        vec.push(0);
+        //println!("{:?}", &vec);
 
         // n bytes
         for c in self.name.as_bytes() {
             vec.push(*c);
         }
+        vec.push(0);
+        //println!("{:?}", &vec);
 
         // 2 bytes
-        for c in self.time.to_le_bytes() {
+        for c in self.time.to_be_bytes() {
             vec.push(c);
         }
-        
+        //println!("{:?}", &vec);
+
         // 3 bytes
         vec.push(self.version.major);
         vec.push(self.version.minor);
         vec.push(self.version.patch);
+        //println!("{:?}", &vec);
 
         // n bytes
         for c in self.internal_filename.as_bytes() {
             vec.push(*c);
         }
         vec.push(0);
+        //println!("{:?}", &vec);
 
         vec
     }
 
-    pub fn deserialize(bytes: Vec<u8>) -> Self {
-        let s = String::from_utf8(bytes).unwrap();
-        println!("{}", s);
-        panic!();
-    }
+    pub fn deserialize(bytes: &Vec<u8>) -> Self {
+        let s = unsafe { String::from_utf8_unchecked(bytes.clone()) };
+        let starter = &s[0..4];
+        assert_eq!(starter, "pyrs");
 
+        let mut i = 0;
+        for c in s.chars() {
+            if c == '\0' {
+                break;
+            }
+            i += 1;
+        }
+
+        let name = &s[4..i];
+        i += 1; // skip '\0'
+
+        let time_bytes = s[i..i + 8].as_bytes().to_vec();
+        dbg!(&time_bytes);
+        let time_num = u64::from_bytes_be(time_bytes.as_slice()).unwrap();
+
+        let vers = s[i + 8..i + 12].as_bytes().to_vec();
+
+        let mut filename = String::new();
+        i += 11;
+        for x in s[i..s.len()].chars() {
+            i += 1;
+            if x == '\0' {
+                break;
+            }
+            filename.push(x);
+        }
+
+        PyHeader {
+            name: name.to_string(),
+            time: time_num,
+            version: PyRsVersion {
+                major: vers[0],
+                minor: vers[1],
+                patch: vers[2],
+            },
+            internal_filename: filename,
+        }
+    }
 }
 
 pub struct PySerializer {}
 
 impl PySerializer {
-
-    pub fn seralize_codeobj(code_obj: &CodeObj) -> String {
+    pub fn seralize_codeobj(code_obj: &CodeObj) -> Vec<u8> {
         // byte for instruction
         // byte for number
 
@@ -74,15 +116,17 @@ impl PySerializer {
         let names = &code_obj.names;
         let bytecode = &code_obj.bytecode;
 
-        // metadata: 
+        // metadata:
         //      num bytecode instructions
-        
+
         // constant_element_len = 16 chars
         // element = <name/Empty>_..._ (16)
+
+        /*
         let len = bytecode[0].get_type_str().len();
         println!("len: \n{}", len);
 
-        let mut bytecode_map = [[b'_';  PyBytecode::TYPE_STR_LEN]; 255];
+        let mut bytecode_map = [[b'_'; PyBytecode::TYPE_STR_LEN]; 255];
         for i in 0u8..255u8 {
             let index = i as usize;
             bytecode_map[index] = PyBytecode::from_bytes(&[i, 0]).get_type_str_slice().clone();
@@ -95,47 +139,79 @@ impl PySerializer {
         for inst in bytecode {
             inst_list.push(inst.to_bytes());
         }
-        let inst_list_len_bytes = (inst_list.len() * 2).to_le_bytes().to_vec();
+        let inst_list_len_bytes = (inst_list.len() * 2).to_be_bytes().to_vec();
         assert_eq!(inst_list_len_bytes.len(), 8);
+        */
 
         // final
         let mut final_bytes: Vec<u8> = vec![];
-        final_bytes.append(&mut name.clone().into_bytes());
-        final_bytes.push(b'\0');
 
-        let mut final_str = String::new();
-        final_str.push_str(name);
-        final_str.push('\0');
+        final_bytes.append(
+            &mut PyHeader {
+                name: name.to_string(),
+                time: PyUtils::curr_time(),
+                version: PyRsVersion::get(),
+                internal_filename: PyUtils::curr_dir(),
+            }
+            .seralize(),
+        );
 
-        final_str.push_str("__consts__");
+        let csts = "__consts__";
+        final_bytes.append(&mut csts.to_string().into_bytes());
+        final_bytes.push(0); // null term
+        final_bytes.append(&mut (consts.len() as u64).to_be_bytes().to_vec()); // 8 bytes of num_consts
         for c in consts {
-            final_str.push_str(c.repr());
-            final_str.push('\0');
+            let obj_str = c.__str__();
+            final_bytes.append(&mut (obj_str.len() as u64).to_be_bytes().to_vec()); // 8 bytes of obj len = n
+            final_bytes.append(&mut obj_str.into_bytes()); // n bytes of obj string
         }
 
-        final_str.push_str("__varnames__");
+        let vrnms = "__varnames__";
+        final_bytes.append(&mut vrnms.to_string().into_bytes()); // string
+        final_bytes.push(0); // null term
+        final_bytes.append(&mut (varnames.len() as u64).to_be_bytes().to_vec()); // 8 bytes of num_varnames
         for v in varnames {
-            final_str.push_str(v);
-            final_str.push('\0');
+            final_bytes.append(&mut (v.len() as u64).to_be_bytes().to_vec()); // n bytes of obj string
+            final_bytes.append(&mut v.clone().into_bytes()); // n bytes of obj string
         }
 
-        // <"__names__">, <
-        final_str.push_str("__names__");
-        for v in names {
-            final_str.push_str(v);
-            final_str.push('\0');
+        let nms = "__names__";
+        final_bytes.append(&mut nms.to_string().into_bytes()); // string
+        final_bytes.push(0); // null term
+        final_bytes.append(&mut (names.len() as u64).to_be_bytes().to_vec()); // 8 bytes of num_names
+        for n in names {
+            final_bytes.append(&mut (n.len() as u64).to_be_bytes().to_vec()); // n bytes of obj string
+            final_bytes.append(&mut n.clone().into_bytes()); // n bytes of obj string
         }
 
-        // <"__bytecode__">, <inst len as u64 (8 bytes)>, <instructions (2 bytes per inst) * n>  
-        final_str.push_str("__bytecode__");
-        for b in inst_list_len_bytes {
-            final_str.push(b as char);
-        }
-        for [a, b] in inst_list {
-            final_str.push(a as char);
-            final_str.push(b as char);
+        let bcde = "__bytecode__";
+        final_bytes.append(&mut bcde.to_string().into_bytes()); // string
+        final_bytes.push(0); // null term
+        final_bytes.append(&mut (bytecode.len() as u64).to_be_bytes().to_vec()); // 8 bytes of num_names
+        for inst in bytecode {
+            // <"__bytecode__">, <inst len as u64 (8 bytes)>, <instructions (2 bytes per inst) * n>
+            final_bytes.append(&mut inst.to_bytes().to_vec());
         }
 
-        final_str
+        final_bytes
+    }
+
+    pub fn deserialize_codeobj(bytes: Vec<u8>) -> CodeObj {
+        // final
+        let _header = PyHeader::deserialize(&bytes);
+
+        /*
+        CodeObj {
+            name: ,
+            bytecode: ,
+            consts: ,
+            names: ,
+            varnames: ,
+            num_consts: ,
+            num_varnames: ,
+            num_names:
+        }
+        */
+        CodeObj::new("__empty__", vec![])
     }
 }

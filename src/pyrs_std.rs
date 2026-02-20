@@ -11,7 +11,7 @@ pub trait Import {
     fn try_get(name: &str) -> Option<FnPtr>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct FnPtr {
     pub ptr: fn(&Vec<Arc<Obj>>) -> Arc<Obj>,
     pub name: String,
@@ -132,7 +132,7 @@ impl Funcs {
     // __import__
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct RangeObj {
     pub start: Option<Integer>,
     pub end: Option<Integer>,

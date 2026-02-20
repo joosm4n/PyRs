@@ -1,10 +1,10 @@
 use crate::{
+    pyrs_codeobject::{CodeObj, FuncObj, ClassObj},
     pyrs_error::{PyError, PyException},
+    pyrs_modules::PyModule,
     pyrs_parsing::{Expression, Op},
     pyrs_std::{FnPtr, RangeObj},
-    pyrs_userclass::{CustomClass},
-    pyrs_codeobject::{CodeObj, FuncObj},
-    pyrs_modules::PyModule,
+    pyrs_utils::PyUtils,
 };
 use std::{
     collections::HashMap,
@@ -19,7 +19,6 @@ use rug::Integer;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum Obj {
-
     Null,
     None,
 
@@ -28,23 +27,23 @@ pub enum Obj {
     Str(String),
     Int(Integer),
 
-    Function(FnPtr),
+    FuncPtr(FnPtr),
 
     Except(PyException),
 
-    List(Arc<Mutex<Vec<Arc<Obj>>>>),  // [], mutable, ordered, duplicates, int indexing,
-    Tuple(Vec<Arc<Obj>>), // (), immutable, ordered, duplicates, int indexing,
-    Set(Vec<Arc<Obj>>),   // {}, mutable, unordered, no dupes, no indexing,
+    List(Arc<Mutex<Vec<Arc<Obj>>>>), // [], mutable, ordered, duplicates, int indexing,
+    Tuple(Vec<Arc<Obj>>),            // (), immutable, ordered, duplicates, int indexing,
+    Set(Vec<Arc<Obj>>),              // {}, mutable, unordered, no dupes, no indexing,
     Range(RangeObj),
 
     Dict(HashMap<Obj, Arc<Obj>>),
 
     Iter(Arc<Mutex<ObjIter>>),
 
-    CustomClass(CustomClass),
+    ClassObject(Arc<Mutex<ClassObj>>),
 
     Code(Arc<CodeObj>),
-    Func(FuncObj),
+    FunctionObj(FuncObj),
 
     Module(PyModule),
     // Binary
@@ -60,7 +59,6 @@ pub enum Obj {
 }
 
 pub trait PyObj: std::fmt::Debug + Clone {
-
     fn compare_op(lhs: &Arc<Self>, rhs: &Arc<Self>, op: &Op) -> bool {
         let ret = match op {
             Op::Eq => Self::__eq__(lhs, rhs),
@@ -74,7 +72,7 @@ pub trait PyObj: std::fmt::Debug + Clone {
         ret
     }
 
-    fn __dict__(&self, _ident: &String) -> Option<&Arc<Obj>> {
+    fn __dict__(&self, _ident: &String, _val: Arc<Obj>) -> Option<PyException> {
         panic!();
     }
 
@@ -412,11 +410,33 @@ impl PyObj for Obj {
         Obj::None
     }
 
-    fn __dict__(&self, field: &String) -> Option<&Arc<Obj>> {
+    fn __dict__(&self, field: &String, val: Arc<Obj>) -> Option<PyException> {
         match self {
-            Obj::CustomClass(o) => {
-                Some(&o.fields[field])
-            },
+            Obj::ClassObject(o) => {
+                let mut locked = o.lock().expect("unable to lock class");
+                let namei: usize;
+                if let Some(i) = locked.code.names.iter().position(|s| s == field) {
+                    namei = i;
+                    
+                }
+                else {
+                    return Some(PyException {
+                        error: PyError::UndefinedVariableError,
+                        msg: format!("no field \'{field}\' in obj {self}"),
+                    });
+                }
+
+                match locked.fields.get_mut(namei) {
+                    Some(obj) => {
+                        *obj = val;
+                        None
+                    }
+                    None => Some(PyException {
+                        error: PyError::UndefinedVariableError,
+                        msg: format!("no field \'{field}\' in obj {self}"),
+                    }),
+                }
+            }
             _ => None,
         }
     }
@@ -445,9 +465,9 @@ impl PyObj for Obj {
             Obj::Int(v) => *v != Integer::ZERO,
             Obj::Str(v) => *v != "",
             Obj::Tuple(vec) | Obj::Set(vec) => vec.len() != 0usize,
-            Obj::List(vec) => { 
+            Obj::List(vec) => {
                 let locked = vec.lock().expect("Unable to lock list");
-                locked.len() != 0usize 
+                locked.len() != 0usize
             }
             _ => panic!("TypeError: __bool__() not implemented for: {:?}", self),
         };
@@ -457,25 +477,19 @@ impl PyObj for Obj {
     fn __unpack__(self) -> Result<Vec<Arc<Obj>>, PyException> {
         if self.is_iterable() {
             Ok(match self {
-                Obj::Set(vec) |
-                Obj::Tuple(vec) => vec, 
+                Obj::Set(vec) | Obj::Tuple(vec) => vec,
                 Obj::List(vec) => {
                     let lock = vec.lock().expect("Unable to lock list");
                     lock.clone()
                 }
                 Obj::Range(range) => range.to_vec(),
-                Obj::Dict(dict) => { 
-                    dict.into_iter()
-                    .map(|(key, _) | Arc::new(key))
-                    .collect()
-                },
+                Obj::Dict(dict) => dict.into_iter().map(|(key, _)| Arc::new(key)).collect(),
                 _ => unreachable!(),
             })
-        }
-        else {
-            Err(PyException { 
-                error: PyError::TypeError, 
-                msg: format!("Cannot unpack a non iterable type: {:?}", self) 
+        } else {
+            Err(PyException {
+                error: PyError::TypeError,
+                msg: format!("Cannot unpack a non iterable type: {:?}", self),
             })
         }
     }
@@ -491,7 +505,7 @@ impl PyObj for Obj {
             Obj::Float(val) => format!("{}", val),
             Obj::Str(s) => format!("{}", s),
             Obj::Int(val) => format!("{}", val),
-            Obj::Function(ptr) => format!("{}", ptr),
+            Obj::FuncPtr(ptr) => format!("{}", ptr),
             Obj::Except(e) => format!("{}", e),
             Obj::List(v) => {
                 let objs = &*v.lock().expect("Unable to lock list");
@@ -501,8 +515,10 @@ impl PyObj for Obj {
                     list.push(',');
                     list.push(' ');
                 }
-                list.pop();
-                list.pop();
+                if list.len() > 2 {
+                    list.pop();
+                    list.pop();
+                }
                 list.push_str("]");
                 format!("{}", list)
             }
@@ -562,13 +578,16 @@ impl PyObj for Obj {
                 let iter = it.lock().expect("Unable to lock Iter");
                 format!("Iter[ index({}) {:?} ]", iter.index, iter.items)
             }
-            Obj::CustomClass(class ) => {
-                format!("<class \'__main__.{}\'>", class.name)
+            Obj::ClassObject(class) => {
+                format!(
+                    "<class \'__main__.{}\'>",
+                    class.lock().expect("unable to lock class").code.name
+                )
             }
             Obj::Module(module) => {
                 format!("<module {} >", module.name)
             }
-            Obj::Func(func) => {
+            Obj::FunctionObj(func) => {
                 format!("<func {}>", func.code.name)
             }
             Obj::Code(codeobj) => {
@@ -680,7 +699,7 @@ impl PyObj for Obj {
 
     fn __call__(&self, objs: &Vec<Arc<Obj>>) -> Result<Arc<Obj>, PyException> {
         match self {
-            Obj::Function(fn_ptr) => Ok((fn_ptr.ptr)(objs)),
+            Obj::FuncPtr(fn_ptr) => Ok((fn_ptr.ptr)(objs)),
             _ => Err(PyException {
                 error: PyError::TypeError,
                 msg: format!("Type is not a function"),
@@ -696,8 +715,7 @@ impl PyObj for Obj {
 impl PartialEq for Obj {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Obj::Null, Obj::Null) |
-            (Obj::None, Obj::None) => true,
+            (Obj::Null, Obj::Null) | (Obj::None, Obj::None) => true,
             (Obj::Float(flt), other) => match other {
                 Obj::Float(same) => *flt == *same,
                 Obj::Int(i) => *flt == i.to_f64(),
@@ -822,21 +840,45 @@ impl Termination for Obj {
     }
 }
 
-impl<T :ToObj> From<T> for Obj {
+impl<T: ToObj> From<T> for Obj {
     fn from(value: T) -> Self {
         value.to_obj()
     }
 }
 
+impl core::hash::Hash for Obj {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Obj::Null => {}
+            Obj::None => {}
+            Obj::Bool(b) => b.hash(state),
+            Obj::Float(f) => f.to_le_bytes().hash(state),
+            Obj::Str(s) => s.hash(state),
+            Obj::Int(i) => i.hash(state),
+            Obj::FuncPtr(f) => f.hash(state),
+            Obj::Except(e) => e.hash(state),
+            Obj::List(v) => v.lock().unwrap().hash(state),
+            Obj::Set(v) => v.hash(state),
+            Obj::Tuple(v) => v.hash(state),
+            Obj::Range(v) => v.hash(state),
+            Obj::Dict(h) => PyUtils::hash_hashmap(h, state),
+            Obj::Iter(a) => a.lock().unwrap().hash(state),
+            Obj::ClassObject(c) => c.lock().expect("unable to lock class").hash(state),
+            Obj::Code(c) => c.hash(state),
+            Obj::FunctionObj(f) => f.hash(state),
+            Obj::Module(m) => m.hash(state),
+        }
+    }
+}
+
 // obj iter
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
 pub struct ObjIter {
     items: Vec<Arc<Obj>>,
     index: usize,
 }
 
-impl ObjIter 
-{
+impl ObjIter {
     pub fn from(obj: &Arc<Obj>) -> Option<Self> {
         let iter = match obj.as_ref() {
             Obj::List(v) => {
@@ -846,12 +888,10 @@ impl ObjIter
                     index: 0,
                 }
             }
-            Obj::Tuple(v) | Obj::Set(v) => {
-                ObjIter {
-                    items: v.clone(),
-                    index: 0,
-                }
-            }
+            Obj::Tuple(v) | Obj::Set(v) => ObjIter {
+                items: v.clone(),
+                index: 0,
+            },
             Obj::Str(s) => {
                 let items = s
                     .chars()
@@ -872,8 +912,7 @@ impl ObjIter
         self.items.get(self.index).cloned()
     }
 
-    pub fn get_items(self) -> Vec<Arc<Obj>>
-    {
+    pub fn get_items(self) -> Vec<Arc<Obj>> {
         self.items
     }
 }
@@ -901,7 +940,10 @@ impl ObjIntoIter {
         let iter = match obj.as_ref() {
             Obj::List(v) => {
                 let list = v.lock().expect("Unable to lock list");
-                ObjIntoIter { items: list.clone(), index: 0 } // not correct
+                ObjIntoIter {
+                    items: list.clone(),
+                    index: 0,
+                } // not correct
             }
             Obj::Str(s) => {
                 let items = s
@@ -916,7 +958,7 @@ impl ObjIntoIter {
             }
             Obj::Range(r) => {
                 let items = r.clone().to_vec();
-                ObjIntoIter{ items, index: 0 }
+                ObjIntoIter { items, index: 0 }
             }
             _ => return None,
         };
@@ -950,7 +992,6 @@ impl IntoIterator for Obj {
 
 // Add this near the other iterator impls (after ObjIntoIter)
 impl Obj {
-
     pub fn iter_py(&self) -> Option<ObjIter> {
         match self {
             Obj::List(v) => {
@@ -977,7 +1018,7 @@ impl Obj {
             }
             Obj::Range(r) => {
                 let items = r.clone().to_vec();
-                Some(ObjIter{ items, index: 0 }) 
+                Some(ObjIter { items, index: 0 })
             }
             _ => None,
         }
@@ -1054,6 +1095,21 @@ impl ToObj for PyException {
     }
 }
 
+impl ToObj for ClassObj {
+    fn to_arc(self) -> Arc<Obj> {
+        self.to_obj().into()
+    }
+    fn to_obj(self) -> Obj {
+        Obj::ClassObject(Arc::new(Mutex::new(self)))
+    }
+}
+
+impl ToObj for FnPtr {
+    fn to_obj(self) -> Obj {
+        Obj::FuncPtr(self)
+    }
+}
+
 impl ToObj for rug::Integer {
     fn to_obj(self) -> Obj {
         Obj::Int(self)
@@ -1071,7 +1127,6 @@ impl ToObj for ObjIter {
         self.to_obj().into()
     }
 }
-
 
 macro_rules! impl_to_obj_for_int {
     ($($ty:ty),+) => {

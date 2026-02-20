@@ -1,14 +1,18 @@
 
 import dis
 
-def all():
-    def add():
-        a = 1 + 2
-        print(a)
+class vec2:
+    x = 0
+    y = 0
 
-    def do(fnptr):
-        fnptr()
+def do():
+    x = [1, 2, 3]
+    v = vec2
+    v.x = 2
+    print(v.x)
 
-    do(add)
+print(do)
+print(type(do))
 
-print(dis.dis(all))
+print(dis.code_info(do), "\nBytecode:\n")
+print(dis.dis(do))

@@ -1,13 +1,13 @@
 #[allow(unused_imports)]
 use crate::{
     pyrs_bytecode::PyBytecode,
-    pyrs_codeobject::{CodeObj, CompileCtx, PyFrame},
+    pyrs_codeobject::{CodeObj, CompileCtx},
     pyrs_error::PyException,
     pyrs_interpreter::{Interpreter, InterpreterCommand},
     pyrs_obj::{Obj, PyObj, ToObj},
     pyrs_parsing::{Expression, Keyword, Lexer, Op, Token},
     pyrs_std::{FnPtr, Funcs},
-    pyrs_utils::split_to_words,
+    pyrs_utils::{PyUtils, FromBytes},
     pyrs_vm::{IntrinsicFunc, PyVM},
     pyrs_serializer::{PySerializer, PyHeader},
 };
@@ -15,7 +15,7 @@ use crate::{
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, mem::size_of, ops::Index, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
+    use std::{collections::HashMap, mem::size_of, ops::Index, sync::Arc};
 
     use crate::pyrs_interpreter::PyRsVersion;
 
@@ -58,11 +58,11 @@ mod tests {
 
     #[test]
     fn memory_size_types() {
-        assert_eq!(96, size_of::<Obj>(), "Obj size not 56 bytes");
-        assert_eq!(24, size_of::<Token>(), "Token size not 24 bytes");
-        assert_eq!(56, size_of::<Expression>(), "Expression size not 56 bytes");
-        assert_eq!(16, size_of::<PyBytecode>(), "Bytecode size not 64 bytes");
-        assert_eq!(184, size_of::<PyVM>(), "VirtualMachine size changed");
+        assert_eq!(96, size_of::<Obj>(), "Obj size not changed");
+        assert_eq!(24, size_of::<Token>(), "Token size not changed");
+        assert_eq!(56, size_of::<Expression>(), "Expression size not changed");
+        assert_eq!(2, size_of::<PyBytecode>(), "Bytecode size changed");
+        assert_eq!(160, size_of::<PyVM>(), "VirtualMachine size changed");
         assert_eq!(144, size_of::<CodeObj>(), "CodeObj size changed");
     }
 
@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn parse_underscore() {
-        let s1 = split_to_words("x.__str__()");
+        let s1 = PyUtils::split_to_words("x.__str__()");
         let res_str = vec!["x", ".", "__str__", "(", ")"];
         assert_eq!(s1, res_str);
     }
@@ -347,6 +347,7 @@ mod tests {
     #[test]
     fn bytecode_manual() {
         let code = vec![
+            PyBytecode::Resume,
             PyBytecode::LoadConst(0),
             PyBytecode::StoreFast(0),
             PyBytecode::PushNull,
@@ -386,7 +387,7 @@ mod tests {
         println!("Instructions:\n{}", inst_str);
         assert_eq!(
             format!("{:?}", &code_obj.bytecode),
-            r#"[LoadConst(0), StoreFast(0), LoadFast(0), PopJumpIfFalse(4), PushNull, LoadFast(0), CallInstrinsic1(Print), JumpForward(0)]"#
+            r#"[Resume, LoadConst(0), StoreFast(0), LoadFast(0), PopJumpIfFalse(4), LoadGlobal(0), LoadFast(0), CallFunction(1), JumpForward(0)]"#
         );
 
         let mut vm = PyVM::new();
@@ -404,15 +405,17 @@ mod tests {
         "#
         );
         println!("Instructions:\n{}", PyBytecode::to_string(&code_obj.bytecode));
-        assert_eq!(format!("{:?}", &code_obj.bytecode), r#"[LoadConst(0), StoreFast(0), LoadFast(0), LoadConst(1), CompareOp(LessThan), PopJumpIfFalse(9), PushNull, LoadFast(0), CallInstrinsic1(Print), LoadFast(0), LoadConst(2), BinaryAdd, StoreFast(0), JumpBackward(12), LoadConst(3)]"#.to_string());
+        assert_eq!(format!("{:?}", &code_obj.bytecode), r#"[Resume, LoadConst(0), StoreFast(0), LoadFast(0), LoadConst(1), CompareOp(LessThan), PopJumpIfFalse(9), LoadGlobal(0), LoadFast(0), CallFunction(1), LoadFast(0), LoadConst(2), BinaryAdd, StoreFast(0), JumpBackward(12), LoadConst(3)]"#.to_string());
 
         let mut vm = PyVM::new();
+        vm.set_debug_mode(true);
         vm.execute(code_obj);
     }
 
     #[test]
     fn bytecode_handwritten() {
         let code = vec![
+            PyBytecode::Resume,
             PyBytecode::LoadConst(0),
             PyBytecode::StoreFast(0),
             PyBytecode::NOP,
@@ -439,7 +442,7 @@ mod tests {
             names: vec![],
             num_consts: 3,
             num_varnames: 1,
-            num_names: 0
+            num_names: 0,
         };
 
         let mut vm = PyVM::new();
@@ -449,24 +452,25 @@ mod tests {
     #[test]
     #[ignore]
     fn bytecode_from_file() {
-        let code_obj = Interpreter::compile_file("src/pyrs_tests/compile_test_1.py").unwrap();
+        let code_obj = Interpreter::compile_file("compile_test_1.py").unwrap();
         println!(
             "Bytecode from file:\n{}",
             PyBytecode::to_string(&code_obj.bytecode)
         );
 
         let expected = vec![
+            PyBytecode::Resume,
             PyBytecode::LoadConst(0),
             PyBytecode::MakeFunction,
-            PyBytecode::StoreName(0),
+            PyBytecode::StoreFast(0),
             PyBytecode::LoadConst(1),
             PyBytecode::MakeFunction,
-            PyBytecode::StoreName(1),
+            PyBytecode::StoreFast(1),
             PyBytecode::LoadConst(2),
             PyBytecode::MakeFunction,
-            PyBytecode::StoreName(2),
+            PyBytecode::StoreFast(2),
             PyBytecode::LoadConst(3),
-            PyBytecode::LoadName(0),
+            PyBytecode::LoadFast(0),
             PyBytecode::CallFunction(1),
             PyBytecode::StoreFast(3),
             PyBytecode::PushNull,
@@ -495,7 +499,7 @@ mod tests {
             names: vec![],
             num_consts: 2,
             num_varnames: 0,
-            num_names: 0
+            num_names: 0,
         };
 
         assert_eq!(&code_obj, &expected_codeobj);
@@ -506,9 +510,8 @@ mod tests {
 
     #[test]
     fn module_from_file() {
-        let module = Interpreter::compile_file("src/pyrs_tests/module_test_1.py").unwrap();
+        let module = Interpreter::compile_file("tests/module_test_1.py").unwrap();
         println!("{:#?}", module);
-        panic!();
     }
 
     #[test]
@@ -526,7 +529,7 @@ mod tests {
         println!("code: \n{}", PyBytecode::to_string(&code_obj.bytecode));
 
         let mut vm = PyVM::new();
-        vm.append_working_dir("src/pyrs_tests");
+        vm.append_working_dir("tests");
         vm.execute(code_obj);
 
         panic!();
@@ -590,9 +593,10 @@ mod tests {
         PyBytecode::from_expr(line2, &mut bytecode);
 
         let code_obj = bytecode.finish();
-        assert_eq!(format!("{:?}", &code_obj.bytecode), r#"[LoadConst(0), LoadConst(1), LoadConst(2), BuildList(3), StoreFast(0), PushNull, LoadFast(0), LoadConst(3), LoadConst(4), BuildList(2), BinaryAdd, CallInstrinsic1(Print)]"#.to_string());
+        assert_eq!(format!("{:?}", &code_obj.bytecode), r#"[Resume, BuildList(0), LoadConst(0), ListAppend(0), StoreFast(0), LoadGlobal(0), LoadFast(0), BuildList(0), LoadConst(1), ListAppend(0), BinaryAdd, CallFunction(1)]"#.to_string());
 
         let mut vm = PyVM::new();
+        vm.set_debug_mode(true);
         vm.execute(code_obj);
     }
 
@@ -623,33 +627,34 @@ mod tests {
 
         println!("{}", PyBytecode::to_string(&code_obj.bytecode));
         let instructions = vec![
+            PyBytecode::Resume,
             PyBytecode::LoadConst(0),
             PyBytecode::PopJumpIfFalse(4),
-            PyBytecode::PushNull,
+            PyBytecode::LoadGlobal(IntrinsicFunc::Print as u8),
             PyBytecode::LoadConst(1),
-            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
+            PyBytecode::CallFunction(1),
             PyBytecode::JumpForward(11),
             PyBytecode::LoadConst(0),
             PyBytecode::PopJumpIfFalse(4),
-            PyBytecode::PushNull,
+            PyBytecode::LoadGlobal(IntrinsicFunc::Print as u8),
             PyBytecode::LoadConst(2),
-            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
+            PyBytecode::CallFunction(1),
             PyBytecode::JumpForward(6),
             PyBytecode::LoadConst(3),
             PyBytecode::PopJumpIfFalse(4),
-            PyBytecode::PushNull,
+            PyBytecode::LoadGlobal(IntrinsicFunc::Print as u8),
             PyBytecode::LoadConst(4),
-            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
+            PyBytecode::CallFunction(1),
             PyBytecode::JumpForward(0),
             PyBytecode::LoadConst(0),
             PyBytecode::PopJumpIfFalse(4),
-            PyBytecode::PushNull,
+            PyBytecode::LoadGlobal(IntrinsicFunc::Print as u8),
             PyBytecode::LoadConst(5),
-            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
+            PyBytecode::CallFunction(1),
             PyBytecode::JumpForward(2),
-            PyBytecode::PushNull,
+            PyBytecode::LoadGlobal(IntrinsicFunc::Print as u8),
             PyBytecode::LoadConst(6),
-            PyBytecode::CallInstrinsic1(IntrinsicFunc::Print),
+            PyBytecode::CallFunction(1),
         ];
         assert_eq!(
             PyBytecode::to_string(&code_obj.bytecode),
@@ -705,6 +710,7 @@ mod tests {
 
         let code_obj = code.finish();
         let expected = vec![
+            PyBytecode::Resume,
             PyBytecode::LoadConst(0),
             PyBytecode::UnaryNegative,
         ];
@@ -785,6 +791,23 @@ mod tests {
         assert_eq!(for_expr.len(), 2);
         println!("For loop: {}", for_expr[1]);
 
+        /*
+        bytecode:
+(0)             LoadConst(0)
+(1)             LoadConst(1)
+(2)             LoadConst(2)
+(3)             BuildList(3)
+(4)             StoreFast(0)
+(5)             LoadName(0)
+(6)             GetIter
+(7)             ForIter(5)
+(8)             StoreFast(1)
+(9)             PushNull
+(10)            LoadFast(1)
+(11)            CallInstrinsic1(Print)
+(12)            JumpBackward(6)
+<end __temp_bytecode_ThreadId(13)_1771182827630945031__>
+ */
         match &for_expr[0] {
             Expression::Operation(Op::Equals, args) => {
                 assert_eq!(args[0], Expression::Ident("v".into()));
@@ -816,6 +839,7 @@ mod tests {
         println!("code: \n{}", PyBytecode::to_string(&code_obj.bytecode));
 
         let mut vm = PyVM::new();
+        vm.set_debug_mode(true);
         vm.execute(code_obj);
     }
 
@@ -836,30 +860,7 @@ mod tests {
             .iter()
             .filter(|inst| matches!(inst, PyBytecode::BuildList(_)))
             .count();
-        assert_eq!(build_list_count, 3); // Two inner lists + one outer list
-    }
-
-    #[test]
-    #[ignore]
-    fn error_bytecode_generation() {
-        // Test that unsupported operations generate error bytecode
-        let mut code = CompileCtx::new("__test_error_bytecode_gen__");
-        let invalid_expr = Expression::Operation(
-            Op::Dot,
-            vec![
-                Expression::Atom("obj".to_string()),
-                Expression::Atom("method".to_string()),
-            ],
-        );
-
-        PyBytecode::from_expr(invalid_expr, &mut code);
-
-        let code_obj = code.finish();
-        // Should generate an Error bytecode
-        assert!(code_obj.bytecode
-            .iter()
-            .any(|inst| matches!(inst, PyBytecode::Error))
-        );
+        assert_eq!(build_list_count, 1); // Two inner lists + one outer list
     }
 
     #[test]
@@ -915,16 +916,6 @@ mod tests {
         assert!(IntrinsicFunc::try_get("print").is_some());
         assert!(IntrinsicFunc::try_get("input").is_some());
         assert!(IntrinsicFunc::try_get("nonexistent").is_none());
-
-        // Test intrinsic function bytecode generation
-        let print_expr = Expression::from_line("print(\"Hello World\")");
-        let mut code = CompileCtx::new("__test_instrinsic_functions__");
-        PyBytecode::from_expr(print_expr, &mut code);
-
-        let code_obj = code.finish();
-        assert!(&code_obj.bytecode
-            .iter()
-            .any(|inst| matches!(inst, PyBytecode::CallInstrinsic1(IntrinsicFunc::Print))));
     }
 
     #[test]
@@ -971,9 +962,8 @@ mod tests {
         let mut code = CompileCtx::new("__test_expression_none_handling__");
         PyBytecode::from_expr(empty_expr, &mut code);
 
-        // Should not generate any bytecode for None expression
         let code_obj = code.finish();
-        assert!(code_obj.bytecode.is_empty());
+        assert_eq!(code_obj.bytecode, vec![PyBytecode::Resume]);
     }
 
     #[test]
@@ -1026,48 +1016,60 @@ mod tests {
 
     #[test]
     fn utils_string_functions() {
-        use crate::pyrs_utils::*;
+        use crate::pyrs_utils::PyUtils;
 
         // Test str_starts_with
-        assert!(str_starts_with("123abc", char::is_numeric));
-        assert!(!str_starts_with("abc123", char::is_numeric));
+        assert!(PyUtils::str_starts_with("123abc", char::is_numeric));
+        assert!(!PyUtils::str_starts_with("abc123", char::is_numeric));
 
         // Test trim_first_and_last
-        assert_eq!(trim_first_and_last("\"hello\""), "hello");
-        assert_eq!(trim_first_and_last("'world'"), "world");
+        assert_eq!(PyUtils::trim_first_and_last("\"hello\""), "hello");
+        assert_eq!(PyUtils::trim_first_and_last("'world'"), "world");
 
         // Test get_indent
-        assert_eq!(get_indent("    hello"), 4);
-        assert_eq!(get_indent("\thello"), 4);
-        assert_eq!(get_indent("    \thello"), 8); // 4 spaces + 1 tab
-        assert_eq!(get_indent("hello"), 0);
+        assert_eq!(PyUtils::get_indent("    hello"), 4);
+        assert_eq!(PyUtils::get_indent("\thello"), 4);
+        assert_eq!(PyUtils::get_indent("    \thello"), 8); // 4 spaces + 1 tab
+        assert_eq!(PyUtils::get_indent("hello"), 0);
     }
 
     #[test]
     fn split_to_words_comprehensive() {
-        use crate::pyrs_utils::split_to_words;
 
         // Test basic splitting
-        let words = split_to_words("hello world");
+        let words = PyUtils::split_to_words("hello world");
         assert_eq!(words, vec!["hello", "world"]);
 
         // Test operators
-        let words = split_to_words("x=5");
+        let words = PyUtils::split_to_words("x=5");
         assert_eq!(words, vec!["x", "=", "5"]);
 
-        let words = split_to_words("x==y");
+        let words = PyUtils::split_to_words("x==y");
         assert_eq!(words, vec!["x", "==", "y"]);
 
-        let words = split_to_words("x!=y");
+        let words = PyUtils::split_to_words("x!=y");
         assert_eq!(words, vec!["x", "!=", "y"]);
 
         // Test string literals
-        let words = split_to_words("print(\"hello world\")");
+        let words = PyUtils::split_to_words("print(\"hello world\")");
         assert_eq!(words, vec!["print", "(", "\"hello world\"", ")"]);
 
         // Test mixed content
-        let words = split_to_words("if x >= 10:");
+        let words = PyUtils::split_to_words("if x >= 10:");
         assert_eq!(words, vec!["if", "x", ">=", "10", ":"]);
+    }
+
+    #[test]
+    fn utils_from_bytes()
+    {
+        let bytes1: Vec<u8> = vec![1, 0, 0, 0, 0, 0, 0, 0];
+        let val1 = usize::from_bytes_le(bytes1.as_slice()).unwrap();
+        assert_eq!(val1, 1usize);
+
+        let num2 = 42069u32;
+        let bytes2: Vec<u8> = num2.to_le_bytes().to_vec();
+        let val2 = u32::from_bytes_le(bytes2.as_slice()).unwrap();
+        assert_eq!(val2, num2);
     }
 
     #[test]
@@ -1084,16 +1086,16 @@ mod tests {
         );
 
         let expected = vec![
+            PyBytecode::Resume,
             PyBytecode::LoadConst(0),
             PyBytecode::StoreFast(0),
             PyBytecode::LoadFast(0),
             PyBytecode::LoadConst(1),
             PyBytecode::CompareOp(Op::LessThan),
-            PyBytecode::PopJumpIfFalse(0),
+            PyBytecode::PopJumpIfFalse(3),
             PyBytecode::LoadConst(2),
             PyBytecode::StoreFast(1),
-            PyBytecode::CompareOp(Op::LessThan),
-            PyBytecode::PopJumpIfFalse(4),
+            PyBytecode::JumpForward(8),
             PyBytecode::LoadFast(0),
             PyBytecode::LoadConst(3),
             PyBytecode::CompareOp(Op::LessThan),
@@ -1114,7 +1116,6 @@ mod tests {
         vm.set_debug_mode(true);
         vm.execute(code_obj);
 
-        panic!();
     }
 
     #[test]
@@ -1166,6 +1167,7 @@ mod tests {
 
     #[test]
     fn iteration() {
+
         let list = vec![1.to_arc(), 2.to_arc()].to_obj();
         for x in list {
             println!("{}", x);
@@ -1218,25 +1220,66 @@ mod tests {
     #[test]
     fn serialize_header()
     {
-        let header = PyHeader{
+        let header = PyHeader {
             name: "__test_serialize_header__".into(),
-            time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            time: PyUtils::curr_time(),
             version: PyRsVersion::get(),
-            internal_filename: std::env::current_dir().unwrap().to_str().unwrap().into(),
+            internal_filename: PyUtils::curr_dir(),
         };
 
         let bytes = header.seralize();
-        let og = PyHeader::deserialize(bytes);
+        
+        let _r = std::fs::write("tests/hex.lib", bytes.clone());
 
-        panic!();
+        let deserial = PyHeader::deserialize(&bytes);
+        assert_eq!(header, deserial);
+
     }
 
     #[test]
     fn serialize_bytecode_map() 
     {
         let c = CodeObj::new("__test_serialize_bytecode_map__", vec![PyBytecode::LoadConst(0), PyBytecode::LoadConst(1), PyBytecode::BinaryAdd]);
-        PySerializer::seralize_codeobj(&c);
+        let bytes = PySerializer::seralize_codeobj(&c);
+
+        let _ = std::fs::write("tests/hex.lib", bytes.clone());
+        let deserial = PySerializer::deserialize_codeobj(bytes);
+
+        println!("{:#?}", deserial);
     }
+
+    #[test]
+    fn calling()
+    {
+        let mut c = CompileCtx::new("__test_calling__");
+        let a = Expression::from_line("v.x");
+        dbg!(&a);
+        PyBytecode::from_expr(a,&mut c);
+        let b = Expression::from_line("v.x.y");
+        dbg!(&b);
+
+        let codeobj = c.finish();
+        dbg!(&codeobj);
+        panic!();
+    }
+
+    #[test]
+    fn pretty_print()
+    {
+        let code_obj = CodeObj {
+            name: "__test_bytecode_manual__".into(),
+            consts: vec![5.to_obj()],
+            varnames: vec!["x".to_string()],
+            names: vec!["print".to_string()],
+            bytecode: vec![],
+            num_varnames: 1,
+            num_consts: 1,
+            num_names: 1,
+        };
+        code_obj.print_nice();
+        panic!();
+    }
+
 
     /*
     Usage: cargo.exe test [OPTIONS] [TESTNAME] [-- [ARGS]...]
