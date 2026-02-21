@@ -138,8 +138,8 @@ impl PyBytecode {
                                             //dbg!(&a);
                                             PyBytecode::from_expr(a, context);
                                         }
-                                        let namei = context.add_name(fn_name);
-                                        context.push(PyBytecode::LoadName(namei));
+                                        let namei = context.add_varname(fn_name);
+                                        context.push(PyBytecode::LoadFast(namei));
 
                                         context.push(PyBytecode::CallFunction(argc as u8));
                                     }
