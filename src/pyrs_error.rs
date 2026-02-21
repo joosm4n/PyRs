@@ -1,12 +1,13 @@
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PyException
 {
     pub error: PyError,
     pub msg: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
 pub enum PyError 
 {
     ArithmeticError,
@@ -20,6 +21,8 @@ pub enum PyError
     FloatParseError,
     StackError,
     SyntaxError,
+    FileError,
+    FrameError,
 }
 
 impl PyException
@@ -40,5 +43,17 @@ impl std::process::Termination for PyException
 {
     fn report(self) -> std::process::ExitCode {
         std::process::ExitCode::from(self.error as u8)
+    }
+}
+
+pub trait PyPanicHandle<T> {
+    fn handle(self) -> T;
+}
+impl<T> PyPanicHandle<T> for Result<T, PyException> {
+    fn handle(self) -> T {
+        match self {
+            Ok(s) => s,
+            Err(e) => panic!("{e}"),
+        }
     }
 }

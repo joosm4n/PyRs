@@ -1,18 +1,41 @@
 use std::{
     collections::HashMap,
     io::{self, Write},
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
 use crate::{
     pyrs_bytecode::PyBytecode,
-    pyrs_error::PyException,
-    pyrs_obj::{Obj, PyObj},
+    pyrs_codeobject::{PyCodeObj, PyCompileCtx},
+    pyrs_error::{PyError, PyException, PyPanicHandle},
+    pyrs_obj::{Obj},
     pyrs_parsing::{Expression, Keyword},
     pyrs_std::{FnPtr, Funcs},
-    pyrs_utils::get_indent,
+    pyrs_utils::PyUtils,
     pyrs_vm::PyVM,
 };
+
+const PYRS_MAJOR_VERSION: u8 = 0;
+const PYRS_MINOR_VERSION: u8 = 0;
+const PYRS_PATCH_VERSION: u8 = 1;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PyRsVersion {
+    pub major: u8,
+    pub minor: u8,
+    pub patch: u8,
+}
+impl PyRsVersion {
+    pub const fn get() -> Self {
+        PyRsVersion { major: PYRS_MAJOR_VERSION, minor: PYRS_MINOR_VERSION, patch: PYRS_PATCH_VERSION }
+    }
+}
+impl std::fmt::Display for PyRsVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "pyrs-{}{}{}", self.major, self.minor, self.patch)
+    }
+}
 
 pub struct Interpreter {
     variables: HashMap<String, Arc<Obj>>,
@@ -30,6 +53,7 @@ pub struct Interpreter {
     repr: bool,
 
     vm: PyVM,
+    working_dir: PathBuf,
 }
 
 #[derive(Debug)]
@@ -39,13 +63,11 @@ struct BlockContext {
     body: Vec<Expression>,    // Expressions in this block
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-
 pub enum InterpreterFlags {
     Debug,
     AnyFile,
     Compile,
 }
-
 pub enum InterpreterCommand {
     Error(&'static str),
     Live,
@@ -68,6 +90,7 @@ impl Interpreter {
             debug_mode: false,
             repr: false,
             vm: PyVM::new(),
+            working_dir: std::env::current_dir().unwrap_or(PathBuf::new()),
         }
     }
 
@@ -76,8 +99,17 @@ impl Interpreter {
         self.vm.set_debug_mode(debug);
     }
 
-    pub fn get_version() -> &'static str {
-        "pyrs-0-1"
+    pub fn set_working_dir(&mut self, path: &str) {
+        self.working_dir = PathBuf::from(path);
+        self.vm.set_working_dir(path);
+    }
+
+    pub fn append_working_dir(&mut self, path: &str) {
+        let paths: Vec<&str> = path.split(&['/', '\\']).collect();
+        for p in paths {
+            self.working_dir.push(p);
+        }
+        self.vm.append_working_dir(path);
     }
 
     pub fn print_help() {
@@ -178,7 +210,7 @@ impl Interpreter {
     pub fn interpret_line(&mut self, line_in: &str) {
         let mut line = line_in;
         self.curr_line += 1;
-        let line_indent = get_indent(line);
+        let line_indent = PyUtils::get_indent(line);
 
         if let Some(top) = self.block_stack.last() {
             if line_indent < top.indent_level {
@@ -302,34 +334,62 @@ impl Interpreter {
     }
 
     pub fn interpret_file(&mut self, filepath: &str) {
-        let bytecode = Interpreter::compile_file(filepath);
+        let bytecode = Interpreter::compile_file(filepath).handle();
         self.vm.execute(bytecode);
     }
 
-    // vvvv using byte code vvvv
-    pub fn compile_file(filepath: &str) -> Vec<PyBytecode> {
-        let mut bytecode: Vec<PyBytecode> = vec![];
-        let contents = match std::fs::read_to_string(filepath) {
-            Ok(f) => f,
-            Err(e) => panic!("Fileread error: {e}"),
-        };
-        let parsed = Expression::from_multiline(contents.as_str());
-        //dbg!(&parsed);
-        for expr in parsed {
-            PyBytecode::from_expr(expr, &mut bytecode);
+    pub fn compile_file(filepath: &str) -> Result<PyCodeObj, PyException> {
+        let mut code: PyCompileCtx;
+        let path = Path::new(filepath);
+        match path.file_stem() {
+            Some(filestem) => match filestem.to_str() {
+                Some(file_str) => {
+                    let filename = file_str.to_string();
+                    code = PyCompileCtx::new(&filename);
+                }
+                None => {
+                    return Err(PyException {
+                        error: PyError::FileError,
+                        msg: format!("Failed to complile \'{filepath}\'. Failed at {} line {}", file!(), line!()),
+                    });
+                }
+            },
+            None => {
+                return Err(PyException {
+                    error: PyError::FileError,
+                    msg: format!("Failed to complile \'{filepath}\'. Failed at {} line {}", file!(), line!()),
+                });
+            }
         }
 
-        bytecode
+        let contents = match std::fs::read_to_string(filepath) {
+            Ok(f) => f,
+            Err(e) => {
+                return Err(PyException {
+                    error: PyError::FileError,
+                    msg: format!("Failed to complile \'{filepath}\'. Fileread error: {e}. Failed at {} line {}", file!(), line!()),
+                })
+            }
+        };
+
+        let parsed = Expression::from_multiline(contents.as_str());
+        dbg!(&parsed);
+        //println!("Exprs: \n{}", Expression::to_string_vec(&parsed));
+        for expr in parsed {
+            PyBytecode::from_expr(expr, &mut code);
+        }
+
+        Ok(code.finish())
     }
 
     #[allow(dead_code)]
     fn execute_expr(&mut self, expr: Expression) {
-        let mut bytecode = vec![];
-        PyBytecode::from_expr(expr, &mut bytecode);
-        self.vm.execute(bytecode);
+        let mut code = PyCompileCtx::new("__temp__");
+        PyBytecode::from_expr(expr, &mut code);
+        self.vm.execute(code.finish());
     }
 
-    pub fn seralize_bytecode(filename: &str, bytecode: &Vec<PyBytecode>) -> std::io::Result<()> {
+    pub fn seralize_codeobj(filename: &str, codeobj: &PyCodeObj) -> std::io::Result<()> {
         use std::fs;
         let exists = fs::exists("__pycache__")?;
         if !exists {
@@ -338,10 +398,10 @@ impl Interpreter {
 
         println!("Compiling \'{}\'... ", filename);
         let name = filename.strip_suffix(".py").unwrap();
-        let pyc_name = format!("__pycache__/{}.{}.pyc", name, Interpreter::get_version());
+        let pyc_name = format!("__pycache__/{}.{}.pyc", name, PyRsVersion::get());
         let mut file = fs::File::create(&pyc_name)?;
 
-        let contents = PyBytecode::to_string(bytecode);
+        let contents = format!("{}", codeobj.serialize(0));
         file.write_all(contents.as_bytes())?;
 
         println!("Compiled: {filename} into {pyc_name}");

@@ -5,12 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug unit tests in executable 'Pyrs'",
+            "name": "Debug calling test in executable 'Pyrs'",
             "type": "lldb",
             "request": "launch",
             "cargo": {
                 "args": [
                     "test",
+                    "calling",
                     "--bin=Pyrs"
                 ]
             },

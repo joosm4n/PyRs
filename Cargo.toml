@@ -4,8 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pretty_assertions = "1.4.1"
+int-enum = "1.2.0"
 rug = "1.28.1"
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(_YES_)'] }
@@ -13,3 +16,10 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(_YES_)'] }
 [features]
 default = ["_YES_"]
 _YES_ = []
+
+[dependencies.uuid]
+version = "1.21.0"
+# Lets you generate random UUIDs
+features = [
+    "v4",
+]
