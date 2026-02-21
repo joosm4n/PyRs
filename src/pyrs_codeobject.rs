@@ -5,7 +5,7 @@ use crate::{
 
 use std::{
     ops::{Deref, DerefMut},
-    sync::{Arc, Mutex},
+    sync::{Arc},
     collections::{HashMap},
 };
 
@@ -202,7 +202,7 @@ impl PyCompileCtx {
             let i = self.names.iter().position(|n| n == &name_s).unwrap();
             PyBytecode::LoadGlobal(i as u8)
         } else if let Some(i) = self.varnames.iter().position(|n| n == &name_s) {
-            PyBytecode::LoadName(i as u8)
+            PyBytecode::LoadFast(i as u8)
         } else {
             let i = self.varnames.len();
             self.varnames.push(name_s);
@@ -212,23 +212,21 @@ impl PyCompileCtx {
 
     pub fn add_name_load<T: Into<String>>(&mut self, name: T) -> PyBytecode {
         let name_s: String = name.into();
-        if let Some(_) = self.globals.get(&name_s) {
+        if let Some(i) = self.names.iter().position(|n| n == &name_s) {
+            PyBytecode::LoadName(i as u8)
+        } else if let Some(_) = self.globals.get(&name_s) {
             let i = self.names.iter().position(|n| n == &name_s).unwrap();
             PyBytecode::LoadGlobal(i as u8)
-        } else if let Some(i) = self.names.iter().position(|n| n == &name_s) {
-            PyBytecode::LoadName(i as u8)
         } else {
             let i = self.names.len();
-            self.varnames.push(name_s);
+            self.names.push(name_s);
             PyBytecode::LoadName(i as u8)
         }
     }
 
     pub fn add_varname_store<T: Into<String>>(&mut self, name: T) -> PyBytecode {
         let name_s: String = name.into();
-        if let Some(i) = self.names.iter().position(|n| n == &name_s) {
-            PyBytecode::StoreName(i as u8)
-        } else if let Some(i) = self.varnames.iter().position(|n| n == &name_s) {
+        if let Some(i) = self.varnames.iter().position(|n| n == &name_s) {
             PyBytecode::StoreFast(i as u8)
         } else {
             let i = self.varnames.len();
@@ -250,6 +248,10 @@ impl PyCompileCtx {
 
     pub fn get_last_name(&self) -> Option<&String> {
         self.names.last()
+    }
+
+    pub fn get_context_name<'a>(&'a self) -> &'a String {
+        &self.name
     }
 
     pub fn add_global<T: Into<String>>(&mut self, name: T, obj: Obj) {
@@ -311,19 +313,12 @@ impl core::hash::Hash for PyCodeObj {
 impl core::hash::Hash for FuncObj {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.code.as_ref().hash(state);
-        let clsre: Vec<Arc<Obj>> = self
-            .closure
-            .iter()
-            .map(|x| x.lock().unwrap().clone())
-            .collect();
-        clsre.hash(state);
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct FuncObj {
     pub code: Arc<PyCodeObj>,
-    pub closure: Vec<Arc<Mutex<Arc<Obj>>>>, // captured cells
 }
 
 impl ToObj for FuncObj {
@@ -344,16 +339,15 @@ impl FuncObj {
         let mut contents = String::new();
         contents.push_str(&format!("{tabs}<funcobj>\n"));
         contents.push_str(&format!("{tabs}\t{}\n", self.code.serialize(indent + 1)));
-
-        contents.push_str(&format!("{tabs}closure:\n{tabs}\t{:?}\n", self.closure));
         return contents;
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct PyTypeObj {
-    pub name: String,
-    pub fields: HashMap<String, Arc<Obj>>,
+    pub name: Arc<Obj>,
+    pub static_attribs: HashMap<String, Arc<Obj>>,
+    pub code: Arc<PyCodeObj>,
 }
 
 pub trait PyClassBase {
@@ -363,11 +357,9 @@ pub trait PyClassBase {
 use uuid::Uuid;
 
 impl PyClassBase for Arc<PyTypeObj> {
-
     fn new_instance(&self) -> PyClassInst {
         PyClassInst {
-            fields: self.fields.clone(),
-            class_base: self.clone(),
+            fields: self.static_attribs.clone(),
             id: Uuid::new_v4(),
         }
     }
@@ -376,20 +368,18 @@ impl PyClassBase for Arc<PyTypeObj> {
 impl core::hash::Hash for PyTypeObj {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
-        PyUtils::hash_hashmap(&self.fields, state);
+        PyUtils::hash_hashmap(&self.static_attribs, state);
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct PyClassInst {
     pub fields: HashMap<String, Arc<Obj>>,
-    pub class_base: Arc<PyTypeObj>,
     pub id: Uuid,
 }
 impl core::hash::Hash for PyClassInst {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         PyUtils::hash_hashmap(&self.fields, state);
-        self.class_base.hash(state);
         self.id.hash(state);
     }
 }

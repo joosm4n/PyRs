@@ -1,10 +1,10 @@
 use std::{
-    collections::HashMap, io::{self, Write}, path::PathBuf, sync::{Arc, Mutex}, usize
+    collections::HashMap, hash::Hash, io::{self, Write}, path::PathBuf, sync::{Arc, Mutex}, usize
 };
 
 use crate::{
     pyrs_bytecode::PyBytecode,
-    pyrs_codeobject::{FuncObj, PyClassBase, PyCodeObj},
+    pyrs_codeobject::{FuncObj, PyClassBase, PyCodeObj, PyTypeObj},
     pyrs_error::{PyError, PyException},
     pyrs_interpreter::Interpreter,
     pyrs_obj::{Obj, ToObj},
@@ -95,12 +95,13 @@ impl PyVM {
 
         if self.debug_mode {
             println!(
-                "Executing: ({})   {:?}\nStack:\n",
+                "Executing: ({})   {:?}\nStack:",
                 self.frame().ip,
                 &inst,
             );
-
             self.print_stack();
+            self.print_locals();
+            println!();
         }
 
         match inst {
@@ -152,10 +153,11 @@ impl PyVM {
 
             PyBytecode::LoadBuildClass => self.load_build_class(),
             PyBytecode::ImportName(namei) => self.import_name(namei),
+            PyBytecode::LoadSmallInt(int_) => self.push(int_.to_arc()),
 
             PyBytecode::Resume => {},
             PyBytecode::NOP => {},
-            _ => panic!("Instruction {:?} not implemented ", inst),
+            _ => panic!("\nUnimplementedError: Instruction {:?} not implemented! \n", inst),
         }
     }
 
@@ -348,7 +350,17 @@ impl PyVM {
     }
 
     pub fn print_locals(&self) {
-        println!("Locals: {:?}", self.frame().locals);
+        let mut s = String::from("Locals: [");
+        for l in &self.frame().locals {
+            s.push_str(&l.__str__());
+            s.push(',');
+            s.push(' ');
+        }
+        if self.frame().locals.len() > 0 {
+            s.pop(); s.pop();
+        }
+        s.push(']');
+        println!("{s}");
     }
 
     fn print_frame(&self) {
@@ -397,9 +409,12 @@ impl PyVM {
     }
 
     fn store_fast(&mut self, i: u8) {
-        let val = self.frame_mut().stack.pop().unwrap();
-        if self.frame_mut().locals.get_mut(i as usize).is_some() {
-            self.frame_mut().locals[i as usize] = val;
+        let obj = self.frame_mut().stack.pop().unwrap();
+        //dbg!(&obj);
+
+        let frame = self.frame_mut();
+        if let Some(_) = frame.locals.get_mut(i as usize) {
+            frame.locals[i as usize] = obj.__new__();
         }
         else {
             self.throw_err(PyException {
@@ -410,7 +425,7 @@ impl PyVM {
     }
 
     fn load_fast(&mut self, namei: u8) {
-        let val = self.frame_mut().locals[namei as usize].clone();
+        let val = self.frame_mut().locals[namei as usize].__new__();
         self.frame_mut().stack.push(val);
     }
 
@@ -420,11 +435,6 @@ impl PyVM {
     }
 
     fn load_name(&mut self, i: u8) {
-        if let Some(v) = self.frame().locals.get(i as usize).cloned() {
-            self.frame_mut().stack.push(v);
-            return;
-        }
-
         let name = self.frame().code.names[i as usize].clone();
         dbg!(&name);
         {    
@@ -442,7 +452,7 @@ impl PyVM {
         
         self.throw_err(PyException {
             error: PyError::UndefinedVariableError,
-            msg: format!("unknown variable \'{name}\' (fn load_name)"),
+            msg: format!("unknown variable \'{name}\'. Failed at {} {}", line!(), file!()),
         });
     }
 
@@ -454,7 +464,6 @@ impl PyVM {
 
     fn load_global(&mut self, namei: u8) {
         let namei = namei as usize;
-
         {
             let frame = self.frame_mut();
             let name = frame.code.names[namei].clone();
@@ -484,7 +493,7 @@ impl PyVM {
     fn store_attr(&mut self, namei: u8) {
         let obj = self.pop();
         let value = self.pop();
-        let name = match self.get_name(namei) {
+        let attr_name = match self.get_name(namei) {
             Some(s) => s,
             None => {
                 self.throw_err(PyException { 
@@ -495,7 +504,7 @@ impl PyVM {
             }
         };
 
-        match obj.__set_attr__(name, value) {
+        match obj.__set_attr__(attr_name, value) {
             None => {},
             Some(e) => self.throw_err(e),
         }
@@ -508,7 +517,7 @@ impl PyVM {
             None => {
                 self.throw_err(PyException { 
                     error: PyError::UndefinedVariableError, 
-                    msg: format!("could not find variable at names[{}] in current code_obj", namei) 
+                    msg: format!("could not find variable at names[{}] in current code_obj. Failed at {} {}", namei, line!(), file!()), 
                 });
                 unreachable!();
             }
@@ -704,16 +713,17 @@ impl PyVM {
 
     fn call_function(&mut self, argc: u8) {
         let args = self.pop_n(argc);
+        let _self_or_null = self.pop();
         let func = self.pop();
-
-
-
-        //dbg!(&args);
-        //dbg!(&func);
 
         let fn_obj: Result<&FuncObj, &FnPtr> = match func.as_ref() {
             Obj::FunctionObj(f) => Ok(f),
-            Obj::FuncPtr(ptr) => Err(ptr),
+            Obj::FuncPtr(ptr) => Err(ptr), // not error just using to see which one it is
+            Obj::BuildClass => {
+                let class = self.build_class(args);
+                self.push(class.to_arc());
+                return;
+            }
             o => {
                 self.throw_err(PyException { error: PyError::TypeError, 
                     msg: format!("Obj {:?} is not callable", o),
@@ -761,31 +771,75 @@ impl PyVM {
     fn make_function(&mut self) {
         let code = match self.frame_mut().stack.pop().unwrap().as_ref() {
             Obj::Code(c) => c.clone(),
-            _ => panic!("MAKE_FUNCTION expects CodeObj"),
+            Obj::Type(t) => t.code.clone(),
+            o => {
+                self.throw_err(PyException {
+                    error: PyError::TypeError,
+                    msg: format!("MAKE_FUNCTION expects CodeObj not {:?}. Failed at {} {}", o, line!(), file!()),
+                });
+                unreachable!();
+            }
         };
 
         let func = Obj::FunctionObj(FuncObj {
             code: code.into(),
-            closure: vec![],
         });
 
         self.frame_mut().stack.push(func.into());
     }
 
     fn load_build_class(&mut self) {
-        panic!();
+        self.push(Obj::BuildClass.to_arc());
     }
 
     fn import_name(&mut self, namei: u8) {
-        self.load_name(namei);
-        let name = self.pop().__str__();
+        let name = match self.get_name(namei) {
+            Some(n) => n,
+            None => panic!(),
+        };
+        dbg!(&name);
 
         let filepath: String = self.working_dir.to_str().unwrap().to_owned() + "/" + &name + ".py";
-        let _module = match Interpreter::compile_file(&filepath) {
+        let module = match Interpreter::compile_file(&filepath) {
             Ok(m) => m,
             Err(e) => panic!("can't load module \'{}\': {}", &name, e),
         };
+        let mod_obj = module.to_arc();
+        let mod_name = name.clone();
+        self.frame_mut().globals.lock().expect("unable to lock globals").insert(mod_name, mod_obj);
     }
+
+    fn build_class(&mut self, args: Vec<Arc<Obj>>) -> PyTypeObj {
+        let code = match (&args[0]).as_ref() {
+            Obj::FunctionObj(c) => c.code.clone(),
+            _ => panic!(),
+        };
+        let name = match (&args[1]).as_ref() {
+            Obj::Str(s) => s.clone().to_arc(),
+            _ => panic!(),
+        };
+        let mut fields: HashMap<String, Arc<Obj>> = HashMap::new();
+        fields.insert("__name__".to_string(), name.clone());
+        let mut stack = vec![];
+        for bc in code.bytecode.iter().copied() {
+            match bc {
+                PyBytecode::Resume | PyBytecode::NOP => {},
+                PyBytecode::LoadSmallInt(i) => stack.push(i.to_obj()),
+                PyBytecode::LoadName(i) => stack.push(code.names[i as usize].clone().to_obj()),
+                PyBytecode::LoadConst(i) => stack.push(code.consts[i as usize].clone()),
+                PyBytecode::StoreName(i) => { fields.insert(code.names[i as usize].clone(), stack.pop().unwrap().to_arc()); },
+                // _ => panic!("Instruction not good for "),
+                _ => {},
+            }
+        }
+
+        PyTypeObj {
+            name: name,
+            static_attribs: fields,
+            code: code,
+        }
+    }
+
 }
 
 #[allow(dead_code)]

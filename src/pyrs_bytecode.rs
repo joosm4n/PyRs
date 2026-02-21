@@ -88,6 +88,7 @@ pub enum PyBytecode {
 
     LoadAttr(u8),
     StoreAttr(u8),
+    LoadSmallInt(u8),
 
     // not proper
     Error,
@@ -103,8 +104,15 @@ impl PyBytecode {
                 context.push(load_name);
             }
             Expression::Atom(a) => {
-                let i = context.add_const(a.to_obj());
-                context.push(PyBytecode::LoadConst(i));
+                match a.parse::<u8>() {
+                    Ok(small_int) => {
+                        context.push(PyBytecode::LoadSmallInt(small_int));
+                    }
+                    Err(_) => {
+                        let i = context.add_const(a.to_obj());
+                        context.push(PyBytecode::LoadConst(i));
+                    } 
+                }
             }
             Expression::Operation(op, args) => {
                 let mut name = String::new();
@@ -117,12 +125,26 @@ impl PyBytecode {
                                 match a {
                                     Expression::Ident(ident) => {
                                         name = ident;
+                                        let _namei = context.add_varname(name.clone());
                                     },
                                     dot @ Expression::Operation(Op::Dot, _) => attr = Some(dot),
                                     e => panic!("SyntaxError: invalid expr {e}"),
                                 };
                             } else {
-                                PyBytecode::from_expr(a, context);
+                                match a {
+                                    Expression::Call(fn_name, args) => {
+                                        let argc = args.len();
+                                        for a in args {
+                                            //dbg!(&a);
+                                            PyBytecode::from_expr(a, context);
+                                        }
+                                        let namei = context.add_name(fn_name);
+                                        context.push(PyBytecode::LoadName(namei));
+
+                                        context.push(PyBytecode::CallFunction(argc as u8));
+                                    }
+                                    _ => PyBytecode::from_expr(a, context),
+                                }
                             }
                         }
 
@@ -216,8 +238,8 @@ impl PyBytecode {
                         for (idx, a) in args.into_iter().enumerate() {
                             match idx {
                                 0 => {
-                                    let namei = context.add_varname(a.get_value_string());
-                                    context.push(PyBytecode::LoadName(namei));
+                                    let namei = context.add_varname_load(a.get_value_string());
+                                    context.push(namei);
                                 },
                                 1 => {
                                     match a {
@@ -272,9 +294,11 @@ impl PyBytecode {
                 if let Some(_) = IntrinsicFunc::try_get(&name) {
                     let namei = context.add_name(name);
                     context.push(PyBytecode::LoadGlobal(namei));
+                    context.push(PyBytecode::PushNull);
                 } else {
-                    let namei = context.add_name(name);
-                    context.push(PyBytecode::LoadName(namei));
+                    let namei = context.add_varname(name);
+                    context.push(PyBytecode::LoadFast(namei));
+                    context.push(PyBytecode::PushNull);
                 }
 
                 for a in args {
@@ -324,7 +348,6 @@ impl PyBytecode {
 
                         let start_elif_else_spot = context.len();
                         let mut place_holders: Vec<(usize, usize)> = vec![]; // (part_len, pos)
-                                                                             //dbg!(&elif_else_parts);
 
                         let mut has_else = false;
                         for (conds, body_exprs) in elif_else_parts {
@@ -442,16 +465,25 @@ impl PyBytecode {
                         //dbg!(&name);
                         let namei = context.add_varname(name);
                         //dbg!(&namei);
-                        context.push(PyBytecode::StoreName(namei));
+                        context.push(PyBytecode::StoreFast(namei));
                     }
                     Keyword::Class => {
-                        let class = PyBytecode::compile_class(args, body);
-                        let class_name = class.name.clone();
-                        context.add_global(class_name, Obj::Type(Arc::new(class)));
+                        let class = PyBytecode::compile_class(args, body, &context);
+                        let class_name= class.name.__str__();
+                        let code_namei = context.add_const(class.to_obj());
+                        let namei = context.add_const(class_name.clone().to_obj());
+                        context.push(PyBytecode::LoadBuildClass);
+                        context.push(PyBytecode::PushNull);
+                        context.push(PyBytecode::LoadConst(code_namei));
+                        context.push(PyBytecode::MakeFunction);
+                        context.push(PyBytecode::LoadConst(namei));
+                        context.push(PyBytecode::CallFunction(2));
+                        let i = context.add_varname(class_name);
+                        context.push(PyBytecode::StoreFast(i));
                     }
                     Keyword::Import => {
                         let name = args.first().unwrap().get_value_string();
-                        let namei = context.add_varname(name);
+                        let namei = context.add_name(name);
                         context.push(PyBytecode::ImportName(namei));
                     }
                     Keyword::Return => {
@@ -539,7 +571,7 @@ impl PyBytecode {
         }
     }
 
-    fn compile_class(args: Vec<Expression>, body: Vec<Expression>) -> PyTypeObj {
+    fn compile_class(args: Vec<Expression>, body: Vec<Expression>, parent_context: &PyCompileCtx) -> PyTypeObj {
         
         //dbg!(&args);
         let name = match args.first().unwrap() {
@@ -547,30 +579,55 @@ impl PyBytecode {
             e => panic!("class name must be an identifier not: {:?}", e),
         };
 
+        let mut ctx = PyCompileCtx::new(&name);
+        let name__ = ctx.add_name_load("__name__");
+        ctx.push(name__);
+        let module__ = ctx.add_name_store("__module__");
+        ctx.push(module__);
+
+        {
+            let parent_name = parent_context.get_context_name();
+            ctx.load_const(format!("{parent_name}.<locals>.{name}").to_obj());
+        }
+
+        let qualname__ = ctx.add_name_store("__qualname__");
+        ctx.push(qualname__);
+
+        // let firstlineno__ = ctx.add_name("__firstlineno__");
+
         let mut class_fields: HashMap<String, Arc<Obj>> = HashMap::new();
         for field in body.into_iter() {
             match field {
                 Expression::Operation(Op::Equals, mut v) => {
                     let member_name = v[0].get_value_string();
                     let default_val = v.pop().unwrap();
-                    class_fields.insert(member_name, default_val.to_arc());
+                    PyBytecode::from_expr(default_val, &mut ctx);
+                    let namei = ctx.add_name(&member_name);
+                    ctx.push(PyBytecode::StoreName(namei));
+                    class_fields.insert(member_name, Obj::None.to_arc());
                 }
                 Expression::Keyword(Keyword::Def, conds, body) => {
-                    let fn_code = PyBytecode::compile_fn(Expression::Keyword(
-                        Keyword::Def,
-                        conds,
-                        body,
-                    ));
+
+                    let fn_code =
+                            PyBytecode::compile_fn(Expression::Keyword(Keyword::Def, conds, body));
                     let name = fn_code.name.clone();
-                    class_fields.insert(name, Arc::new(Obj::Code(fn_code)));
+                    let idx = ctx.add_const(Obj::Code(fn_code));
+
+                    ctx.push(PyBytecode::LoadConst(idx));
+                    ctx.push(PyBytecode::MakeFunction);
+
+                    let namei = ctx.add_name(&name);
+                    ctx.push(PyBytecode::StoreName(namei));
+                    class_fields.insert(name, Obj::None.to_arc());
                 }
                 _ => panic!("invalid expr for default"),
             }
         }
 
         PyTypeObj {
-            name: name,
-            fields: class_fields,
+            name: name.to_arc(),
+            static_attribs: class_fields,
+            code: Arc::new(ctx.finish()),
         }
     }
 
@@ -809,6 +866,10 @@ impl PyBytecode {
                 b'S', b't', b'o', b'r', b'e', b'A', b't', b't', b'r', b'_', b'_', b'_', b'_', b'_',
                 b'_', b'_',
             ],
+            PyBytecode::LoadSmallInt(_) => &[
+                b'L', b'o', b'a', b'd', b'S', b'm', b'a', b'l', b'l', b'I', b'n', b't', b'_', b'_',
+                b'_', b'_',
+            ],
             PyBytecode::Error => &[
                 b'E', b'r', b'r', b'o', b'r', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_',
                 b'_', b'_',
@@ -878,6 +939,7 @@ impl PyBytecode {
             50 => PyBytecode::LoadNameEx(data),
             51 => PyBytecode::StoreAttr(data),
             52 => PyBytecode::LoadAttr(data),
+            53 => PyBytecode::LoadSmallInt(data),
             255 => PyBytecode::Error,
 
             _ => PyBytecode::Error,
@@ -939,6 +1001,7 @@ impl PyBytecode {
             PyBytecode::LoadNameEx(v) => [50, *v as u8],
             PyBytecode::StoreAttr(v) => [51, *v as u8],
             PyBytecode::LoadAttr(v) => [52, *v as u8],
+            PyBytecode::LoadSmallInt(v) => [53, *v as u8],
             PyBytecode::Error => [254, 0],
         }
     }
@@ -1000,6 +1063,7 @@ impl std::convert::From<PyBytecode> for u8 {
             PyBytecode::LoadNameEx(_) => 50,
             PyBytecode::StoreAttr(_) => 51,
             PyBytecode::LoadAttr(_) => 52,
+            PyBytecode::LoadSmallInt(_) => 53,
             PyBytecode::Error => 254,
         }
     }

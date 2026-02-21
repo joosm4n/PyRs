@@ -1,13 +1,17 @@
 
 import dis
 
-class vec2:
-    x = 0
+def scope():
+    class vec2:
+        x = 0
 
-def a():
-    x = vec2
-    x.x = 1
-    print(x)
+    v = vec2
+    v.x = 10
+    y = vec2
+    print(y.x)
 
-print(dis.code_info(a))
-print(dis.dis(a))
+scope()
+
+print(dis.code_info(scope))
+print(dis.dis(scope))
+

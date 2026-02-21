@@ -1,7 +1,6 @@
 use crate::{
     pyrs_codeobject::{PyCodeObj, FuncObj, PyTypeObj, PyClassInst, PyClassBase},
     pyrs_error::{PyError, PyException},
-    pyrs_modules::PyModule,
     pyrs_parsing::{Expression, Op},
     pyrs_std::{FnPtr, RangeObj},
     pyrs_utils::PyUtils,
@@ -46,7 +45,8 @@ pub enum Obj {
     Code(Arc<PyCodeObj>),
     FunctionObj(FuncObj),
 
-    Module(PyModule),
+    BuildClass,
+
     // Binary
     // - bytes
     // - bytearray,
@@ -415,11 +415,10 @@ impl Obj {
     pub fn __new__(&self) -> Arc<Obj> {
         match self {
             Obj::Type(class) => class.new_instance().to_arc(),
-            _ => panic!(),
+            _ => self.clone().to_arc(),
         }
     }
 
-    
     pub fn __default__() -> Self {
         Obj::None
     }
@@ -563,24 +562,24 @@ impl Obj {
             }
             Obj::ClassInst(class) => {
                 format!(
-                    "<class \'__main__.{}\'>",
-                    class.lock().expect("unable to lock class").class_base.name
+                    "<class {}>",
+                    class.lock().expect("unable to lock class").fields.get("__name__").unwrap(),
                 )
             }
             Obj::Type(class) => {
                 format!(
-                    "<class \'__main__.{}\'>",
+                    "<type {}>",
                     class.name
                 )
             }
-            Obj::Module(module) => {
-                format!("<module {} >", module.name)
-            }
             Obj::FunctionObj(func) => {
-                format!("<func {}>", func.code.name)
+                format!("<function {}>", func.code.name)
             }
             Obj::Code(codeobj) => {
-                format!("<code {}>", codeobj.name)
+                format!("<code object {}>", codeobj.name)
+            }
+            Obj::BuildClass => {
+                format!("<buildclass>")
             }
         }
     }
@@ -857,7 +856,7 @@ impl core::hash::Hash for Obj {
             Obj::ClassInst(c) => c.lock().expect("unable to lock class").hash(state),
             Obj::Code(c) => c.hash(state),
             Obj::FunctionObj(f) => f.hash(state),
-            Obj::Module(m) => m.hash(state),
+            Obj::BuildClass => {},
         }
     }
 }
@@ -1019,8 +1018,10 @@ impl Obj {
         match self {
             Obj::ClassInst(inst) => {
                 let locked = inst.lock().expect("Unable to lock class inst");
-                match locked.fields.get(field) {
-                    Some(obj) => Ok(obj.clone()),
+                match locked.fields.get(field).cloned()  {
+                    Some(obj) => {
+                        return Ok(obj.clone());
+                    }
                     None => { 
                         Err(PyException {
                             error: PyError::UndefinedVariableError,
@@ -1125,6 +1126,12 @@ impl ToObj for PyException {
     }
     fn to_arc(self) -> Arc<Obj> {
         Obj::Except(self).into()
+    }
+}
+
+impl ToObj for PyCodeObj {
+    fn to_obj(self) -> Obj {
+        Obj::Code(Arc::new(self))
     }
 }
 

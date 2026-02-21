@@ -533,6 +533,7 @@ mod tests {
         println!("code: \n{}", PyBytecode::to_string(&code_obj.bytecode));
 
         let mut vm = PyVM::new();
+        vm.set_debug_mode(true);
         vm.append_working_dir("tests");
         vm.execute(code_obj);
 
@@ -597,10 +598,10 @@ mod tests {
         PyBytecode::from_expr(line2, &mut bytecode);
 
         let code_obj = bytecode.finish();
-        assert_eq!(format!("{:?}", &code_obj.bytecode), r#"[Resume, BuildList(0), LoadConst(0), ListAppend(0), StoreFast(0), LoadGlobal(0), LoadName(0), BuildList(0), LoadConst(1), ListAppend(0), BinaryAdd, CallFunction(1)]"#.to_string());
+        assert_eq!(format!("{:?}", &code_obj.bytecode), r#"[Resume, BuildList(0), LoadConst(0), ListAppend(0), StoreFast(0), LoadGlobal(0), LoadFast(0), BuildList(0), LoadConst(1), ListAppend(0), BinaryAdd, CallFunction(1)]"#.to_string());
 
         let mut vm = PyVM::new();
-        vm.set_debug_mode(true);
+        // vm.set_debug_mode(true);
         vm.execute(code_obj);
     }
 
@@ -1272,10 +1273,22 @@ mod tests {
     }
 
     #[test]
+    fn classobj()
+    {
+        let code_obj = PyBytecode::from_str("class vec2:\n\tx=0\nv = vec2\nv.x = 10\ny = vec2\nprint(y.x)");
+        dbg!(&code_obj);
+
+        let mut vm = PyVM::new();
+        vm.set_debug_mode(true);
+        vm.execute(code_obj);
+        panic!();
+    }
+
+    #[test]
     fn calling_simple()
     {
         let code_obj = PyBytecode::from_str(&format!("class vec2:\n\tx = 0\nx = vec2\nx.x = 1\nprint(x.x)"));
-        //dbg!(&codeobj);
+        dbg!(&code_obj);
 
         let mut vm = PyVM::new();
         vm.set_debug_mode(true);
@@ -1290,7 +1303,7 @@ mod tests {
         vm.set_debug_mode(true);
         vm.execute(code_obj);
         
-        panic!();
+        //panic!();
     }
 
     #[test]
