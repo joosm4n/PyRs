@@ -1,5 +1,5 @@
 use crate::{
-    pyrs_codeobject::{PyCodeObj, FuncObj, PyTypeObj, PyClassInst, PyClassBase},
+    pyrs_codeobject::{FuncObj, PyClassBase, PyClassInst, PyCodeObj, PyTypeObj},
     pyrs_error::{PyError, PyException},
     pyrs_parsing::{Expression, Op},
     pyrs_std::{FnPtr, RangeObj},
@@ -46,7 +46,6 @@ pub enum Obj {
     FunctionObj(FuncObj),
 
     BuildClass,
-
     // Binary
     // - bytes
     // - bytearray,
@@ -408,7 +407,7 @@ impl Obj {
             Obj::List(_) => "list",
             Obj::Tuple(_) => "tuple",
             Obj::FunctionObj(_) => "function",
-            _ => "Not Implemented", 
+            _ => "Not Implemented",
         }
     }
 
@@ -563,14 +562,16 @@ impl Obj {
             Obj::ClassInst(class) => {
                 format!(
                     "<class {}>",
-                    class.lock().expect("unable to lock class").fields.get("__name__").unwrap(),
+                    class
+                        .lock()
+                        .expect("unable to lock class")
+                        .attributes
+                        .get("__name__")
+                        .unwrap(),
                 )
             }
             Obj::Type(class) => {
-                format!(
-                    "<type {}>",
-                    class.name
-                )
+                format!("<type {}>", class.name)
             }
             Obj::FunctionObj(func) => {
                 format!("<function {}>", func.code.name)
@@ -698,7 +699,6 @@ impl Obj {
     pub fn to_arc(self) -> Arc<Self> {
         Arc::from(self)
     }
-
 }
 
 impl PartialEq for Obj {
@@ -856,7 +856,7 @@ impl core::hash::Hash for Obj {
             Obj::ClassInst(c) => c.lock().expect("unable to lock class").hash(state),
             Obj::Code(c) => c.hash(state),
             Obj::FunctionObj(f) => f.hash(state),
-            Obj::BuildClass => {},
+            Obj::BuildClass => {}
         }
     }
 }
@@ -1014,24 +1014,24 @@ impl Obj {
         }
     }
 
-    pub fn __get_attr__(&self, field: &String) -> Result<Arc<Obj>, PyException> {
+    pub fn __get_attr__(&self, attr: &String) -> Result<Arc<Obj>, PyException> {
         match self {
             Obj::ClassInst(inst) => {
                 let locked = inst.lock().expect("Unable to lock class inst");
-                match locked.fields.get(field).cloned()  {
+                match locked.attributes.get(attr).cloned() {
                     Some(obj) => {
                         return Ok(obj.clone());
                     }
-                    None => { 
-                        Err(PyException {
+                    None => {
+                        return Err(PyException {
                             error: PyError::UndefinedVariableError,
-                            msg: format!("no field \'{field}\' in obj {:?}", self),
+                            msg: format!("no attr \'{attr}\' in obj {:?}", self),
                         })
                     }
                 }
             }
             _ => {
-                Err(PyException {
+                return Err(PyException {
                     error: PyError::NotImplementedError,
                     msg: format!("cannot use __get_attr__ for {:?}", self),
                 })
@@ -1043,7 +1043,7 @@ impl Obj {
         match self {
             Obj::ClassInst(inst) => {
                 let mut locked = inst.lock().expect("Unable to lock class inst");
-                match locked.fields.get_mut(field) {
+                match locked.attributes.get_mut(field) {
                     Some(obj) => {
                         *obj = val;
                         None

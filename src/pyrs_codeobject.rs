@@ -1,12 +1,13 @@
 use crate::{
     pyrs_bytecode::PyBytecode,
-    pyrs_obj::{Obj, ToObj}, pyrs_utils::PyUtils,
+    pyrs_obj::{Obj, ToObj},
+    pyrs_utils::PyUtils,
 };
 
 use std::{
+    collections::HashMap,
     ops::{Deref, DerefMut},
-    sync::{Arc},
-    collections::{HashMap},
+    sync::Arc,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -359,7 +360,7 @@ use uuid::Uuid;
 impl PyClassBase for Arc<PyTypeObj> {
     fn new_instance(&self) -> PyClassInst {
         PyClassInst {
-            fields: self.static_attribs.clone(),
+            attributes: self.static_attribs.clone(),
             id: Uuid::new_v4(),
         }
     }
@@ -374,12 +375,12 @@ impl core::hash::Hash for PyTypeObj {
 
 #[derive(Debug, Clone)]
 pub struct PyClassInst {
-    pub fields: HashMap<String, Arc<Obj>>,
+    pub attributes: HashMap<String, Arc<Obj>>,
     pub id: Uuid,
 }
 impl core::hash::Hash for PyClassInst {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        PyUtils::hash_hashmap(&self.fields, state);
+        PyUtils::hash_hashmap(&self.attributes, state);
         self.id.hash(state);
     }
 }
