@@ -1,6 +1,7 @@
 use crate::{
     pyrs_bytecode::PyBytecode,
     pyrs_obj::{Obj, ToObj}, pyrs_utils::PyUtils,
+    pyrs_pyobject::{PyObject, PyObjPtr, AttrDict},
 };
 
 use std::{
@@ -13,13 +14,13 @@ use std::{
 pub struct PyCodeObj {
     pub name: String,
     pub bytecode: Vec<PyBytecode>,
-    pub consts: Vec<Obj>,
+    pub consts: Vec<PyObjPtr>,
     pub names: Vec<String>,
     pub varnames: Vec<String>,
     pub num_consts: usize,
     pub num_varnames: usize,
     pub num_names: usize,
-    pub globals: HashMap<String, Arc<Obj>>,
+    pub globals: HashMap<String, PyObjPtr>,
 }
 
 impl PyCodeObj {
@@ -50,7 +51,7 @@ impl PyCodeObj {
 
         s.push_str(&format!("Constants:\n"));
         for (i, c) in self.consts.iter().enumerate() {
-            s.push_str(&format!("\t{i}: {}\n", c.__str__()));
+            s.push_str(&format!("\t{i}: {}\n", c.get_ref().__str__()));
         }
 
         s.push_str(&format!("Names:\n"));
@@ -76,11 +77,11 @@ impl PyCodeObj {
         contents.push_str(&format!("{tabs}<codeobj {}>\n", &self.name));
         contents.push_str(&format!("{tabs}consts:\n"));
         for (i, c) in self.consts.iter().enumerate() {
-            match c {
+            match &c.clone().get_ref().obj {
                 Obj::Code(code) => {
                     contents.push_str(&format!("{tabs}\t[{i}] {}\n", code.serialize(indent + 1)))
                 }
-                _ => contents.push_str(&format!("{tabs}\t{}\n", c)),
+                _ => contents.push_str(&format!("{tabs}\t{}\n", *c.get_ref())),
             }
         }
 
@@ -136,10 +137,10 @@ impl PyCodeObj {
 pub struct PyCompileCtx {
     name: String,
     bytecode: Vec<PyBytecode>,
-    consts: Vec<Obj>,
+    consts: Vec<PyObjPtr>,
     names: Vec<String>,
     varnames: Vec<String>,
-    globals: HashMap<String, Arc<Obj>>,
+    globals: HashMap<String, PyObjPtr>,
 }
 
 impl PyCompileCtx {
@@ -154,7 +155,7 @@ impl PyCompileCtx {
         }
     }
 
-    pub fn add_const(&mut self, obj: Obj) -> u8 {
+    pub fn add_const(&mut self, obj: PyObjPtr) -> u8 {
         if let Some(i) = self.consts.iter().position(|o| o == &obj) {
             i as u8
         } else {
@@ -164,7 +165,7 @@ impl PyCompileCtx {
         }
     }
 
-    pub fn load_const(&mut self, obj: Obj) {
+    pub fn load_const(&mut self, obj: PyObjPtr) {
         if let Some(i) = self.consts.iter().position(|o| o == &obj) {
             self.push(PyBytecode::LoadConst(i as u8));
         } else {
@@ -254,10 +255,10 @@ impl PyCompileCtx {
         &self.name
     }
 
-    pub fn add_global<T: Into<String>>(&mut self, name: T, obj: Obj) {
+    pub fn add_global<T: Into<String>>(&mut self, name: T, obj: PyObject) {
         let name_s: String = name.into();
         self.names.push(name_s.clone());
-        self.globals.insert(name_s, obj.to_arc());
+        self.globals.insert(name_s, obj.to_ptr());
     }
 
     pub fn extract_code(self) -> Vec<PyBytecode> {
@@ -312,7 +313,7 @@ impl core::hash::Hash for PyCodeObj {
 
 impl core::hash::Hash for FuncObj {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.code.as_ref().hash(state);
+        self.code.hash(state);
     }
 }
 
@@ -322,11 +323,11 @@ pub struct FuncObj {
 }
 
 impl ToObj for FuncObj {
-    fn to_arc(self) -> Arc<Obj> {
-        self.to_obj().into()
+    fn to_pyptr(self) -> PyObjPtr {
+        self.to_pyobj().to_ptr()
     }
-    fn to_obj(self) -> Obj {
-        Obj::FunctionObj(self)
+    fn to_pyobj(self) -> PyObject {
+        PyObject::new_function(self)
     }
 }
 
@@ -345,21 +346,17 @@ impl FuncObj {
 
 #[derive(Debug, Clone)]
 pub struct PyTypeObj {
-    pub name: Arc<Obj>,
-    pub static_attribs: HashMap<String, Arc<Obj>>,
+    pub name: String,
+    pub static_attribs: AttrDict,
     pub code: Arc<PyCodeObj>,
-}
-
-pub trait PyClassBase {
-    fn new_instance(&self) -> PyClassInst;
 }
 
 use uuid::Uuid;
 
-impl PyClassBase for Arc<PyTypeObj> {
-    fn new_instance(&self) -> PyClassInst {
+impl PyTypeObj {
+    pub fn new_instance(&self) -> PyClassInst {
         PyClassInst {
-            fields: self.static_attribs.clone(),
+            fields: self.static_attribs.0.clone(),
             id: Uuid::new_v4(),
         }
     }
@@ -374,7 +371,7 @@ impl core::hash::Hash for PyTypeObj {
 
 #[derive(Debug, Clone)]
 pub struct PyClassInst {
-    pub fields: HashMap<String, Arc<Obj>>,
+    pub fields: HashMap<String, PyObjPtr>,
     pub id: Uuid,
 }
 impl core::hash::Hash for PyClassInst {

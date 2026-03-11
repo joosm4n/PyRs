@@ -14,6 +14,7 @@ use crate::{
     pyrs_std::{FnPtr, Funcs},
     pyrs_utils::PyUtils,
     pyrs_vm::PyVM,
+    pyrs_pyobject::PyObjPtr,
 };
 
 const PYRS_MAJOR_VERSION: u8 = 0;
@@ -38,7 +39,7 @@ impl std::fmt::Display for PyRsVersion {
 }
 
 pub struct Interpreter {
-    variables: HashMap<String, Arc<Obj>>,
+    variables: HashMap<String, PyObjPtr>,
     funcs: HashMap<String, FnPtr>,
     running: bool,
     curr_line: isize,
@@ -132,7 +133,7 @@ impl Interpreter {
         println!("{help}");
     }
 
-    fn eval_expr(&mut self, expr: &Expression) -> Result<Arc<Obj>, PyException> {
+    fn eval_expr(&mut self, expr: &Expression) -> Result<PyObjPtr, PyException> {
         expr.eval(&mut self.variables, &mut self.funcs)
     }
 
@@ -255,7 +256,7 @@ impl Interpreter {
             Expression::Keyword(keyword, _conds, args) => match keyword {
                 Keyword::If => match self.eval_expr(&expr) {
                     Ok(cond) => {
-                        if cond.__bool__() {
+                        if cond.get_ref().__bool__() {
                             for a in args {
                                 self.process_expr(&a);
                             }
@@ -266,7 +267,7 @@ impl Interpreter {
                 Keyword::While => loop {
                     match self.eval_expr(&expr) {
                         Ok(cond) => {
-                            if !cond.__bool__() {
+                            if !cond.get_ref().__bool__() {
                                 break;
                             }
                             for a in args {
@@ -300,8 +301,8 @@ impl Interpreter {
         let res = self.eval_expr(&expr);
         match res {
             Ok(obj) => {
-                if self.repr && obj.as_ref() != &Obj::None {
-                    println!("{}", obj.__repr__())
+                if self.repr && obj != PyObjPtr::none() {
+                    println!("{}", obj.get_ref().__repr__())
                 }
             }
             Err(e) => {
@@ -334,7 +335,7 @@ impl Interpreter {
     }
 
     pub fn interpret_file(&mut self, filepath: &str) {
-        let bytecode = Interpreter::compile_file(filepath).handle();
+        let bytecode = Interpreter::compile_file(filepath).handle_panic();
         self.vm.execute(bytecode);
     }
 

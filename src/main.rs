@@ -10,6 +10,7 @@ pub mod pyrs_std;
 pub mod pyrs_utils;
 pub mod pyrs_vm;
 pub mod pyrs_serializer;
+pub mod pyrs_pyobject;
 pub mod pyrs_pyc;
 mod pyrs_tests;
 
@@ -48,7 +49,7 @@ fn main() -> std::io::Result<()> {
                 }
 
                 if flags.contains(&InterpreterFlags::Compile) {
-                    let code_obj = Interpreter::compile_file(&filepath).handle();
+                    let code_obj = Interpreter::compile_file(&filepath).handle_panic();
                     Interpreter::seralize_codeobj(&filepath, &code_obj)?;
                 } else {
                     interp.interpret_file(&filepath);

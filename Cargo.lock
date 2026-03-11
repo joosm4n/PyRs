@@ -6,6 +6,7 @@ version = 4
 name = "Pyrs"
 version = "0.1.0"
 dependencies = [
+ "bitflags",
  "int-enum",
  "pretty_assertions",
  "rug",

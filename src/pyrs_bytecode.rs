@@ -3,6 +3,7 @@ use crate::{
     pyrs_obj::{Obj, ToObj},
     pyrs_parsing::{Expression, Keyword, Op},
     pyrs_vm::IntrinsicFunc,
+    pyrs_pyobject::{PyObject, PyObjPtr, AttrDict},
 };
 
 use std::{ 
@@ -109,7 +110,7 @@ impl PyBytecode {
                         context.push(PyBytecode::LoadSmallInt(small_int));
                     }
                     Err(_) => {
-                        let i = context.add_const(a.to_obj());
+                        let i = context.add_const(a.to_pyptr());
                         context.push(PyBytecode::LoadConst(i));
                     } 
                 }
@@ -211,8 +212,8 @@ impl PyBytecode {
                     Op::List => {
                         context.push(PyBytecode::BuildList(0));
 
-                        let objs = args.into_iter().map(|x| x.to_arc()).collect();
-                        let i = context.add_const(Obj::Tuple(objs));
+                        let objs = args.into_iter().map(|x| x.to_pyptr()).collect();
+                        let i = context.add_const(PyObject::new_tuple(objs).to_ptr());
                         context.push(PyBytecode::LoadConst(i));
 
                         context.push(PyBytecode::ListAppend(0));
@@ -311,11 +312,11 @@ impl PyBytecode {
             Expression::Keyword(keyword, mut args, body) => {
                 match keyword {
                     Keyword::True => {
-                        let i = context.add_const(Obj::Bool(true));
+                        let i = context.add_const(true.to_pyptr());
                         context.push(PyBytecode::LoadConst(i));
                     }
                     Keyword::False => {
-                        let i = context.add_const(Obj::Bool(false));
+                        let i = context.add_const(false.to_pyptr());
                         context.push(PyBytecode::LoadConst(i));
                     }
                     Keyword::Elif | Keyword::Else => {
@@ -413,7 +414,7 @@ impl PyBytecode {
                         let return_delta = context.len() - condition_start + 1;
                         context.push(PyBytecode::JumpBackward(return_delta as u8));
 
-                        let i = context.add_const(Obj::None);
+                        let i = context.add_const(PyObject::none());
                         context.push(PyBytecode::LoadConst(i));
                     }
                     Keyword::For => {
@@ -457,7 +458,7 @@ impl PyBytecode {
                         let fn_code =
                             PyBytecode::compile_fn(Expression::Keyword(Keyword::Def, args, body));
                         let name = fn_code.name.clone();
-                        let idx = context.add_const(Obj::Code(fn_code));
+                        let idx = context.add_const(fn_code.to_pyptr());
 
                         context.push(PyBytecode::LoadConst(idx));
                         context.push(PyBytecode::MakeFunction);
@@ -469,9 +470,9 @@ impl PyBytecode {
                     }
                     Keyword::Class => {
                         let class = PyBytecode::compile_class(args, body, &context);
-                        let class_name= class.name.__str__();
-                        let code_namei = context.add_const(class.to_obj());
-                        let namei = context.add_const(class_name.clone().to_obj());
+                        let class_name= class.name.clone();
+                        let code_namei = context.add_const(class.to_pyptr());
+                        let namei = context.add_const(class_name.clone().to_pyptr());
                         context.push(PyBytecode::LoadBuildClass);
                         context.push(PyBytecode::PushNull);
                         context.push(PyBytecode::LoadConst(code_namei));
@@ -493,7 +494,7 @@ impl PyBytecode {
                         context.push(PyBytecode::ReturnValue);
                     }
                     Keyword::None => {
-                        let i = context.add_const(Obj::None);
+                        let i = context.add_const(PyObject::none());
                         context.push(PyBytecode::LoadConst(i));
                     }
                     Keyword::Pass => {
@@ -561,7 +562,7 @@ impl PyBytecode {
                     PyBytecode::from_expr(b, &mut fn_ctx);
                 }
 
-                let const_num = fn_ctx.add_const(Obj::None);
+                let const_num = fn_ctx.add_const(PyObjPtr::none());
                 fn_ctx.push(PyBytecode::LoadConst(const_num));
                 fn_ctx.push(PyBytecode::ReturnValue);
 
@@ -587,7 +588,7 @@ impl PyBytecode {
 
         {
             let parent_name = parent_context.get_context_name();
-            ctx.load_const(format!("{parent_name}.<locals>.{name}").to_obj());
+            ctx.load_const(format!("{parent_name}.<locals>.{name}").to_pyptr());
         }
 
         let qualname__ = ctx.add_name_store("__qualname__");
@@ -595,7 +596,7 @@ impl PyBytecode {
 
         // let firstlineno__ = ctx.add_name("__firstlineno__");
 
-        let mut class_fields: HashMap<String, Arc<Obj>> = HashMap::new();
+        let mut class_fields: HashMap<String, PyObjPtr> = HashMap::new();
         for field in body.into_iter() {
             match field {
                 Expression::Operation(Op::Equals, mut v) => {
@@ -604,29 +605,29 @@ impl PyBytecode {
                     PyBytecode::from_expr(default_val, &mut ctx);
                     let namei = ctx.add_name(&member_name);
                     ctx.push(PyBytecode::StoreName(namei));
-                    class_fields.insert(member_name, Obj::None.to_arc());
+                    class_fields.insert(member_name, PyObjPtr::none());
                 }
                 Expression::Keyword(Keyword::Def, conds, body) => {
 
                     let fn_code =
                             PyBytecode::compile_fn(Expression::Keyword(Keyword::Def, conds, body));
                     let name = fn_code.name.clone();
-                    let idx = ctx.add_const(Obj::Code(fn_code));
+                    let idx = ctx.add_const(fn_code.to_pyptr());
 
                     ctx.push(PyBytecode::LoadConst(idx));
                     ctx.push(PyBytecode::MakeFunction);
 
                     let namei = ctx.add_name(&name);
                     ctx.push(PyBytecode::StoreName(namei));
-                    class_fields.insert(name, Obj::None.to_arc());
+                    class_fields.insert(name, PyObjPtr::none());
                 }
                 _ => panic!("invalid expr for default"),
             }
         }
 
         PyTypeObj {
-            name: name.to_arc(),
-            static_attribs: class_fields,
+            name: name,
+            static_attribs: AttrDict{0: class_fields},
             code: Arc::new(ctx.finish()),
         }
     }

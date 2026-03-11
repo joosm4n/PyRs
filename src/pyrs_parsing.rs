@@ -3,6 +3,7 @@ use crate::{
     pyrs_obj::{Obj, ToObj},
     pyrs_std::FnPtr,
     pyrs_utils::PyUtils,
+    pyrs_pyobject::{PyObjPtr, PyObject}
 };
 
 use std::{collections::HashMap, sync::Arc};
@@ -853,13 +854,13 @@ impl Expression {
     // turns expressions into objects
     pub fn eval(
         &self,
-        variables: &mut HashMap<String, Arc<Obj>>,
+        variables: &mut HashMap<String, PyObjPtr>,
         funcs: &mut HashMap<String, FnPtr>,
-    ) -> Result<Arc<Obj>, PyException> {
+    ) -> Result<PyObjPtr, PyException> {
         // println!("Eval: {self}");
-        let ret: Arc<Obj> = match self {
-            Expression::None => Obj::None.into(),
-            Expression::Atom(c) => Obj::from_atom(c).into(),
+        let ret: PyObjPtr = match self {
+            Expression::None => PyObject::none(),
+            Expression::Atom(c) => PyObject::from_atom(c).to_ptr(),
             Expression::Ident(ident) => {
                 let obj = match variables.get(ident) {
                     Some(var) => var.clone(),
@@ -886,12 +887,12 @@ impl Expression {
                     variables.insert(var_name, value.clone());
                     return Ok(value);
                 } else if *operator == Op::List {
-                    let mut objs: Vec<Arc<Obj>> = vec![];
+                    let mut objs = vec![];
                     for o in operands {
                         let obj = o.eval(variables, funcs)?;
-                        objs.push(Arc::from(obj));
+                        objs.push(obj);
                     }
-                    return Ok(objs.to_arc());
+                    return Ok(objs.to_pyptr());
                 }
 
                 // unary
@@ -901,24 +902,23 @@ impl Expression {
                     .eval(&mut *variables, &mut *funcs)?;
                 let lhs = first.eval(&mut *variables, &mut *funcs)?;
                 match operator {
-                    Op::Pos => return Obj::__pos__(&lhs),
-                    Op::Neg => return Obj::__neg__(&lhs),
+                    Op::Pos => return PyObject::__pos__(&lhs),
+                    Op::Neg => return PyObject::__neg__(&lhs),
                     _ => {}
                 };
 
                 // binary
-                let val: Arc<Obj> = match operator {
-                    Op::Plus => Obj::__add__(&lhs, &rhs)?,
-                    Op::Minus => Obj::__sub__(&lhs, &rhs)?,
-                    Op::Asterisk => Obj::__mul__(&lhs, &rhs)?,
-                    Op::ForwardSlash => Obj::__div__(&lhs, &rhs)?,
-                    Op::Eq => Obj::__eq__(&lhs, &rhs).to_arc(),
-                    Op::Neq => Obj::__ne__(&lhs, &rhs).to_arc(),
-                    Op::LessThan => Obj::__lt__(&lhs, &rhs).to_arc(),
-                    Op::GreaterThan => Obj::__gt__(&lhs, &rhs).to_arc(),
-                    Op::LessEq => Obj::__le__(&lhs, &rhs).to_arc(),
-                    Op::GreaterEq => Obj::__ge__(&lhs, &rhs).to_arc(),
-                    Op::Equals => Obj::__default__().into(),
+                let val = match operator {
+                    Op::Plus => PyObject::__add__(&lhs, &rhs)?,
+                    Op::Minus => PyObject::__sub__(&lhs, &rhs)?,
+                    Op::Asterisk => PyObject::__mul__(&lhs, &rhs)?,
+                    Op::ForwardSlash => PyObject::__div__(&lhs, &rhs)?,
+                    Op::Eq => PyObject::__eq__(&lhs, &rhs).to_pyptr(),
+                    Op::Neq => PyObject::__ne__(&lhs, &rhs).to_pyptr(),
+                    Op::LessThan => PyObject::__lt__(&lhs, &rhs).to_pyptr(),
+                    Op::GreaterThan => PyObject::__gt__(&lhs, &rhs).to_pyptr(),
+                    Op::LessEq => PyObject::__le__(&lhs, &rhs).to_pyptr(),
+                    Op::GreaterEq => PyObject::__ge__(&lhs, &rhs).to_pyptr(),
                     op => panic!("Bad operator: {}", op),
                 };
                 val
@@ -927,14 +927,14 @@ impl Expression {
                 panic!();
             }
             Expression::Keyword(keyword, conds, _args) => match keyword {
-                Keyword::True => true.to_arc(),
-                Keyword::False => false.to_arc(),
+                Keyword::True => true.to_pyptr(),
+                Keyword::False => false.to_pyptr(),
                 Keyword::If | Keyword::While => {
                     let condition = conds
                         .iter()
-                        .map(|x| x.eval(&mut *variables, &mut *funcs).unwrap().__bool__())
+                        .map(|x| x.eval(&mut *variables, &mut *funcs).unwrap().get_ref().__bool__())
                         .all(|x| x);
-                    condition.to_arc()
+                    condition.to_pyptr()
                 }
                 _ => panic!("Unimplemented Keyword: {:?}", keyword),
             },

@@ -160,7 +160,7 @@ impl PySerializer {
         final_bytes.push(0); // null term
         final_bytes.append(&mut (consts.len() as u64).to_be_bytes().to_vec()); // 8 bytes of num_consts
         for c in consts {
-            let obj_str = c.__str__();
+            let obj_str = c.get_ref().__str__();
             final_bytes.append(&mut (obj_str.len() as u64).to_be_bytes().to_vec()); // 8 bytes of obj len = n
             final_bytes.append(&mut obj_str.into_bytes()); // n bytes of obj string
         }

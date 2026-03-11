@@ -4,12 +4,13 @@ use crate::{
     pyrs_codeobject::{PyCodeObj, PyCompileCtx},
     pyrs_error::PyException,
     pyrs_interpreter::{Interpreter, InterpreterCommand},
-    pyrs_obj::{Obj, PyObj, ToObj},
+    pyrs_obj::{Obj, ToObj},
     pyrs_parsing::{Expression, Keyword, Lexer, Op, Token},
     pyrs_std::{FnPtr, Funcs},
     pyrs_utils::{PyUtils, FromBytes},
     pyrs_vm::{IntrinsicFunc, PyVM, PyFrame},
     pyrs_serializer::{PySerializer, PyHeader},
+    pyrs_pyobject::{AttrDict, PyObjPtr, PyObject},
 };
 
 #[cfg(test)]
@@ -17,20 +18,20 @@ mod tests {
 
     use std::{collections::HashMap, mem::size_of, ops::Index, sync::Arc};
 
-    use crate::pyrs_interpreter::PyRsVersion;
+    use crate::{pyrs_error::PyPanicHandle, pyrs_interpreter::PyRsVersion};
 
     use super::*;
     use pretty_assertions::assert_eq;
 
     struct EqTester {
-        vars: HashMap<String, Arc<Obj>>,
+        vars: HashMap<String, PyObjPtr>,
         funcs: HashMap<String, FnPtr>,
     }
 
     impl EqTester {
         fn new() -> Self {
             EqTester {
-                vars: Obj::new_map(),
+                vars: PyObject::new_map(),
                 funcs: Funcs::get_std_map(),
             }
         }
@@ -40,7 +41,7 @@ mod tests {
                 Ok(val) => val,
                 Err(e) => panic!("{e}"),
             };
-            assert_eq!(res.to_string(), result);
+            assert_eq!(res.get_ref().to_string(), result);
         }
     }
 
@@ -140,32 +141,31 @@ mod tests {
     }
 
     #[test]
-    fn test_12() -> Result<Obj, PyException> {
+    fn test_12() {
         let exprs = Expression::from_multiline("x = 2\n if x:\n\t print_ret(x) ");
         assert_eq!(exprs.len(), 2);
         println!("Exprs: {:?}", exprs);
 
-        let mut vars = Obj::new_map();
+        let mut vars = PyObject::new_map();
         let mut funcs = Funcs::get_std_map();
         let expr_results = vec![
             "Op[= Ident(x) Atom(2)]",
             "Keyword[if conds[ Ident(x)] args[ Call[print_ret args[ Ident(x)]]]]",
         ];
-        let obj_results: Vec<Arc<Obj>> = vec![Obj::from(2usize), Obj::from(true), Obj::from("2 ")];
+        let obj_results = vec![PyObject::from(2usize), PyObject::from(true), PyObject::from("2 ")];
 
         for (idx, expr) in exprs.iter().enumerate() {
             println!("Evaluating: {expr}");
             assert_eq!(expr.to_string(), expr_results.index(idx).to_string());
-            let obj = expr.eval(&mut vars, &mut funcs)?;
-            println!("Obj: {}", obj.to_string());
+            let obj = expr.eval(&mut vars, &mut funcs).handle_panic();
+            println!("Obj: {}", obj.get_ref().to_string());
             println!("vars: {:?}", vars);
             assert_eq!(obj, obj_results.index(idx).clone());
         }
-        Ok(Obj::None)
     }
 
     #[test]
-    fn equality() -> Result<Obj, PyException> {
+    fn equality() {
         let s1 = Expression::from_line("1 < 0");
         let s2 = Expression::from_line("1 > 0");
         let s3 = Expression::from_line("\"poop\" != 0");
@@ -184,23 +184,15 @@ mod tests {
         eq.eval_eq(&s4, "False");
         eq.eval_eq(&s5, "False");
         eq.eval_eq(&s6, "True");
-        Ok(Obj::None)
     }
 
     #[test]
     fn obj_equality() {
-        assert_eq!(Obj::None, Obj::None);
-        assert_eq!(&Obj::None, &Obj::None);
-        assert_eq!(Obj::None.to_arc(), Obj::None.to_arc());
-        assert_eq!(Obj::None.to_arc().as_ref(), &Obj::None);
+        assert_eq!(PyObjPtr::none(), PyObjPtr::none());
+        assert_eq!(&PyObjPtr::none(), &PyObjPtr::none());
 
-        assert_eq!(Obj::Bool(true).to_arc(), Obj::Float(1.0).to_arc());
-        assert_ne!(Obj::new_dict(), Obj::new_dict());
-
-        let null_obj = Arc::new(Obj::Null);
-        let null_ref = null_obj.clone();
-        assert_eq!(null_obj.as_ref(), null_ref.as_ref());
-        assert_eq!(null_obj, null_ref);
+        assert_eq!(true.to_pyptr(), 1.0.to_pyptr());
+        assert_ne!(PyObject::empty_dict(), PyObject::empty_dict());
     }
 
     #[test]
@@ -219,7 +211,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn while_test() -> Result<Obj, PyException> {
+    fn while_test() {
         let expr = Expression::from_multiline(
             r#"
         i = 0
@@ -251,15 +243,15 @@ mod tests {
             "None",
         ];
 
-        let mut vars = Obj::new_map();
+        let mut vars = PyObject::new_map();
         let mut funcs = Funcs::get_std_map();
 
         let idx_err = "[Bad Index]";
 
-        let mut ret_objs: Vec<Arc<Obj>> = vec![];
+        let mut ret_objs = vec![];
         let mut idx = 0;
         for e in expr {
-            let obj = e.eval(&mut vars, &mut funcs)?;
+            let obj = e.eval(&mut vars, &mut funcs).handle_panic();
             assert_eq!(
                 e.to_string(),
                 ret_strs.get(idx).unwrap_or(&idx_err).to_string()
@@ -267,11 +259,10 @@ mod tests {
             ret_objs.push(obj);
             idx += 1;
         }
-        Ok(Obj::None)
     }
 
     #[test]
-    fn nested_ifs() -> Result<Obj, PyException> {
+    fn nested_ifs() {
         //panic!();
         let expr = Expression::from_multiline(
             "if True:\n\
@@ -287,27 +278,26 @@ mod tests {
             r#"Keyword[if conds[ Keyword[True conds[] args[]]] args[ Call[print_ret args[ Atom(a: good)]] Keyword[if conds[ Keyword[False conds[] args[]]] args[ Call[print_ret args[ Atom(b: bad)]]]] Keyword[if conds[ Keyword[True conds[] args[]]] args[ Call[print_ret args[ Atom(c: good)]]]] Call[print args[ Atom(d: good)]]]]"#,
         ];
 
-        let mut vars = Obj::new_map();
+        let mut vars = PyObject::new_map();
         let mut funcs = Funcs::get_std_map();
 
         let idx_err = "[Bad Index]";
 
-        let mut ret_objs: Vec<Arc<Obj>> = vec![];
+        let mut ret_objs  = vec![];
         let mut idx = 0;
         for e in expr {
-            let obj = e.eval(&mut vars, &mut funcs)?;
+            let obj = e.eval(&mut vars, &mut funcs).handle_panic();
             assert_eq!(
                 e.to_string(),
                 ret_strs.get(idx).unwrap_or(&idx_err).to_string()
             );
             ret_objs.push(obj);
             idx += 1;
-        }
-        Ok(Obj::None)
+        };
     }
 
     #[test]
-    fn if_elif_else_expr() -> Result<Obj, PyException> {
+    fn if_elif_else_expr() {
         //panic!();
         let expr = Expression::from_multiline(
             "if False:\n\
@@ -325,15 +315,15 @@ mod tests {
             r#"Keyword[if conds[ Keyword[False conds[] args[]]] args[ Call[print_ret args[ Atom(c: good)]] Keyword[else conds[] args[]] Call[print args[ Atom(d: good)]]]]"#,
         ];
 
-        let mut vars = Obj::new_map();
+        let mut vars = PyObject::new_map();
         let mut funcs = Funcs::get_std_map();
 
         let idx_err = "[Bad Index]";
 
-        let mut ret_objs: Vec<Arc<Obj>> = vec![];
+        let mut ret_objs = vec![];
         let mut idx = 0;
         for e in expr {
-            let obj = e.eval(&mut vars, &mut funcs)?;
+            let obj = e.eval(&mut vars, &mut funcs).handle_panic();
             assert_eq!(
                 e.to_string(),
                 ret_strs.get(idx).unwrap_or(&idx_err).to_string()
@@ -341,8 +331,6 @@ mod tests {
             ret_objs.push(obj);
             idx += 1;
         }
-
-        Ok(Obj::None)
     }
 
     #[test]
@@ -358,7 +346,7 @@ mod tests {
 
         let code_obj = PyCodeObj {
             name: "__test_bytecode_manual__".into(),
-            consts: vec![5.to_obj()],
+            consts: vec![5.to_pyptr()],
             varnames: vec!["x".to_string()],
             names: vec![],
             bytecode: code,
@@ -439,7 +427,7 @@ mod tests {
         let code_obj = PyCodeObj {
             name: "__test_bytecode_handwritten__".into(),
             bytecode: code,
-            consts: vec![0.into(), 3.into(), 1.into()],
+            consts: vec![0.to_pyptr(), 3.to_pyptr(), 1.to_pyptr()],
             varnames: vec!["x".into()],
             names: vec![],
             num_consts: 3,
@@ -497,7 +485,7 @@ mod tests {
         let expected_codeobj = PyCodeObj {
             name: "compile_test_1".into(),
             bytecode: expected,
-            consts: vec!["sum_a".to_obj(), 1.to_obj()],
+            consts: vec!["sum_a".to_pyptr(), 1.to_pyptr()],
             varnames: vec![],
             names: vec![],
             num_consts: 2,
@@ -739,13 +727,13 @@ mod tests {
             ("\"xyz\" > \"abc\"", "True"),
         ];
 
-        let mut vs = Obj::new_map();
+        let mut vs = PyObject::new_map();
         let mut fns = Funcs::get_std_map();
 
         for (expr_str, expected) in comparisons {
             let expr = Expression::from_line(expr_str);
             assert_eq!(
-                expr.eval(&mut vs, &mut fns).unwrap().to_string(),
+                expr.eval(&mut vs, &mut fns).unwrap().get_ref().to_string(),
                 expected,
                 "{}",
                 expr.to_string()
@@ -1165,7 +1153,7 @@ mod tests {
             println!("Line: {}", expr_str);
             let exprs = Expression::from_multiline(expr_str);
             let expr = exprs.first().unwrap();
-            let obj = expr.clone().to_obj();
+            let obj = expr.clone().to_pyobj();
             assert_eq!(&obj.__str__(), expected, "expr(#{i}) {}", expr.to_string());
         }
     }
@@ -1173,15 +1161,15 @@ mod tests {
     #[test]
     fn iteration() {
 
-        let list = vec![1.to_arc(), 2.to_arc()].to_obj();
+        let list = vec![1.to_pyptr(), 2.to_pyptr()].to_pyptr();
         for x in list {
-            println!("{}", x);
+            println!("{}", *x.get_ref());
         }
 
-        let list = vec![1.to_arc(), 2.to_arc()].to_obj();
+        let list = vec![1.to_pyptr(), 2.to_pyptr()].to_pyptr();
         for mut x in &mut list.into_iter() {
-            x = Obj::add(x.as_ref(), &2.to_obj()).to_arc();
-            println!("{}", x);
+            x = PyObject::__add__(&x, &2.to_pyptr()).handle_panic();
+            println!("{}", *x.get_ref());
         }
     }
 
@@ -1311,7 +1299,7 @@ mod tests {
     {
         let code_obj = PyCodeObj {
             name: "__test_bytecode_manual__".into(),
-            consts: vec![5.to_obj()],
+            consts: vec![5.to_pyptr()],
             varnames: vec!["x".to_string()],
             names: vec!["print".to_string()],
             bytecode: vec![],
