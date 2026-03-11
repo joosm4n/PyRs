@@ -28,7 +28,7 @@ pub enum Obj {
 
     FuncPtr(FnPtr),
 
-    Except(PyException),
+    Exception(PyException),
 
     List(Arc<Mutex<Vec<Arc<Obj>>>>), // [], mutable, ordered, duplicates, int indexing,
     Tuple(Vec<Arc<Obj>>),            // (), immutable, ordered, duplicates, int indexing,
@@ -56,130 +56,6 @@ pub enum Obj {
 
     // Mapping
     // - dict (HashMap)
-}
-
-pub trait PyObj: std::fmt::Debug + Clone {
-    fn compare_op(lhs: &Arc<Self>, rhs: &Arc<Self>, op: &Op) -> bool {
-        let ret = match op {
-            Op::Eq => Self::__eq__(lhs, rhs),
-            Op::Neq => Self::__ne__(lhs, rhs),
-            Op::LessThan => Self::__lt__(lhs, rhs),
-            Op::GreaterThan => Self::__gt__(lhs, rhs),
-            Op::LessEq => Self::__le__(lhs, rhs),
-            Op::GreaterEq => Self::__ge__(lhs, rhs),
-            _ => return Self::__default__().__bool__(),
-        };
-        ret
-    }
-
-    fn __default__() -> Self {
-        panic!()
-    }
-
-    fn __str__(&self) -> String {
-        panic!()
-    }
-
-    fn __unpack__(self) -> Result<Vec<Arc<Obj>>, PyException> {
-        Err(PyException {
-            error: PyError::TypeError,
-            msg: format!("Unable to deref the PyObj: {:?}", self),
-        })
-    }
-
-    fn __repr__(&self) -> String {
-        format!("{:?}", self)
-    }
-
-    fn __int__(&self) -> isize {
-        panic!();
-    }
-
-    fn __integer__(&self) -> Option<Integer> {
-        panic!();
-    }
-
-    fn __bool__(&self) -> bool {
-        false
-    }
-    fn __len__(&self) -> usize {
-        unimplemented!();
-    }
-    fn __lt__(_lhs: &Arc<Self>, _rhs: &Arc<Self>) -> bool {
-        false
-    }
-    fn __gt__(_lhs: &Arc<Self>, _rhs: &Arc<Self>) -> bool {
-        false
-    }
-    fn __le__(_lhs: &Arc<Self>, _rhs: &Arc<Self>) -> bool {
-        false
-    }
-    fn __ge__(_lhs: &Arc<Self>, _rhs: &Arc<Self>) -> bool {
-        false
-    }
-    fn __eq__(_lhs: &Arc<Self>, _rhs: &Arc<Self>) -> bool {
-        false
-    }
-    fn __ne__(_lhs: &Arc<Self>, _rhs: &Arc<Self>) -> bool {
-        false
-    }
-
-    fn __add__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
-        Err(PyException {
-            error: PyError::TypeError,
-            msg: format!("Unable to add the two PyObj types : {:?}, {:?}", lhs, rhs),
-        })
-    }
-
-    fn __sub__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
-        Err(PyException {
-            error: PyError::TypeError,
-            msg: format!(
-                "Unable to subtract the two PyObj types : {:?}, {:?}",
-                lhs, rhs
-            ),
-        })
-    }
-    fn __mul__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
-        Err(PyException {
-            error: PyError::TypeError,
-            msg: format!(
-                "Unable to multiply the two PyObj types : {:?}, {:?}",
-                lhs, rhs
-            ),
-        })
-    }
-    fn __div__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
-        Err(PyException {
-            error: PyError::TypeError,
-            msg: format!(
-                "Unable to divide the two PyObj types : {:?}, {:?}",
-                lhs, rhs
-            ),
-        })
-    }
-
-    fn __pos__(obj: &Arc<Self>) -> Result<Arc<Self>, PyException> {
-        Ok(obj.clone())
-    }
-
-    fn __neg__(obj: &Arc<Self>) -> Result<Arc<Self>, PyException> {
-        Err(PyException {
-            error: PyError::TypeError,
-            msg: format!(" __neg__: not implemented for {:?}", obj),
-        })
-    }
-
-    fn __call__(&self, objs: &Vec<Arc<Self>>) -> Result<Arc<Self>, PyException> {
-        Err(PyException {
-            error: PyError::TypeError,
-            msg: format!(" __call__: not implemented for {:?}", objs),
-        })
-    }
-
-    fn to_arc(self) -> Arc<Self> {
-        Arc::from(self)
-    }
 }
 
 impl Obj {
@@ -244,7 +120,7 @@ impl Obj {
     }
 
     pub fn add(lhs: &Obj, rhs: &Obj) -> Obj {
-        let err = Obj::Except(PyException {
+        let err = Obj::Exception(PyException {
             error: PyError::TypeError,
             msg: format!("No valid way to add: {} and {}", lhs, rhs.clone(),),
         });
@@ -277,7 +153,7 @@ impl Obj {
                     Obj::List(Mutex::new(new_list).into())
                 }
                 _ => {
-                    return Obj::Except(PyException {
+                    return Obj::Exception(PyException {
                         error: PyError::TypeError,
                         msg: format!("can only concatenate list (not \"{:?}\") to list", other),
                     });
@@ -289,7 +165,7 @@ impl Obj {
     }
 
     pub fn sub(lhs: &Obj, rhs: &Obj) -> Obj {
-        let err = Obj::Except(PyException {
+        let err = Obj::Exception(PyException {
             error: PyError::TypeError,
             msg: format!("No valid way to subtract: {} and {}", lhs, rhs.clone(),),
         });
@@ -314,7 +190,7 @@ impl Obj {
     }
 
     pub fn mul(lhs: &Obj, rhs: &Obj) -> Obj {
-        let err = Obj::Except(PyException {
+        let err = Obj::Exception(PyException {
             error: PyError::TypeError,
             msg: format!("No valid way to subtract: {} and {}", lhs, rhs.clone(),),
         });
@@ -342,7 +218,7 @@ impl Obj {
                         }
                         Obj::Str(mult)
                     } else {
-                        return Obj::Except(PyException {
+                        return Obj::Exception(PyException {
                             error: PyError::TypeError,
                             msg: format!(" can't multiply sequence by non-int of type {}", lhs),
                         });
@@ -356,11 +232,11 @@ impl Obj {
     }
 
     pub fn div(lhs: &Obj, rhs: &Obj) -> Obj {
-        let type_err = Obj::Except(PyException {
+        let type_err = Obj::Exception(PyException {
             error: PyError::TypeError,
             msg: format!("No valid way to divide: {} and {}", lhs, rhs.clone(),),
         });
-        let zero_div_err = Obj::Except(PyException {
+        let zero_div_err = Obj::Exception(PyException {
             error: PyError::ZeroDivisionError,
             msg: format!(" tried to divide {lhs} by {rhs}"),
         });
@@ -487,7 +363,7 @@ impl Obj {
             Obj::Str(s) => format!("{}", s),
             Obj::Int(val) => format!("{}", val),
             Obj::FuncPtr(ptr) => format!("{}", ptr),
-            Obj::Except(e) => format!("{}", e),
+            Obj::Exception(e) => format!("{}", e),
             Obj::List(v) => {
                 let objs = &*v.lock().expect("Unable to lock list");
                 let mut list = String::from("[");
@@ -632,28 +508,28 @@ impl Obj {
 
     pub fn __add__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
         match Obj::add(lhs.as_ref(), rhs.as_ref()) {
-            Obj::Except(e) => Err(e),
+            Obj::Exception(e) => Err(e),
             o => Ok(o.into()),
         }
     }
 
     pub fn __sub__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
         match Obj::sub(lhs.as_ref(), rhs.as_ref()) {
-            Obj::Except(e) => Err(e),
+            Obj::Exception(e) => Err(e),
             o => Ok(o.into()),
         }
     }
 
     pub fn __mul__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
         match Obj::mul(lhs.as_ref(), rhs.as_ref()) {
-            Obj::Except(e) => Err(e),
+            Obj::Exception(e) => Err(e),
             o => Ok(o.into()),
         }
     }
 
     pub fn __div__(lhs: &Arc<Self>, rhs: &Arc<Self>) -> Result<Arc<Self>, PyException> {
         match Obj::div(lhs.as_ref(), rhs.as_ref()) {
-            Obj::Except(e) => Err(e),
+            Obj::Exception(e) => Err(e),
             o => Ok(o.into()),
         }
     }
@@ -845,7 +721,7 @@ impl core::hash::Hash for Obj {
             Obj::Str(s) => s.hash(state),
             Obj::Int(i) => i.hash(state),
             Obj::FuncPtr(f) => f.hash(state),
-            Obj::Except(e) => e.hash(state),
+            Obj::Exception(e) => e.hash(state),
             Obj::List(v) => v.lock().unwrap().hash(state),
             Obj::Set(v) => v.hash(state),
             Obj::Tuple(v) => v.hash(state),
@@ -1107,12 +983,12 @@ impl ToObj for Expression {
                     let sum = Obj::add(&lhs, &rhs);
                     sum
                 }
-                _ => Obj::Except(PyException {
+                _ => Obj::Exception(PyException {
                     error: PyError::TypeError,
                     msg: format!("cannot convert op {:#?} with args {:#?} to Obj", op, args),
                 }),
             },
-            _ => Obj::Except(PyException {
+            _ => Obj::Exception(PyException {
                 error: PyError::TypeError,
                 msg: format!("cannot convert {:#?} to Obj", self),
             }),
@@ -1122,10 +998,10 @@ impl ToObj for Expression {
 
 impl ToObj for PyException {
     fn to_obj(self) -> Obj {
-        Obj::Except(self)
+        Obj::Exception(self)
     }
     fn to_arc(self) -> Arc<Obj> {
-        Obj::Except(self).into()
+        Obj::Exception(self).into()
     }
 }
 

@@ -4,12 +4,12 @@ use crate::{
     pyrs_codeobject::{PyCodeObj, PyCompileCtx},
     pyrs_error::PyException,
     pyrs_interpreter::{Interpreter, InterpreterCommand},
-    pyrs_obj::{Obj, PyObj, ToObj},
+    pyrs_obj::{Obj, ToObj},
     pyrs_parsing::{Expression, Keyword, Lexer, Op, Token},
+    pyrs_serializer::{PyHeader, PySerializer},
     pyrs_std::{FnPtr, Funcs},
-    pyrs_utils::{PyUtils, FromBytes},
-    pyrs_vm::{IntrinsicFunc, PyVM, PyFrame},
-    pyrs_serializer::{PySerializer, PyHeader},
+    pyrs_utils::{FromBytes, PyUtils},
+    pyrs_vm::{IntrinsicFunc, PyFrame, PyVM},
 };
 
 #[cfg(test)]
@@ -383,7 +383,11 @@ mod tests {
             PyBytecode::from_expr(e, &mut code);
         }
         let code_obj = code.finish();
-        assert_eq!(code_obj.num_varnames, 1, "varnames: {:?}", code_obj.varnames);
+        assert_eq!(
+            code_obj.num_varnames, 1,
+            "varnames: {:?}",
+            code_obj.varnames
+        );
 
         let inst_str = PyBytecode::to_string(&code_obj.bytecode);
         println!("Instructions:\n{}", inst_str);
@@ -404,9 +408,12 @@ mod tests {
         while x < 3:
 	        print(x)
 	        x += 1
-        "#
+        "#,
         );
-        println!("Instructions:\n{}", PyBytecode::to_string(&code_obj.bytecode));
+        println!(
+            "Instructions:\n{}",
+            PyBytecode::to_string(&code_obj.bytecode)
+        );
         assert_eq!(format!("{:?}", &code_obj.bytecode), r#"[Resume, LoadConst(0), StoreFast(0), LoadFast(0), LoadConst(1), CompareOp(LessThan), PopJumpIfFalse(9), LoadGlobal(0), LoadFast(0), CallFunction(1), LoadFast(0), LoadConst(2), BinaryAdd, StoreFast(0), JumpBackward(12), LoadConst(3)]"#.to_string());
 
         let mut vm = PyVM::new();
@@ -668,7 +675,6 @@ mod tests {
 
         let mut vm = PyVM::new();
         vm.execute(code_obj);
-
     }
 
     #[test]
@@ -761,7 +767,10 @@ mod tests {
         let mut code = PyCompileCtx::new("__test_ops_tuple__");
         PyBytecode::from_expr(tuple_expr, &mut code);
         let code_obj = code.finish();
-        println!("Tuple bytecode:\n {}", PyBytecode::to_string(&code_obj.bytecode));
+        println!(
+            "Tuple bytecode:\n {}",
+            PyBytecode::to_string(&code_obj.bytecode)
+        );
     }
 
     #[test]
@@ -773,7 +782,10 @@ mod tests {
         PyBytecode::from_expr(tuple_expr, &mut code);
 
         let code_obj = code.finish();
-        println!("Tuple bytecode: {}", PyBytecode::to_string(&code_obj.bytecode));
+        println!(
+            "Tuple bytecode: {}",
+            PyBytecode::to_string(&code_obj.bytecode)
+        );
     }
 
     #[test]
@@ -797,22 +809,22 @@ mod tests {
         println!("For loop: {}", for_expr[1]);
 
         /*
-        bytecode:
-(0)             LoadConst(0)
-(1)             LoadConst(1)
-(2)             LoadConst(2)
-(3)             BuildList(3)
-(4)             StoreFast(0)
-(5)             LoadName(0)
-(6)             GetIter
-(7)             ForIter(5)
-(8)             StoreFast(1)
-(9)             PushNull
-(10)            LoadFast(1)
-(11)            CallInstrinsic1(Print)
-(12)            JumpBackward(6)
-<end __temp_bytecode_ThreadId(13)_1771182827630945031__>
- */
+                bytecode:
+        (0)             LoadConst(0)
+        (1)             LoadConst(1)
+        (2)             LoadConst(2)
+        (3)             BuildList(3)
+        (4)             StoreFast(0)
+        (5)             LoadName(0)
+        (6)             GetIter
+        (7)             ForIter(5)
+        (8)             StoreFast(1)
+        (9)             PushNull
+        (10)            LoadFast(1)
+        (11)            CallInstrinsic1(Print)
+        (12)            JumpBackward(6)
+        <end __temp_bytecode_ThreadId(13)_1771182827630945031__>
+         */
         match &for_expr[0] {
             Expression::Operation(Op::Equals, args) => {
                 assert_eq!(args[0], Expression::Ident("v".into()));
@@ -861,7 +873,8 @@ mod tests {
 
         let code_obj = code.finish();
         // Should have multiple BuildList instructions
-        let build_list_count = code_obj.bytecode
+        let build_list_count = code_obj
+            .bytecode
             .iter()
             .filter(|inst| matches!(inst, PyBytecode::BuildList(_)))
             .count();
@@ -1040,7 +1053,6 @@ mod tests {
 
     #[test]
     fn split_to_words_comprehensive() {
-
         // Test basic splitting
         let words = PyUtils::split_to_words("hello world");
         assert_eq!(words, vec!["hello", "world"]);
@@ -1065,8 +1077,7 @@ mod tests {
     }
 
     #[test]
-    fn utils_from_bytes()
-    {
+    fn utils_from_bytes() {
         let bytes1: Vec<u8> = vec![1, 0, 0, 0, 0, 0, 0, 0];
         let val1 = usize::from_bytes_le(bytes1.as_slice()).unwrap();
         assert_eq!(val1, 1usize);
@@ -1120,7 +1131,6 @@ mod tests {
         let mut vm = PyVM::new();
         vm.set_debug_mode(true);
         vm.execute(code_obj);
-
     }
 
     #[test]
@@ -1172,7 +1182,6 @@ mod tests {
 
     #[test]
     fn iteration() {
-
         let list = vec![1.to_arc(), 2.to_arc()].to_obj();
         for x in list {
             println!("{}", x);
@@ -1223,8 +1232,7 @@ mod tests {
     }
 
     #[test]
-    fn serialize_header()
-    {
+    fn serialize_header() {
         let header = PyHeader {
             name: "__test_serialize_header__".into(),
             time: PyUtils::curr_time(),
@@ -1233,18 +1241,23 @@ mod tests {
         };
 
         let bytes = header.seralize();
-        
+
         let _r = std::fs::write("tests/hex.lib", bytes.clone());
 
         let deserial = PyHeader::deserialize(&bytes);
         assert_eq!(header, deserial);
-
     }
 
     #[test]
-    fn serialize_bytecode_map() 
-    {
-        let c = PyCodeObj::new("__test_serialize_bytecode_map__", vec![PyBytecode::LoadConst(0), PyBytecode::LoadConst(1), PyBytecode::BinaryAdd]);
+    fn serialize_bytecode_map() {
+        let c = PyCodeObj::new(
+            "__test_serialize_bytecode_map__",
+            vec![
+                PyBytecode::LoadConst(0),
+                PyBytecode::LoadConst(1),
+                PyBytecode::BinaryAdd,
+            ],
+        );
         let bytes = PySerializer::seralize_codeobj(&c);
 
         let _ = std::fs::write("tests/hex.lib", bytes.clone());
@@ -1254,15 +1267,14 @@ mod tests {
     }
 
     #[test]
-    fn attr_get()
-    {
+    fn attr_get() {
         let mut c = PyCompileCtx::new("__test_calling__");
         let a = Expression::from_line("v = 1");
         dbg!(&a);
-        PyBytecode::from_expr(a,&mut c);
+        PyBytecode::from_expr(a, &mut c);
         let b = Expression::from_line("v.x");
         dbg!(&b);
-        PyBytecode::from_expr(b,&mut c);
+        PyBytecode::from_expr(b, &mut c);
 
         let codeobj = c.finish();
         dbg!(&codeobj);
@@ -1273,9 +1285,9 @@ mod tests {
     }
 
     #[test]
-    fn classobj()
-    {
-        let code_obj = PyBytecode::from_str("class vec2:\n\tx=0\nv = vec2\nv.x = 10\ny = vec2\nprint(y.x)");
+    fn classobj() {
+        let code_obj =
+            PyBytecode::from_str("class vec2:\n\tx=0\nv = vec2\nv.x = 10\ny = vec2\nprint(y.x)");
         dbg!(&code_obj);
 
         let mut vm = PyVM::new();
@@ -1285,9 +1297,10 @@ mod tests {
     }
 
     #[test]
-    fn calling_simple()
-    {
-        let code_obj = PyBytecode::from_str(&format!("class vec2:\n\tx = 0\nx = vec2\nx.x = 1\nprint(x.x)"));
+    fn calling_simple() {
+        let code_obj = PyBytecode::from_str(&format!(
+            "class vec2:\n\tx = 0\nx = vec2\nx.x = 1\nprint(x.x)"
+        ));
         dbg!(&code_obj);
 
         let mut vm = PyVM::new();
@@ -1295,20 +1308,18 @@ mod tests {
         vm.execute(code_obj);
     }
 
-    #[test] 
-    fn calling_medium() 
-    {
+    #[test]
+    fn calling_medium() {
         let code_obj = Interpreter::compile_file("tests/class_test_1.py").unwrap();
         let mut vm = PyVM::new();
         vm.set_debug_mode(true);
         vm.execute(code_obj);
-        
+
         //panic!();
     }
 
     #[test]
-    fn pretty_print()
-    {
+    fn pretty_print() {
         let code_obj = PyCodeObj {
             name: "__test_bytecode_manual__".into(),
             consts: vec![5.to_obj()],
@@ -1322,7 +1333,6 @@ mod tests {
         };
         code_obj.pretty_format();
     }
-
 
     /*
     Usage: cargo.exe test [OPTIONS] [TESTNAME] [-- [ARGS]...]
