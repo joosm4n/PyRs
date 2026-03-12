@@ -1,8 +1,6 @@
 use std::{
-    collections::HashMap, hash::Hash, io::{self, Write}, ops::DerefMut, path::PathBuf, sync::{Arc, Mutex}, usize
+    collections::HashMap, hash::Hash, io::{self, Write}, path::PathBuf, sync::{Arc, Mutex}, usize
 };
-
-use rug::az::StrictAs;
 
 use crate::{
     pyrs_bytecode::PyBytecode, pyrs_codeobject::{FuncObj, PyCodeObj, PyTypeObj}, pyrs_error::{PyError, PyException}, pyrs_interpreter::Interpreter, pyrs_obj::{Obj, ToObj}, pyrs_parsing::Op, pyrs_pyobject::{AttrDict, PyObjPtr, PyObject}, pyrs_std::{FnPtr, RangeObj}

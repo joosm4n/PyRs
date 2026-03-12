@@ -16,7 +16,7 @@ use crate::{
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, mem::size_of, ops::Index, sync::Arc};
+    use std::{collections::HashMap, mem::size_of, ops::Index};
 
     use crate::{pyrs_error::PyPanicHandle, pyrs_interpreter::PyRsVersion};
 

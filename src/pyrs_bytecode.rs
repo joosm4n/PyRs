@@ -1,6 +1,6 @@
 use crate::{
     pyrs_codeobject::{PyTypeObj, PyCodeObj, PyCompileCtx},
-    pyrs_obj::{Obj, ToObj},
+    pyrs_obj::{ToObj},
     pyrs_parsing::{Expression, Keyword, Op},
     pyrs_vm::IntrinsicFunc,
     pyrs_pyobject::{PyObject, PyObjPtr, AttrDict},

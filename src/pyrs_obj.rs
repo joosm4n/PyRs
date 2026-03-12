@@ -11,7 +11,7 @@ use std::{
     ops::{Add, Mul, Neg, Sub},
     process::{ExitCode, Termination},
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{Arc},
 };
 
 use rug::Integer;

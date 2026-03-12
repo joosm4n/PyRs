@@ -2,14 +2,12 @@ use std::{
     collections::HashMap,
     io::{self, Write},
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 use crate::{
     pyrs_bytecode::PyBytecode,
     pyrs_codeobject::{PyCodeObj, PyCompileCtx},
     pyrs_error::{PyError, PyException, PyPanicHandle},
-    pyrs_obj::{Obj},
     pyrs_parsing::{Expression, Keyword},
     pyrs_std::{FnPtr, Funcs},
     pyrs_utils::PyUtils,

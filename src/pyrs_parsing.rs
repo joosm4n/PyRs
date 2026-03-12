@@ -1,12 +1,12 @@
 use crate::{
     pyrs_error::{PyError, PyException},
-    pyrs_obj::{Obj, ToObj},
+    pyrs_obj::{ToObj},
     pyrs_std::FnPtr,
     pyrs_utils::PyUtils,
     pyrs_pyobject::{PyObjPtr, PyObject}
 };
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
