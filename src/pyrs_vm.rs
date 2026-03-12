@@ -1,9 +1,21 @@
 use std::{
-    collections::HashMap, hash::Hash, io::{self, Write}, path::PathBuf, sync::{Arc, Mutex}, usize
+    collections::HashMap,
+    hash::Hash,
+    io::{self, Write},
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    usize,
 };
 
 use crate::{
-    pyrs_bytecode::PyBytecode, pyrs_codeobject::{FuncObj, PyCodeObj, PyTypeObj}, pyrs_error::{PyError, PyException}, pyrs_interpreter::Interpreter, pyrs_obj::{Obj, ToObj}, pyrs_parsing::Op, pyrs_pyobject::{AttrDict, PyObjPtr, PyObject}, pyrs_std::{FnPtr, RangeObj}
+    pyrs_bytecode::PyBytecode,
+    pyrs_codeobject::{FuncObj, PyCodeObj, PyTypeObj},
+    pyrs_error::{PyError, PyException},
+    pyrs_interpreter::Interpreter,
+    pyrs_obj::{Obj, ToObj},
+    pyrs_parsing::Op,
+    pyrs_pyobject::{AttrDict, PyObjPtr, PyObject},
+    pyrs_std::{FnPtr, RangeObj},
 };
 
 #[derive(Debug, Clone)]
@@ -28,11 +40,17 @@ pub struct PyVM {
     working_dir: PathBuf,
 }
 
+impl Default for PyVM {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[allow(dead_code)]
 impl PyVM {
     pub fn new() -> Self {
         PyVM {
-            builtins: HashMap::new(), // placeholder for now 
+            builtins: IntrinsicFunc::new_builtins(),
             curr_namespace: String::from(""),
             frames: vec![],
             error_state: false,
@@ -47,7 +65,6 @@ impl PyVM {
     }
 
     pub fn execute(&mut self, code_obj: PyCodeObj) {
-
         if self.debug_mode {
             println!("Working dir: {:?}", self.working_dir);
         }
@@ -72,9 +89,9 @@ impl PyVM {
                 break;
             }
 
-            let instr = frame.code.bytecode[frame.ip].clone();
+            let instr = frame.code.bytecode[frame.ip];
             self.execute_instruction(instr);
-            
+
             self.frame_mut().ip += 1;
             if self.frames.is_empty() {
                 break;
@@ -88,11 +105,8 @@ impl PyVM {
         }
 
         if self.debug_mode {
-            println!(
-                "Executing: ({})   {:?}\nStack:",
-                self.frame().ip,
-                &inst,
-            );
+            println!("Current CodeObj: {}", self.frame().code.name);
+            println!("Executing: ({})   {:?}\nStack:", self.frame().ip, &inst,);
             self.print_stack();
             self.print_locals();
             println!();
@@ -101,7 +115,7 @@ impl PyVM {
         match inst {
             PyBytecode::Copy(i) => self.copy(i),
             PyBytecode::Swap(i) => self.swap(i),
-            
+
             PyBytecode::PopTop => self.pop_top(),
             PyBytecode::EndFor => self.end_for(),
 
@@ -149,9 +163,12 @@ impl PyVM {
             PyBytecode::ImportName(namei) => self.import_name(namei),
             PyBytecode::LoadSmallInt(int_) => self.push(int_.to_pyobj().to_ptr()),
 
-            PyBytecode::Resume => {},
-            PyBytecode::NOP => {},
-            _ => panic!("\nUnimplementedError: Instruction {:?} not implemented! \n", inst),
+            PyBytecode::Resume => {}
+            PyBytecode::NOP => {}
+            _ => panic!(
+                "\nUnimplementedError: Instruction {:?} not implemented! \n",
+                inst
+            ),
         }
     }
 
@@ -197,7 +214,6 @@ impl PyVM {
     }
 
     fn print_debug_info(&self) {
-
         println!("\n---- PyVM Debug Info ----\n");
 
         println!("\t-- Current Frame --");
@@ -205,7 +221,12 @@ impl PyVM {
         let frame = self.frames.last().unwrap();
         println!(
             "\t-- Curr Instruction -- \n({}) \t{}",
-            frame.ip, frame.code.bytecode.get(frame.ip).unwrap_or(&PyBytecode::NOP)
+            frame.ip,
+            frame
+                .code
+                .bytecode
+                .get(frame.ip)
+                .unwrap_or(&PyBytecode::NOP)
         );
 
         println!("\n\t-- Stack Trace --");
@@ -251,11 +272,11 @@ impl PyVM {
     }
 
     fn frame(&self) -> &PyFrame {
-        return self.frames.last().unwrap();
+        self.frames.last().unwrap()
     }
 
     fn frame_mut(&mut self) -> &mut PyFrame {
-        return self.frames.last_mut().unwrap();
+        self.frames.last_mut().unwrap()
     }
 
     fn pop_n(&mut self, count: u8) -> Vec<PyObjPtr> {
@@ -273,7 +294,7 @@ impl PyVM {
             if let Some(obj) = self.frame_mut().stack.pop() {
                 objs.push(obj);
             } else {
-                objs.push(or.clone().into());
+                objs.push(or.clone());
             }
         }
         objs.reverse();
@@ -305,21 +326,18 @@ impl PyVM {
 
     fn top(&self) -> &PyObjPtr {
         match self.frames.last() {
-            Some(v) => {
-                match v.stack.last() {
-                    Some(v) => v,
-                    None => {
-                        self.throw_err(PyException {
-                            error: PyError::StackError,
-                            msg: "Tried to pop empty stack".to_string(),
-                        });
-                        unreachable!();
-
-                    }
+            Some(v) => match v.stack.last() {
+                Some(v) => v,
+                None => {
+                    self.throw_err(PyException {
+                        error: PyError::StackError,
+                        msg: "Tried to pop empty stack".to_string(),
+                    });
+                    unreachable!();
                 }
-            }
+            },
             None => {
-                self.throw_err( PyException {
+                self.throw_err(PyException {
                     error: PyError::FrameError,
                     msg: "Tried frame in vector empty frames".to_string(),
                 });
@@ -350,8 +368,9 @@ impl PyVM {
             s.push(',');
             s.push(' ');
         }
-        if self.frame().locals.len() > 0 {
-            s.pop(); s.pop();
+        if !self.frame().locals.is_empty() {
+            s.pop();
+            s.pop();
         }
         s.push(']');
         println!("{s}");
@@ -398,7 +417,7 @@ impl PyVM {
     }
 
     fn load_const(&mut self, i: u8) {
-        let obj = self.frame_mut().code.consts[i as usize].clone() ;
+        let obj = self.frame_mut().code.consts[i as usize].clone();
         self.frame_mut().stack.push(obj);
     }
 
@@ -407,13 +426,16 @@ impl PyVM {
         //dbg!(&obj);
 
         let frame = self.frame_mut();
-        if let Some(_) = frame.locals.get_mut(i as usize) {
+        if frame.locals.get_mut(i as usize).is_some() {
             frame.locals[i as usize] = obj.__new__();
-        }
-        else {
+        } else {
             self.throw_err(PyException {
                 error: PyError::IndexError,
-                msg: format!("Tried to access local stack at index {} when it only has {} elements!", self.frame().locals.len(), i),
+                msg: format!(
+                    "Tried to access local stack at index {} when it only has {} elements!",
+                    self.frame().locals.len(),
+                    i
+                ),
             });
         }
     }
@@ -431,9 +453,15 @@ impl PyVM {
     fn load_name(&mut self, i: u8) {
         let name = self.frame().code.names[i as usize].clone();
         dbg!(&name);
-        {    
+        {
             let frame = self.frame_mut();
-            if let Some(v) = frame.globals.lock().expect("unable to lock globals").get(&name).cloned() {
+            if let Some(v) = frame
+                .globals
+                .lock()
+                .expect("unable to lock globals")
+                .get(&name)
+                .cloned()
+            {
                 frame.stack.push(v);
                 return;
             }
@@ -443,17 +471,25 @@ impl PyVM {
             self.frame_mut().stack.push(v);
             return;
         }
-        
+
         self.throw_err(PyException {
             error: PyError::UndefinedVariableError,
-            msg: format!("unknown variable \'{name}\'. Failed at {} {}", line!(), file!()),
+            msg: format!(
+                "unknown variable \'{name}\'. Failed at {} {}",
+                line!(),
+                file!()
+            ),
         });
     }
 
     fn store_global(&mut self, namei: u8) {
         let val = self.pop();
         let name = self.frame().code.names[namei as usize].clone();
-        self.frame_mut().globals.lock().expect("unable to lock globals").insert(name, val);
+        self.frame_mut()
+            .globals
+            .lock()
+            .expect("unable to lock globals")
+            .insert(name, val);
     }
 
     fn load_global(&mut self, namei: u8) {
@@ -471,16 +507,19 @@ impl PyVM {
                 frame.stack.push(val);
                 return;
             }
-            
+
             if let Some(intrinsic) = IntrinsicFunc::try_get(name) {
                 frame.stack.push(intrinsic.get_funcptr());
                 return;
             }
         }
 
-        self.throw_err( PyException {
-            error: PyError::UndefinedVariableError, 
-            msg: format!("unknown global variable \'{}\'", self.frame().code.names[namei as usize].clone()),
+        self.throw_err(PyException {
+            error: PyError::UndefinedVariableError,
+            msg: format!(
+                "unknown global variable \'{}\'",
+                self.frame().code.names[namei].clone()
+            ),
         });
     }
 
@@ -490,8 +529,8 @@ impl PyVM {
         let attr_name = match self.get_name(namei) {
             Some(s) => s,
             None => {
-                self.throw_err(PyException { 
-                    error: PyError::UndefinedVariableError, 
+                self.throw_err(PyException {
+                    error: PyError::UndefinedVariableError,
                     msg: format!("no name at name[{}] of current codeobj", namei),
                 });
                 unreachable!();
@@ -499,7 +538,7 @@ impl PyVM {
         };
 
         match obj.get_ref().__set_attr__(attr_name, value) {
-            None => {},
+            None => {}
             Some(e) => self.throw_err(e),
         };
     }
@@ -509,17 +548,22 @@ impl PyVM {
         let name = match self.get_name(namei) {
             Some(s) => s,
             None => {
-                self.throw_err(PyException { 
-                    error: PyError::UndefinedVariableError, 
-                    msg: format!("could not find variable at names[{}] in current code_obj. Failed at {} {}", namei, line!(), file!()), 
+                self.throw_err(PyException {
+                    error: PyError::UndefinedVariableError,
+                    msg: format!(
+                        "could not find variable at names[{}] in current code_obj. Failed at {} {}",
+                        namei,
+                        line!(),
+                        file!()
+                    ),
                 });
                 unreachable!();
             }
         };
 
-        match obj.get_ref().__getattr__(&name) {
+        match obj.get_ref().__getattr__(name) {
             Ok(val) => self.push(val),
-            Err(e) => { 
+            Err(e) => {
                 self.throw_err(e);
                 unreachable!();
             }
@@ -537,7 +581,6 @@ impl PyVM {
     }
 
     fn list_append(&mut self, i: u8) {
-
         let top = self.pop();
         let mut objs = vec![];
         match top.clone().get_ref().iter_py() {
@@ -548,28 +591,26 @@ impl PyVM {
             }
             None => {
                 objs.push(top);
-           }
+            }
         }
 
-        let stack_idx = self.frame().stack.len() -1 - i as usize;
+        let stack_idx = self.frame().stack.len() - 1 - i as usize;
         if let Some(stack_i) = self.frame().stack.get(stack_idx).cloned() {
-
             match &mut stack_i.get_ref().obj {
-                Obj::List( list) => {
+                Obj::List(list) => {
                     for o in objs {
                         list.push(o);
                     }
                 }
-                o => self.throw_err(PyException { 
+                o => self.throw_err(PyException {
                     error: PyError::TypeError,
-                    msg: format!(" {:?} at stack[{}] cannot be appended to", o, stack_idx), 
+                    msg: format!(" {:?} at stack[{}] cannot be appended to", o, stack_idx),
                 }),
             }
-        }
-        else {
-            self.throw_err(PyException { 
-                error: PyError::StackError, 
-                msg: format!(" no value at stack[{stack_idx}]"), 
+        } else {
+            self.throw_err(PyException {
+                error: PyError::StackError,
+                msg: format!(" no value at stack[{stack_idx}]"),
             });
         }
     }
@@ -590,8 +631,8 @@ impl PyVM {
         let obj = self.pop();
         match obj.clone().get_ref().iter_py() {
             Some(iter) => self.push(iter.to_pyptr()),
-            None => { 
-                self.throw_err( PyException { 
+            None => {
+                self.throw_err(PyException {
                     error: PyError::TypeError,
                     msg: format!("TypeError: {:?} not iterable", obj),
                 });
@@ -605,16 +646,18 @@ impl PyVM {
             Obj::Iter(it) => {
                 if let Some(item) = it.next() {
                     self.push(item);
-                }
-                else {
+                } else {
                     self.pop();
                     self.frame_mut().ip += delta as usize;
                 }
             }
             e => {
-                self.throw_err(PyException{
+                self.throw_err(PyException {
                     error: PyError::TypeError,
-                    msg: format!("Instrustion: FOR_ITER expected iterator at top of stack not {:?}", e)
+                    msg: format!(
+                        "Instrustion: FOR_ITER expected iterator at top of stack not {:?}",
+                        e
+                    ),
                 });
             }
         }
@@ -707,9 +750,9 @@ impl PyVM {
     }
 
     fn call_function(&mut self, argc: u8) {
-        let args = self.pop_n(argc);
-        let _self_or_null = self.pop();
         let func = self.pop();
+        let _self_or_null = self.pop();
+        let args = self.pop_n(argc);
 
         let fn_ref = func.get_ref();
         let fn_obj: Result<&FuncObj, &FnPtr> = match &fn_ref.obj {
@@ -721,11 +764,12 @@ impl PyVM {
                 return;
             }
             o => {
-                self.throw_err(PyException { error: PyError::TypeError, 
+                self.throw_err(PyException {
+                    error: PyError::TypeError,
                     msg: format!("Obj {:?} is not callable", o),
                 });
                 unreachable!();
-            },
+            }
         };
 
         match fn_obj {
@@ -771,15 +815,18 @@ impl PyVM {
             o => {
                 self.throw_err(PyException {
                     error: PyError::TypeError,
-                    msg: format!("MAKE_FUNCTION expects CodeObj not {:?}. Failed at {} {}", o, line!(), file!()),
+                    msg: format!(
+                        "MAKE_FUNCTION expects CodeObj not {:?}. Failed at {} {}",
+                        o,
+                        line!(),
+                        file!()
+                    ),
                 });
                 unreachable!();
             }
         };
 
-        let func = PyObject::new_function(FuncObj {
-            code: code.into(),
-        });
+        let func = PyObject::new_function(FuncObj { code });
 
         self.frame_mut().stack.push(func.to_ptr());
     }
@@ -795,22 +842,26 @@ impl PyVM {
         };
         dbg!(&name);
 
-        let filepath: String = self.working_dir.to_str().unwrap().to_owned() + "/" + &name + ".py";
+        let filepath: String = self.working_dir.to_str().unwrap().to_owned() + "/" + name + ".py";
         let module = match Interpreter::compile_file(&filepath) {
             Ok(m) => m,
             Err(e) => panic!("can't load module \'{}\': {}", &name, e),
         };
         let mod_obj = module.to_pyptr();
         let mod_name = name.clone();
-        self.frame_mut().globals.lock().expect("unable to lock globals").insert(mod_name, mod_obj);
+        self.frame_mut()
+            .globals
+            .lock()
+            .expect("unable to lock globals")
+            .insert(mod_name, mod_obj);
     }
 
     fn build_class(&mut self, args: Vec<PyObjPtr>) -> PyTypeObj {
-        let code = match &(&args[0]).get_ref().obj {
+        let code = match &(args[0]).get_ref().obj {
             Obj::FunctionObj(c) => c.code.clone(),
             _ => panic!(),
         };
-        let name = match &(&args[1]).get_ref().obj {
+        let name = match &(args[1]).get_ref().obj {
             Obj::Str(s) => s.clone(),
             _ => panic!(),
         };
@@ -819,23 +870,24 @@ impl PyVM {
         let mut stack: Vec<PyObjPtr> = vec![];
         for bc in code.bytecode.iter().copied() {
             match bc {
-                PyBytecode::Resume | PyBytecode::NOP => {},
+                PyBytecode::Resume | PyBytecode::NOP => {}
                 PyBytecode::LoadSmallInt(i) => stack.push(i.to_pyptr()),
                 PyBytecode::LoadName(i) => stack.push(code.names[i as usize].clone().to_pyptr()),
                 PyBytecode::LoadConst(i) => stack.push(code.consts[i as usize].clone()),
-                PyBytecode::StoreName(i) => { fields.insert(code.names[i as usize].clone(), stack.pop().unwrap()); },
+                PyBytecode::StoreName(i) => {
+                    fields.insert(code.names[i as usize].clone(), stack.pop().unwrap());
+                }
                 // _ => panic!("Instruction not good for "),
-                _ => {},
+                _ => {}
             }
         }
 
         PyTypeObj {
-            name: name,
+            name,
             static_attribs: fields,
-            code: code,
+            code,
         }
     }
-
 }
 
 #[allow(dead_code)]
@@ -851,10 +903,9 @@ pub enum IntrinsicFunc {
 }
 
 impl IntrinsicFunc {
-
     pub const SHIFT_AMOUNT: u8 = 122;
 
-    pub fn call(&self, args: &Vec<PyObjPtr>) -> PyObjPtr {
+    pub fn call(&self, args: &[PyObjPtr]) -> PyObjPtr {
         match self {
             IntrinsicFunc::Print => IntrinsicFunc::print(args),
             IntrinsicFunc::Input => IntrinsicFunc::input(args),
@@ -863,7 +914,7 @@ impl IntrinsicFunc {
         }
     }
 
-    pub fn try_get<'a, T: AsRef<str>>(name: T) -> Option<IntrinsicFunc> {
+    pub fn try_get<T: AsRef<str>>(name: T) -> Option<IntrinsicFunc> {
         let func = match name.as_ref() {
             "print" => IntrinsicFunc::Print,
             "input" => IntrinsicFunc::Input,
@@ -876,26 +927,30 @@ impl IntrinsicFunc {
 
     pub fn get_funcptr(&self) -> PyObjPtr {
         match self {
-            &IntrinsicFunc::Print => FnPtr{
-                ptr: IntrinsicFunc::print, 
+            IntrinsicFunc::Print => FnPtr {
+                ptr: IntrinsicFunc::print,
                 name: "print".into(),
-            }.to_pyptr(),
-            &IntrinsicFunc::Input => FnPtr{
-                    ptr: IntrinsicFunc::input, 
-                    name: "input".into(),
-                }.to_pyptr(),
-            &IntrinsicFunc::Range => FnPtr{
-                    ptr: IntrinsicFunc::range, 
-                    name: "range".into(),
-                }.to_pyptr(),
-            &IntrinsicFunc::Exit => FnPtr{
-                    ptr: IntrinsicFunc::exit, 
-                    name: "exit".into(),
-                }.to_pyptr(),
+            }
+            .to_pyptr(),
+            IntrinsicFunc::Input => FnPtr {
+                ptr: IntrinsicFunc::input,
+                name: "input".into(),
+            }
+            .to_pyptr(),
+            IntrinsicFunc::Range => FnPtr {
+                ptr: IntrinsicFunc::range,
+                name: "range".into(),
+            }
+            .to_pyptr(),
+            IntrinsicFunc::Exit => FnPtr {
+                ptr: IntrinsicFunc::exit,
+                name: "exit".into(),
+            }
+            .to_pyptr(),
         }
     }
- 
-    fn print(objs: &Vec<PyObjPtr>) -> PyObjPtr {
+
+    fn print(objs: &[PyObjPtr]) -> PyObjPtr {
         for o in objs {
             print!("{} ", o.get_ref().__str__());
         }
@@ -903,7 +958,7 @@ impl IntrinsicFunc {
         PyObject::none()
     }
 
-    fn input(words: &Vec<PyObjPtr>) -> PyObjPtr {
+    fn input(words: &[PyObjPtr]) -> PyObjPtr {
         if words.len() != 1 {
             panic!();
         }
@@ -916,9 +971,9 @@ impl IntrinsicFunc {
         (input.trim().to_string()).to_pyptr()
     }
 
-    fn range(limits: &Vec<PyObjPtr>) -> PyObjPtr {
+    fn range(limits: &[PyObjPtr]) -> PyObjPtr {
         let (start, end, inc) = {
-            let s = match limits.get(0) {
+            let s = match limits.first() {
                 Some(o) => o.get_ref().__integer__(),
                 None => None,
             };
@@ -940,7 +995,7 @@ impl IntrinsicFunc {
         //Some(objs.to_arc())
     }
 
-    fn exit(args: &Vec<PyObjPtr>) -> PyObjPtr {
+    fn exit(args: &[PyObjPtr]) -> PyObjPtr {
         let mut exit_code = 0;
         if let Some(code) = args.first() {
             exit_code = code.get_ref().__int__() as i32;
@@ -956,35 +1011,38 @@ impl IntrinsicFunc {
         let mut map = HashMap::new();
         map.insert(
             "print".to_string(),
-            FnPtr{
-                ptr: IntrinsicFunc::print, 
+            FnPtr {
+                ptr: IntrinsicFunc::print,
                 name: "print".into(),
-            }.to_pyptr()
+            }
+            .to_pyptr(),
         );
-        map.insert( 
+        map.insert(
             "input".to_string(),
-            FnPtr{
-                ptr: IntrinsicFunc::input, 
+            FnPtr {
+                ptr: IntrinsicFunc::input,
                 name: "input".into(),
-            }.to_pyptr()
+            }
+            .to_pyptr(),
         );
-        map.insert( 
+        map.insert(
             "range".to_string(),
-            FnPtr{
-                ptr: IntrinsicFunc::range, 
+            FnPtr {
+                ptr: IntrinsicFunc::range,
                 name: "range".into(),
-            }.to_pyptr()
+            }
+            .to_pyptr(),
         );
         map.insert(
             "exit".to_string(),
-            FnPtr{
-                ptr: IntrinsicFunc::exit, 
+            FnPtr {
+                ptr: IntrinsicFunc::exit,
                 name: "exit".into(),
-            }.to_pyptr(),
+            }
+            .to_pyptr(),
         );
         map
     }
-
 }
 
 impl std::convert::From<u8> for IntrinsicFunc {

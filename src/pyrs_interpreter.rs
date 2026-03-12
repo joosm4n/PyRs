@@ -9,10 +9,10 @@ use crate::{
     pyrs_codeobject::{PyCodeObj, PyCompileCtx},
     pyrs_error::{PyError, PyException, PyPanicHandle},
     pyrs_parsing::{Expression, Keyword},
+    pyrs_pyobject::PyObjPtr,
     pyrs_std::{FnPtr, Funcs},
     pyrs_utils::PyUtils,
     pyrs_vm::PyVM,
-    pyrs_pyobject::PyObjPtr,
 };
 
 const PYRS_MAJOR_VERSION: u8 = 0;
@@ -27,7 +27,11 @@ pub struct PyRsVersion {
 }
 impl PyRsVersion {
     pub const fn get() -> Self {
-        PyRsVersion { major: PYRS_MAJOR_VERSION, minor: PYRS_MINOR_VERSION, patch: PYRS_PATCH_VERSION }
+        PyRsVersion {
+            major: PYRS_MAJOR_VERSION,
+            minor: PYRS_MINOR_VERSION,
+            patch: PYRS_PATCH_VERSION,
+        }
     }
 }
 impl std::fmt::Display for PyRsVersion {
@@ -349,30 +353,40 @@ impl Interpreter {
                 None => {
                     return Err(PyException {
                         error: PyError::FileError,
-                        msg: format!("Failed to complile \'{filepath}\'. Failed at {} line {}", file!(), line!()),
+                        msg: format!(
+                            "Failed to complile \'{filepath}\'. Failed at {} line {}",
+                            file!(),
+                            line!()
+                        ),
                     });
                 }
             },
             None => {
                 return Err(PyException {
                     error: PyError::FileError,
-                    msg: format!("Failed to complile \'{filepath}\'. Failed at {} line {}", file!(), line!()),
+                    msg: format!(
+                        "Failed to complile \'{filepath}\'. Failed at {} line {}",
+                        file!(),
+                        line!()
+                    ),
                 });
             }
         }
 
         let contents = match std::fs::read_to_string(filepath) {
             Ok(f) => f,
-            Err(e) => {
-                return Err(PyException {
-                    error: PyError::FileError,
-                    msg: format!("Failed to complile \'{filepath}\'. Fileread error: {e}. Failed at {} line {}", file!(), line!()),
-                })
-            }
+            Err(e) => return Err(PyException {
+                error: PyError::FileError,
+                msg: format!(
+                    "Failed to complile \'{filepath}\'. Fileread error: {e}. Failed at {} line {}",
+                    file!(),
+                    line!()
+                ),
+            }),
         };
 
         let parsed = Expression::from_multiline(contents.as_str());
-        dbg!(&parsed);
+        // dbg!(&parsed);
         //println!("Exprs: \n{}", Expression::to_string_vec(&parsed));
         for expr in parsed {
             PyBytecode::from_expr(expr, &mut code);

@@ -1,9 +1,9 @@
 use crate::{
     pyrs_error::{PyError, PyException},
     pyrs_obj::{Obj, ToObj},
-    pyrs_pyobject::{PyObject, PyObjPtr}
+    pyrs_pyobject::{PyObjPtr, PyObject},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use rug::Integer;
 
@@ -12,20 +12,17 @@ pub trait Import {
     fn try_get(name: &str) -> Option<FnPtr>;
 }
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, PartialEq)]
 pub struct FnPtr {
-    pub ptr: fn(&Vec<PyObjPtr>) -> PyObjPtr,
+    pub ptr: fn(&[PyObjPtr]) -> PyObjPtr,
     pub name: String,
 }
 
-impl PartialEq for FnPtr {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-    }
-    fn ne(&self, other: &Self) -> bool {
-        self.name != other.name
-    }
-}
+// impl PartialEq for FnPtr {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.name == other.name
+//     }
+// }
 impl PartialOrd for FnPtr {
     fn partial_cmp(&self, _other: &Self) -> Option<std::cmp::Ordering> {
         None
@@ -60,7 +57,7 @@ impl Funcs {
         return func_map;
     }
 
-    pub fn print(args: &Vec<PyObjPtr>) -> PyObjPtr {
+    pub fn print(args: &[PyObjPtr]) -> PyObjPtr {
         let mut msg = String::new();
         for arg in args {
             msg += &(format!("{} ", *arg.get_ref()).as_str());
@@ -69,7 +66,7 @@ impl Funcs {
         PyObjPtr::none()
     }
 
-    pub fn print_ret(args: &Vec<PyObjPtr>) -> PyObjPtr {
+    pub fn print_ret(args: &[PyObjPtr]) -> PyObjPtr {
         let mut msg = String::new();
         for arg in args {
             msg += &(format!("{} ", *arg.get_ref()).as_str());
@@ -158,7 +155,7 @@ impl RangeObj {
 
     pub fn to_vec(&self) -> Vec<PyObjPtr> {
         let mut objs = vec![];
-        
+
         let r = self.clone();
         let start: Integer;
         let end: Integer;
@@ -238,7 +235,7 @@ impl Import for Maths {
 
 #[allow(dead_code)]
 impl Maths {
-    pub fn sin(args: &Vec<PyObjPtr>) -> PyObjPtr {
+    pub fn sin(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{sin}} only takes 1 argument");
         }
@@ -255,7 +252,7 @@ impl Maths {
         PyObject::new_float(val.sin()).to_ptr()
     }
 
-    pub fn cos(args: &Vec<PyObjPtr>) -> PyObjPtr {
+    pub fn cos(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{cos}} only takes 1 argument");
         }
@@ -272,7 +269,7 @@ impl Maths {
         PyObject::new_float(val.cos()).to_ptr()
     }
 
-    pub fn tan(args: &Vec<PyObjPtr>) -> PyObjPtr {
+    pub fn tan(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{tan}} only takes 1 argument");
         }
@@ -289,7 +286,7 @@ impl Maths {
         PyObject::new_float(val.tan()).to_ptr()
     }
 
-    pub fn sqrt(args: &Vec<PyObjPtr>) -> PyObjPtr {
+    pub fn sqrt(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{sqrt}} only takes 1 argument");
         }
@@ -306,7 +303,7 @@ impl Maths {
         PyObject::new_float(val.sqrt()).to_ptr()
     }
 
-    pub fn abs(args: &Vec<PyObjPtr>) -> PyObjPtr {
+    pub fn abs(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{abs}} only takes 1 argument");
         }
@@ -323,7 +320,7 @@ impl Maths {
         PyObject::new_float(val.abs()).to_ptr()
     }
 
-    pub fn ln(args: &Vec<PyObjPtr>) -> PyObjPtr {
+    pub fn ln(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{ln}} only takes 1 argument");
         }
@@ -340,7 +337,7 @@ impl Maths {
         PyObject::new_float(val.ln()).to_ptr()
     }
 
-    pub fn log10(args: &Vec<PyObjPtr>) -> PyObjPtr {
+    pub fn log10(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{log10}} only takes 1 argument");
         }
@@ -357,7 +354,7 @@ impl Maths {
         PyObject::new_float(val.log10()).to_ptr()
     }
 
-    pub fn exp(args: &Vec<PyObjPtr>) -> PyObjPtr {
+    pub fn exp(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{exp}} only takes 1 argument");
         }

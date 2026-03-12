@@ -1,15 +1,12 @@
 use crate::{
-    pyrs_codeobject::{PyTypeObj, PyCodeObj, PyCompileCtx},
-    pyrs_obj::{ToObj},
+    pyrs_codeobject::{PyCodeObj, PyCompileCtx, PyTypeObj},
+    pyrs_obj::ToObj,
     pyrs_parsing::{Expression, Keyword, Op},
+    pyrs_pyobject::{AttrDict, PyObjPtr, PyObject},
     pyrs_vm::IntrinsicFunc,
-    pyrs_pyobject::{PyObject, PyObjPtr, AttrDict},
 };
 
-use std::{ 
-    sync::{Arc},
-    collections::{HashMap},
-};
+use std::{collections::HashMap, sync::Arc};
 // Format: offset INSTRUCTION argument (value)
 // 0 LOAD_CONST 0 (0)      # Load constant at index 0, which is the integer 0
 // 2 STORE_NAME 0 (i)      # Store the top stack value into variable name at index 0 (variable "i")
@@ -96,7 +93,6 @@ pub enum PyBytecode {
 }
 
 impl PyBytecode {
-
     pub fn from_expr(expr: Expression, context: &mut PyCompileCtx) {
         // println!("Compiling: {}", expr.to_string());
         match expr {
@@ -104,22 +100,19 @@ impl PyBytecode {
                 let load_name = context.add_varname_load(x);
                 context.push(load_name);
             }
-            Expression::Atom(a) => {
-                match a.parse::<u8>() {
-                    Ok(small_int) => {
-                        context.push(PyBytecode::LoadSmallInt(small_int));
-                    }
-                    Err(_) => {
-                        let i = context.add_const(a.to_pyptr());
-                        context.push(PyBytecode::LoadConst(i));
-                    } 
+            Expression::Atom(a) => match a.parse::<u8>() {
+                Ok(small_int) => {
+                    context.push(PyBytecode::LoadSmallInt(small_int));
                 }
-            }
+                Err(_) => {
+                    let i = context.add_const(a.to_pyptr());
+                    context.push(PyBytecode::LoadConst(i));
+                }
+            },
             Expression::Operation(op, args) => {
                 let mut name = String::new();
                 match op {
                     Op::Equals => {
-
                         let mut attr: Option<Expression> = None;
                         for (idx, a) in args.into_iter().enumerate() {
                             if idx == 0 {
@@ -127,7 +120,7 @@ impl PyBytecode {
                                     Expression::Ident(ident) => {
                                         name = ident;
                                         let _namei = context.add_varname(name.clone());
-                                    },
+                                    }
                                     dot @ Expression::Operation(Op::Dot, _) => attr = Some(dot),
                                     e => panic!("SyntaxError: invalid expr {e}"),
                                 };
@@ -140,8 +133,8 @@ impl PyBytecode {
                                             PyBytecode::from_expr(a, context);
                                         }
                                         let namei = context.add_varname(fn_name);
-                                        context.push(PyBytecode::LoadFast(namei));
-
+                                        context.push(PyBytecode::PushNull);
+                                        context.push(PyBytecode::LoadName(namei));
                                         context.push(PyBytecode::CallFunction(argc as u8));
                                     }
                                     _ => PyBytecode::from_expr(a, context),
@@ -241,10 +234,10 @@ impl PyBytecode {
                                 0 => {
                                     let namei = context.add_varname_load(a.get_value_string());
                                     context.push(namei);
-                                },
+                                }
                                 1 => {
                                     match a {
-                                        c @ Expression::Call(_, _) => { 
+                                        c @ Expression::Call(_, _) => {
                                             PyBytecode::from_expr(c, context);
                                         }
                                         Expression::Ident(ident) => {
@@ -298,7 +291,7 @@ impl PyBytecode {
                     context.push(PyBytecode::PushNull);
                 } else {
                     let namei = context.add_varname(name);
-                    context.push(PyBytecode::LoadFast(namei));
+                    context.push(PyBytecode::LoadName(namei));
                     context.push(PyBytecode::PushNull);
                 }
 
@@ -323,7 +316,6 @@ impl PyBytecode {
                         panic!("Shouldn't have a stand alone elif/else expression")
                     }
                     Keyword::If => {
-
                         let parts = Expression::split_if_elif_else(args, body);
 
                         let mut elif_else_parts = vec![];
@@ -470,7 +462,7 @@ impl PyBytecode {
                     }
                     Keyword::Class => {
                         let class = PyBytecode::compile_class(args, body, &context);
-                        let class_name= class.name.clone();
+                        let class_name = class.name.clone();
                         let code_namei = context.add_const(class.to_pyptr());
                         let namei = context.add_const(class_name.clone().to_pyptr());
                         context.push(PyBytecode::LoadBuildClass);
@@ -572,8 +564,11 @@ impl PyBytecode {
         }
     }
 
-    fn compile_class(args: Vec<Expression>, body: Vec<Expression>, parent_context: &PyCompileCtx) -> PyTypeObj {
-        
+    fn compile_class(
+        args: Vec<Expression>,
+        body: Vec<Expression>,
+        parent_context: &PyCompileCtx,
+    ) -> PyTypeObj {
         //dbg!(&args);
         let name = match args.first().unwrap() {
             Expression::Ident(ident) => ident.clone(),
@@ -608,9 +603,8 @@ impl PyBytecode {
                     class_fields.insert(member_name, PyObjPtr::none());
                 }
                 Expression::Keyword(Keyword::Def, conds, body) => {
-
                     let fn_code =
-                            PyBytecode::compile_fn(Expression::Keyword(Keyword::Def, conds, body));
+                        PyBytecode::compile_fn(Expression::Keyword(Keyword::Def, conds, body));
                     let name = fn_code.name.clone();
                     let idx = ctx.add_const(fn_code.to_pyptr());
 
@@ -627,7 +621,7 @@ impl PyBytecode {
 
         PyTypeObj {
             name: name,
-            static_attribs: AttrDict{0: class_fields},
+            static_attribs: AttrDict { 0: class_fields },
             code: Arc::new(ctx.finish()),
         }
     }

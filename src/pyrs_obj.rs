@@ -59,12 +59,12 @@ pub enum Obj {
     // Mapping
     // - dict (HashMap)
 }
- /*
- pub fn attrs_obj() -> AttrDict {
-    let map: AttrDict =  AttrDict::new();
-    return map;
-}
-*/
+
+// pub fn attrs_obj() -> AttrDict {
+//     let map: AttrDict =  AttrDict::new();
+//     return map;
+// }
+
     // dir(object) = 
     // ['__class__', '__delattr__', '__dir__', '__doc__', '__eq__', '__format__', 
     // '__ge__', '__getattribute__', '__getstate__', '__gt__', '__hash__', '__init__', 
@@ -579,7 +579,7 @@ impl PyObject {
         Ok(ret.into())
     }
 
-    pub fn __call__(&self, objs: &Vec<PyObjPtr>) -> Result<PyObjPtr, PyException> {
+    pub fn __call__(&self, objs: &[PyObjPtr]) -> Result<PyObjPtr, PyException> {
         match &self.obj {
             Obj::FuncPtr(fn_ptr) => Ok((fn_ptr.ptr)(objs)),
             _ => Err(PyException {

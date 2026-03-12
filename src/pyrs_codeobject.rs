@@ -1,13 +1,14 @@
 use crate::{
     pyrs_bytecode::PyBytecode,
-    pyrs_obj::{Obj, ToObj}, pyrs_utils::PyUtils,
-    pyrs_pyobject::{PyObject, PyObjPtr, AttrDict},
+    pyrs_obj::{Obj, ToObj},
+    pyrs_pyobject::{AttrDict, PyObjPtr, PyObject},
+    pyrs_utils::PyUtils,
 };
 
 use std::{
+    collections::HashMap,
     ops::{Deref, DerefMut},
-    sync::{Arc},
-    collections::{HashMap},
+    sync::Arc,
 };
 
 #[derive(Debug, Clone, PartialEq)]

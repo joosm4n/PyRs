@@ -1,10 +1,15 @@
 use crate::{
-    pyrs_codeobject::{FuncObj, PyClassInst, PyCodeObj, PyTypeObj}, pyrs_error::PyException, pyrs_obj::{Obj, PyObjIter}, pyrs_std::{FnPtr, RangeObj}
-};
-use std::{
-    collections::HashMap, ops::{Deref, DerefMut}, sync::{Arc, Mutex, MutexGuard, LazyLock}
+    pyrs_codeobject::{FuncObj, PyClassInst, PyCodeObj, PyTypeObj},
+    pyrs_error::PyException,
+    pyrs_obj::{Obj, PyObjIter},
+    pyrs_std::{FnPtr, RangeObj},
 };
 use rug::Integer;
+use std::{
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+    sync::{Arc, LazyLock, Mutex, MutexGuard},
+};
 
 #[derive(Debug, Clone)]
 pub struct PyObject {
@@ -17,7 +22,7 @@ pub struct PyObject {
 pub struct AttrDict(pub HashMap<String, PyObjPtr>);
 
 #[derive(Debug, Clone)]
-pub enum PyObjPtr{
+pub enum PyObjPtr {
     Const(Arc<PyObject>),
     Mut(Arc<Mutex<PyObject>>),
 }
@@ -28,139 +33,137 @@ pub enum PyObjRef<'a> {
     Mut(MutexGuard<'a, PyObject>),
 }
 
-static PYOBJECT_NONE: LazyLock<PyObjPtr> = LazyLock::new(|| 
-    PyObjPtr::Const(
-        Arc::new(PyObject{
-            obj: Obj::None,
-            attrs: AttrDict::new(),
-            local_attrs: AttrDict::new(),
-        })
-));
+static PYOBJECT_NONE: LazyLock<PyObjPtr> = LazyLock::new(|| {
+    PyObjPtr::Const(Arc::new(PyObject {
+        obj: Obj::None,
+        attrs: AttrDict::new(),
+        local_attrs: AttrDict::new(),
+    }))
+});
 
 impl PyObject {
-
     pub fn none() -> PyObjPtr {
         PYOBJECT_NONE.clone()
     }
 
     pub fn new_int(value: Integer) -> Self {
-        PyObject { 
-            obj: Obj::Int(value), 
+        PyObject {
+            obj: Obj::Int(value),
             attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_float(value: f64) -> Self {
-        PyObject { 
+        PyObject {
             obj: Obj::Float(value),
             attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_str<T: Into<String>>(s: T) -> Self {
-        PyObject { 
-            obj: Obj::Str(s.into()), 
-            attrs: AttrDict::new(), 
+        PyObject {
+            obj: Obj::Str(s.into()),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
 
     pub fn new_bool(b: bool) -> Self {
-        PyObject { 
-            obj: Obj::Bool(b), 
-            attrs: AttrDict::new(), 
+        PyObject {
+            obj: Obj::Bool(b),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
 
     pub fn new_exception(ex: PyException) -> Self {
-        PyObject { 
-            obj: Obj::Except(ex), 
-            attrs: AttrDict::new(), 
+        PyObject {
+            obj: Obj::Except(ex),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_list(vec: Vec<PyObjPtr>) -> Self {
         PyObject {
-            obj: Obj::List(vec), 
-            attrs: AttrDict::new(), 
+            obj: Obj::List(vec),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_tuple(vec: Vec<PyObjPtr>) -> Self {
         PyObject {
-            obj: Obj::Tuple(vec), 
-            attrs: AttrDict::new(), 
+            obj: Obj::Tuple(vec),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_set(vec: Vec<PyObjPtr>) -> Self {
         PyObject {
-            obj: Obj::Set(vec), 
-            attrs: AttrDict::new(), 
+            obj: Obj::Set(vec),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_type(ty: PyTypeObj) -> Self {
         PyObject {
-            obj: Obj::Type(ty), 
-            attrs: AttrDict::new(), 
+            obj: Obj::Type(ty),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_fnptr(f: FnPtr) -> Self {
         PyObject {
-            obj: Obj::FuncPtr(f), 
-            attrs: AttrDict::new(), 
+            obj: Obj::FuncPtr(f),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_iter(it: PyObjIter) -> Self {
         PyObject {
-            obj: Obj::Iter(it), 
-            attrs: AttrDict::new(), 
+            obj: Obj::Iter(it),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_codeobj(c: PyCodeObj) -> Self {
         PyObject {
-            obj: Obj::Code(Arc::new(c)), 
-            attrs: AttrDict::new(), 
+            obj: Obj::Code(Arc::new(c)),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_codeobj_arc(c: Arc<PyCodeObj>) -> Self {
         PyObject {
-            obj: Obj::Code(c), 
-            attrs: AttrDict::new(), 
+            obj: Obj::Code(c),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_classinst(c: PyClassInst) -> Self {
         PyObject {
-            obj: Obj::ClassInst(c), 
-            attrs: AttrDict::new(), 
+            obj: Obj::ClassInst(c),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_function(f: FuncObj) -> Self {
         PyObject {
-            obj: Obj::FunctionObj(f), 
-            attrs: AttrDict::new(), 
+            obj: Obj::FunctionObj(f),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_buildclass() -> Self {
         PyObject {
-            obj: Obj::BuildClass, 
-            attrs: AttrDict::new(), 
+            obj: Obj::BuildClass,
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
     pub fn new_range(r: RangeObj) -> Self {
         PyObject {
-            obj: Obj::Range(r), 
-            attrs: AttrDict::new(), 
+            obj: Obj::Range(r),
+            attrs: AttrDict::new(),
             local_attrs: AttrDict::new(),
         }
     }
@@ -174,7 +177,7 @@ impl PyObject {
             Obj::Int(_) => PyObjPtr::Const(Arc::new(self)),
             Obj::FuncPtr(_) => PyObjPtr::Const(Arc::new(self)),
             Obj::Except(_) => PyObjPtr::Const(Arc::new(self)),
-            Obj::List(_) => PyObjPtr::Mut(Arc::new(Mutex::new(self))), 
+            Obj::List(_) => PyObjPtr::Mut(Arc::new(Mutex::new(self))),
             Obj::Set(_) => PyObjPtr::Mut(Arc::new(Mutex::new(self))),
             Obj::Tuple(_) => PyObjPtr::Mut(Arc::new(Mutex::new(self))),
             Obj::Range(_) => PyObjPtr::Const(Arc::new(self)),
@@ -197,7 +200,7 @@ impl std::hash::Hash for PyObject {
 
 impl AttrDict {
     pub fn new() -> Self {
-        AttrDict{0: HashMap::new()}
+        AttrDict { 0: HashMap::new() }
     }
 }
 impl Deref for AttrDict {
@@ -224,9 +227,7 @@ impl PyObjPtr {
     pub fn get_ref(&self) -> PyObjRef<'_> {
         match self {
             PyObjPtr::Const(v) => PyObjRef::Const(v.as_ref()),
-            PyObjPtr::Mut(v) => PyObjRef::Mut(
-                v.as_ref().lock().expect("unable to lock mutex")
-            ),
+            PyObjPtr::Mut(v) => PyObjRef::Mut(v.as_ref().lock().expect("unable to lock mutex")),
         }
     }
     pub fn ptr_eq(lhs: &Self, rhs: &Self) -> bool {
@@ -235,6 +236,12 @@ impl PyObjPtr {
             (PyObjPtr::Mut(l), PyObjPtr::Mut(r)) => Arc::ptr_eq(l, r),
             _ => false,
         }
+    }
+}
+
+impl std::fmt::Display for PyObjPtr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", *self.get_ref())
     }
 }
 
@@ -268,4 +275,3 @@ impl<'a> DerefMut for PyObjRef<'a> {
         }
     }
 }
-
