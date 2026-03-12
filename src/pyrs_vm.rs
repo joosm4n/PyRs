@@ -4,7 +4,6 @@ use std::{
     io::{self, Write},
     path::PathBuf,
     sync::{Arc, Mutex},
-    usize,
 };
 
 use crate::{
@@ -56,7 +55,7 @@ impl PyVM {
             error_state: false,
             debug_mode: false,
             null: PyObjPtr::none(),
-            working_dir: std::env::current_dir().unwrap_or(PathBuf::new()),
+            working_dir: std::env::current_dir().unwrap_or_default(),
         }
     }
 
