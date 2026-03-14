@@ -53,6 +53,7 @@ pub struct Interpreter {
     //cache: Expression,
     last_line: String,
     debug_mode: bool,
+    step_mode: bool,
     repr: bool,
 
     vm: PyVM,
@@ -70,6 +71,7 @@ pub enum InterpreterFlags {
     Debug,
     AnyFile,
     Compile,
+    StepMode,
 }
 pub enum InterpreterCommand {
     Error(&'static str),
@@ -79,8 +81,8 @@ pub enum InterpreterCommand {
     PrintHelp,
 }
 
-impl Interpreter {
-    pub fn new() -> Self {
+impl Default for Interpreter {
+    fn default() -> Self {
         Interpreter {
             variables: HashMap::new(),
             running: true,
@@ -91,15 +93,27 @@ impl Interpreter {
             block_stack: Vec::new(),
             last_line: String::new(),
             debug_mode: false,
+            step_mode: false,
             repr: false,
             vm: PyVM::new(),
-            working_dir: std::env::current_dir().unwrap_or(PathBuf::new()),
+            working_dir: std::env::current_dir().unwrap_or_default(),
         }
+    }
+}
+
+impl Interpreter {
+    pub fn new() -> Self {
+        Interpreter::default()
     }
 
     pub fn set_debug_mode(&mut self, debug: bool) {
         self.debug_mode = debug;
         self.vm.set_debug_mode(debug);
+    }
+
+    pub fn set_step_mode(&mut self, step: bool) {
+        self.step_mode = step;
+        self.vm.set_step_mode(step);
     }
 
     pub fn set_working_dir(&mut self, path: &str) {
@@ -130,6 +144,8 @@ impl Interpreter {
                 Compiles the file
             -d, --debug
                 Runs in debug mode, this means it will print various things inc stack traces or parsed exprs
+            -s, --step
+                Runs in step mode, meaning you have to press enter to step through each bytecode instruction
 
         "#;
         println!("{help}");
@@ -179,7 +195,7 @@ impl Interpreter {
         }
     }
 
-    pub fn parse_args(argv: &Vec<String>) -> Vec<InterpreterCommand> {
+    pub fn parse_args(argv: &[String]) -> Vec<InterpreterCommand> {
         let arg_err = "Invalid args. \nEg: cargo run -- test.py \n or: cargo run -- -a test.x";
 
         let mut commands = vec![];
@@ -197,6 +213,7 @@ impl Interpreter {
                     "-d" | "--debug" => flags.push(InterpreterFlags::Debug),
                     "-c" | "--compile" => flags.push(InterpreterFlags::Compile),
                     "-h" | "--help" => commands.push(InterpreterCommand::PrintHelp),
+                    "-s" | "--step" => flags.push(InterpreterFlags::StepMode),
                     a if a.contains('.') => {
                         let mut file_flags = vec![];
                         file_flags.append(&mut flags);
@@ -237,43 +254,41 @@ impl Interpreter {
             line = line_before;
         }
 
-        let expr = Expression::from_line(&line);
+        let expr = Expression::from_line(line);
         if line.trim().ends_with(":") {
             if let Expression::Keyword(_, _, _) = expr {
                 self.start_block(line_indent + 4, expr);
             } else {
                 panic!("Only keywords can start blocks");
             }
+        } else if self.block_stack.is_empty() {
+            self.process_expr(&expr); // keyword args are in
         } else {
-            if self.block_stack.is_empty() {
-                self.process_expr(&expr); // keyword args are in
-            } else {
-                self.push_to_current_block(expr);
-            }
+            self.push_to_current_block(expr);
         }
     }
 
     fn process_expr(&mut self, expr: &Expression) {
-        match expr {
-            Expression::Keyword(keyword, _conds, args) => match keyword {
-                Keyword::If => match self.eval_expr(&expr) {
+        if let Expression::Keyword(keyword, _conds, args) = expr {
+            match keyword {
+                Keyword::If => match self.eval_expr(expr) {
                     Ok(cond) => {
                         if cond.get_ref().__bool__() {
                             for a in args {
-                                self.process_expr(&a);
+                                self.process_expr(a);
                             }
                         }
                     }
                     Err(e) => e.print(),
                 },
                 Keyword::While => loop {
-                    match self.eval_expr(&expr) {
+                    match self.eval_expr(expr) {
                         Ok(cond) => {
                             if !cond.get_ref().__bool__() {
                                 break;
                             }
                             for a in args {
-                                self.process_expr(&a);
+                                self.process_expr(a);
                             }
                         }
                         Err(e) => {
@@ -283,8 +298,7 @@ impl Interpreter {
                     }
                 },
                 _ => unimplemented!(),
-            },
-            _ => {}
+            }
         }
 
         if let Some((var_name, lhs)) = expr.is_assign() {
@@ -300,7 +314,7 @@ impl Interpreter {
             return;
         }
 
-        let res = self.eval_expr(&expr);
+        let res = self.eval_expr(expr);
         match res {
             Ok(obj) => {
                 if self.repr && obj != PyObjPtr::none() {
@@ -375,14 +389,16 @@ impl Interpreter {
 
         let contents = match std::fs::read_to_string(filepath) {
             Ok(f) => f,
-            Err(e) => return Err(PyException {
-                error: PyError::FileError,
-                msg: format!(
+            Err(e) => {
+                return Err(PyException {
+                    error: PyError::FileError,
+                    msg: format!(
                     "Failed to complile \'{filepath}\'. Fileread error: {e}. Failed at {} line {}",
                     file!(),
                     line!()
                 ),
-            }),
+                })
+            }
         };
 
         let parsed = Expression::from_multiline(contents.as_str());
@@ -414,7 +430,7 @@ impl Interpreter {
         let pyc_name = format!("__pycache__/{}.{}.pyc", name, PyRsVersion::get());
         let mut file = fs::File::create(&pyc_name)?;
 
-        let contents = format!("{}", codeobj.serialize(0));
+        let contents = codeobj.serialize(0).to_string();
         file.write_all(contents.as_bytes())?;
 
         println!("Compiled: {filename} into {pyc_name}");

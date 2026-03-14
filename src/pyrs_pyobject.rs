@@ -21,7 +21,7 @@ pub struct PyObject {
 #[derive(Debug, Clone)]
 pub struct AttrDict(pub HashMap<String, PyObjPtr>);
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum PyObjPtr {
     Const(Arc<PyObject>),
     Mut(Arc<Mutex<PyObject>>),
@@ -242,6 +242,12 @@ impl PyObjPtr {
 impl std::fmt::Display for PyObjPtr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", *self.get_ref())
+    }
+}
+
+impl std::fmt::Debug for PyObjPtr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Ptr({:?})", *self.get_ref())
     }
 }
 

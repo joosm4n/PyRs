@@ -283,21 +283,20 @@ impl PyBytecode {
             }
             Expression::Call(name, args) => {
                 let argc = args.len();
-                // dbg!(&args);
-
-                if IntrinsicFunc::try_get(&name).is_some() {
-                    let namei = context.add_name(name);
-                    context.push(PyBytecode::LoadGlobal(namei));
-                    context.push(PyBytecode::PushNull);
-                } else {
-                    let namei = context.add_varname(name);
-                    context.push(PyBytecode::LoadName(namei));
-                    context.push(PyBytecode::PushNull);
-                }
 
                 for a in args {
                     //dbg!(&a);
                     PyBytecode::from_expr(a, context);
+                }
+
+                if IntrinsicFunc::try_get(&name).is_some() {
+                    let namei = context.add_name(name);
+                    context.push(PyBytecode::PushNull);
+                    context.push(PyBytecode::LoadGlobal(namei));
+                } else {
+                    let namei = context.add_varname(name);
+                    context.push(PyBytecode::PushNull);
+                    context.push(PyBytecode::LoadName(namei));
                 }
 
                 context.push(PyBytecode::CallFunction(argc as u8));
@@ -621,12 +620,12 @@ impl PyBytecode {
 
         PyTypeObj {
             name,
-            static_attribs: AttrDict { 0: class_fields },
+            static_attribs: AttrDict(class_fields),
             code: Arc::new(ctx.finish()),
         }
     }
 
-    pub fn to_string(vec: &Vec<Self>) -> String {
+    pub fn to_string(vec: &[Self]) -> String {
         let mut string = String::new();
         for (idx, line) in vec.iter().enumerate() {
             string.push_str(format!("({idx}) \t\t{:?}\n", line).as_str());
@@ -649,61 +648,61 @@ impl PyBytecode {
 
     pub const fn get_type_str_slice(&self) -> &[u8; PyBytecode::TYPE_STR_LEN] {
         match self {
-            PyBytecode::NOP =>                  b"NOP_____________",
-            PyBytecode::ImportName(_) =>        b"ImportName______",
-            PyBytecode::ImportFrom(_) =>        b"ImportFrom______",
-            PyBytecode::PopIter =>              b"PopIter_________",
-            PyBytecode::PopTop =>               b"PopTop__________",
-            PyBytecode::EndFor =>               b"EndFor__________",
-            PyBytecode::Copy(_) =>              b"Copy____________",
-            PyBytecode::Swap(_) =>              b"Swap____________",             
-            PyBytecode::UnaryNegative =>        b"UnaryNegative___",        
-            PyBytecode::UnaryInvert =>          b"UnaryInvert_____",
-            PyBytecode::UnaryNot =>             b"UnaryNot________",
-            PyBytecode::ToBool =>               b"ToBool__________",
-            PyBytecode::BinaryOp(_) =>          b"BinaryOp________",
-            PyBytecode::BinaryAdd =>            b"BinaryAdd_______",
-            PyBytecode::BinaryMultiply =>       b"BinaryMultiply__",
-            PyBytecode::BinarySubtract =>       b"BinarySubtract__",
-            PyBytecode::BinaryDivide =>         b"BinaryDivide____",
-            PyBytecode::BinaryXOR =>            b"BinaryXOR_______",
-            PyBytecode::LoadConst(_) =>         b"LoadConst_______",
-            PyBytecode::LoadFast(_) =>          b"LoadFast________",
-            PyBytecode::StoreFast(_) =>         b"StoreFast_______",
-            PyBytecode::LoadName(_) =>          b"LoadName________",
-            PyBytecode::StoreName(_) =>         b"StoreName_______",
-            PyBytecode::LoadGlobal(_) =>        b"LoadGlobal______",
-            PyBytecode::StoreGlobal(_) =>       b"StoreGlobal_____",
-            PyBytecode::PushNull =>             b"PushNull________",
-            PyBytecode::Cache =>                b"Cache___________",
-            PyBytecode::CallFunction(_) =>      b"CallFunction____",
-            PyBytecode::CallInstrinsic1(_) =>   b"CallInstrinsic1_",
-            PyBytecode::CallInstrinsic2(_) =>   b"CallInstrinsic2_",
-            PyBytecode::ReturnValue =>          b"ReturnValue_____",
-            PyBytecode::MakeFunction =>         b"MakeFunction____",
-            PyBytecode::LoadBuildClass =>       b"LoadBuildClass__",
-            PyBytecode::PopJumpIfFalse(_) =>    b"PopJumpIfFalse__",
-            PyBytecode::PopJumpIfTrue(_) =>     b"PopJumpIfTrue___",
-            PyBytecode::JumpForward(_) =>       b"JumpForward_____",
-            PyBytecode::JumpBackward(_) =>      b"JumpBackward____",
-            PyBytecode::CompareOp(_) =>         b"CompareOp_______",
-            PyBytecode::UnpackSequence =>       b"UnpackSequence__",
-            PyBytecode::UnpackEx =>             b"UnpackEx________",
-            PyBytecode::LoadDeref(_) =>         b"LoadDeref_______",
-            PyBytecode::BuildList(_) =>         b"BuildList_______",
-            PyBytecode::BuildTuple(_) =>        b"BuildTuple______",
-            PyBytecode::BuildSet(_) =>          b"BuildSet________",
-            PyBytecode::BuildMap =>             b"BuildMap________",
-            PyBytecode::BuildString(_) =>       b"BuildString_____",
-            PyBytecode::ListAppend(_) =>        b"ListAppend______",
-            PyBytecode::ForIter(_) =>           b"ForIter_________",
-            PyBytecode::GetIter =>              b"GetIter_________",
-            PyBytecode::Resume =>               b"Resume__________",
-            PyBytecode::LoadNameEx(_) =>        b"LoadNameEx______",
-            PyBytecode::LoadAttr(_) =>          b"LoadAttr________",
-            PyBytecode::StoreAttr(_) =>         b"StoreAttr_______",
-            PyBytecode::LoadSmallInt(_) =>      b"LoadSmallInt____",
-            PyBytecode::Error =>                b"Error___________",
+            PyBytecode::NOP => b"NOP_____________",
+            PyBytecode::ImportName(_) => b"ImportName______",
+            PyBytecode::ImportFrom(_) => b"ImportFrom______",
+            PyBytecode::PopIter => b"PopIter_________",
+            PyBytecode::PopTop => b"PopTop__________",
+            PyBytecode::EndFor => b"EndFor__________",
+            PyBytecode::Copy(_) => b"Copy____________",
+            PyBytecode::Swap(_) => b"Swap____________",
+            PyBytecode::UnaryNegative => b"UnaryNegative___",
+            PyBytecode::UnaryInvert => b"UnaryInvert_____",
+            PyBytecode::UnaryNot => b"UnaryNot________",
+            PyBytecode::ToBool => b"ToBool__________",
+            PyBytecode::BinaryOp(_) => b"BinaryOp________",
+            PyBytecode::BinaryAdd => b"BinaryAdd_______",
+            PyBytecode::BinaryMultiply => b"BinaryMultiply__",
+            PyBytecode::BinarySubtract => b"BinarySubtract__",
+            PyBytecode::BinaryDivide => b"BinaryDivide____",
+            PyBytecode::BinaryXOR => b"BinaryXOR_______",
+            PyBytecode::LoadConst(_) => b"LoadConst_______",
+            PyBytecode::LoadFast(_) => b"LoadFast________",
+            PyBytecode::StoreFast(_) => b"StoreFast_______",
+            PyBytecode::LoadName(_) => b"LoadName________",
+            PyBytecode::StoreName(_) => b"StoreName_______",
+            PyBytecode::LoadGlobal(_) => b"LoadGlobal______",
+            PyBytecode::StoreGlobal(_) => b"StoreGlobal_____",
+            PyBytecode::PushNull => b"PushNull________",
+            PyBytecode::Cache => b"Cache___________",
+            PyBytecode::CallFunction(_) => b"CallFunction____",
+            PyBytecode::CallInstrinsic1(_) => b"CallInstrinsic1_",
+            PyBytecode::CallInstrinsic2(_) => b"CallInstrinsic2_",
+            PyBytecode::ReturnValue => b"ReturnValue_____",
+            PyBytecode::MakeFunction => b"MakeFunction____",
+            PyBytecode::LoadBuildClass => b"LoadBuildClass__",
+            PyBytecode::PopJumpIfFalse(_) => b"PopJumpIfFalse__",
+            PyBytecode::PopJumpIfTrue(_) => b"PopJumpIfTrue___",
+            PyBytecode::JumpForward(_) => b"JumpForward_____",
+            PyBytecode::JumpBackward(_) => b"JumpBackward____",
+            PyBytecode::CompareOp(_) => b"CompareOp_______",
+            PyBytecode::UnpackSequence => b"UnpackSequence__",
+            PyBytecode::UnpackEx => b"UnpackEx________",
+            PyBytecode::LoadDeref(_) => b"LoadDeref_______",
+            PyBytecode::BuildList(_) => b"BuildList_______",
+            PyBytecode::BuildTuple(_) => b"BuildTuple______",
+            PyBytecode::BuildSet(_) => b"BuildSet________",
+            PyBytecode::BuildMap => b"BuildMap________",
+            PyBytecode::BuildString(_) => b"BuildString_____",
+            PyBytecode::ListAppend(_) => b"ListAppend______",
+            PyBytecode::ForIter(_) => b"ForIter_________",
+            PyBytecode::GetIter => b"GetIter_________",
+            PyBytecode::Resume => b"Resume__________",
+            PyBytecode::LoadNameEx(_) => b"LoadNameEx______",
+            PyBytecode::LoadAttr(_) => b"LoadAttr________",
+            PyBytecode::StoreAttr(_) => b"StoreAttr_______",
+            PyBytecode::LoadSmallInt(_) => b"LoadSmallInt____",
+            PyBytecode::Error => b"Error___________",
         }
     }
 
@@ -776,11 +775,12 @@ impl PyBytecode {
         }
     }
 
+    #[allow(clippy::unnecessary_cast)]
     pub const fn to_bytes(&self) -> [u8; 2] {
         match self {
             PyBytecode::NOP => [0, 0],
-            PyBytecode::ImportName(v) => [1, *v as u8],
-            PyBytecode::ImportFrom(v) => [2, *v as u8],
+            PyBytecode::ImportName(v) => [1, *v],
+            PyBytecode::ImportFrom(v) => [2, *v],
             PyBytecode::PopIter => [3, 0],
             PyBytecode::PopTop => [4, 0],
             PyBytecode::EndFor => [5, 0],

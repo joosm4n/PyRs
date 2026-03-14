@@ -50,17 +50,17 @@ impl PyCodeObj {
         // s.push_str(&format!("Stack size: {}");
         // s.push_str(&format!("Flags: {}");
 
-        s.push_str(&format!("Constants:\n"));
+        s.push_str("Constants:\n");
         for (i, c) in self.consts.iter().enumerate() {
             s.push_str(&format!("\t{i}: {}\n", c.get_ref().__str__()));
         }
 
-        s.push_str(&format!("Names:\n"));
+        s.push_str("Names:\n");
         for (i, n) in self.names.iter().enumerate() {
             s.push_str(&format!("\t{i}: {}\n", n));
         }
 
-        s.push_str(&format!("Variable names:\n"));
+        s.push_str("Variable names:\n");
         for (i, v) in self.varnames.iter().enumerate() {
             s.push_str(&format!("\t{i}: {}\n", v));
         }
@@ -95,13 +95,13 @@ impl PyCodeObj {
         contents.push_str(&self.get_inst_string());
 
         contents.push_str(&format!("{tabs}<end {}>\n", &self.name));
-        return contents;
+        contents
     }
 
     fn get_inst_string(&self) -> String {
         let mut bytecode_string = String::new();
         for (idx, line) in self.bytecode.iter().enumerate() {
-            bytecode_string.push_str(&format!("({idx}) \t\t{:?}", line).as_str());
+            bytecode_string.push_str(format!("({idx}) \t\t{:?}", line).as_str());
 
             let arg: Option<String> = match line {
                 PyBytecode::CallFunction(v) | PyBytecode::LoadConst(v) => Some(v.to_string()),
@@ -127,7 +127,7 @@ impl PyCodeObj {
             if let Some(val) = arg {
                 bytecode_string.push_str(&format!("\t\t({})\n", val));
             } else {
-                bytecode_string.push_str(&format!("\n",));
+                bytecode_string.push('\n');
             }
         }
         bytecode_string
@@ -200,7 +200,7 @@ impl PyCompileCtx {
 
     pub fn add_varname_load<T: Into<String>>(&mut self, name: T) -> PyBytecode {
         let name_s: String = name.into();
-        if let Some(_) = self.globals.get(&name_s) {
+        if self.globals.contains_key(&name_s) {
             let i = self.names.iter().position(|n| n == &name_s).unwrap();
             PyBytecode::LoadGlobal(i as u8)
         } else if let Some(i) = self.varnames.iter().position(|n| n == &name_s) {
@@ -216,7 +216,7 @@ impl PyCompileCtx {
         let name_s: String = name.into();
         if let Some(i) = self.names.iter().position(|n| n == &name_s) {
             PyBytecode::LoadName(i as u8)
-        } else if let Some(_) = self.globals.get(&name_s) {
+        } else if self.globals.contains_key(&name_s) {
             let i = self.names.iter().position(|n| n == &name_s).unwrap();
             PyBytecode::LoadGlobal(i as u8)
         } else {
@@ -252,7 +252,7 @@ impl PyCompileCtx {
         self.names.last()
     }
 
-    pub fn get_context_name<'a>(&'a self) -> &'a String {
+    pub fn get_context_name(&self) -> &String {
         &self.name
     }
 
@@ -341,7 +341,7 @@ impl FuncObj {
         let mut contents = String::new();
         contents.push_str(&format!("{tabs}<funcobj>\n"));
         contents.push_str(&format!("{tabs}\t{}\n", self.code.serialize(indent + 1)));
-        return contents;
+        contents
     }
 }
 

@@ -35,6 +35,7 @@ pub struct PyVM {
 
     error_state: bool,
     debug_mode: bool,
+    step_mode: bool,
     null: PyObjPtr,
     working_dir: PathBuf,
 }
@@ -54,6 +55,7 @@ impl PyVM {
             frames: vec![],
             error_state: false,
             debug_mode: false,
+            step_mode: false,
             null: PyObjPtr::none(),
             working_dir: std::env::current_dir().unwrap_or_default(),
         }
@@ -61,6 +63,10 @@ impl PyVM {
 
     pub fn set_debug_mode(&mut self, debug: bool) {
         self.debug_mode = debug;
+    }
+
+    pub fn set_step_mode(&mut self, step: bool) {
+        self.step_mode = step;
     }
 
     pub fn execute(&mut self, code_obj: PyCodeObj) {
@@ -109,6 +115,14 @@ impl PyVM {
             self.print_stack();
             self.print_locals();
             println!();
+        }
+
+        if self.step_mode {
+            let mut input = String::new();
+            let res = std::io::stdin().read_line(&mut input);
+            if let Err(e) = res {
+                println!("Readline err: {}", e);
+            }
         }
 
         match inst {
@@ -216,22 +230,25 @@ impl PyVM {
         println!("\n---- PyVM Debug Info ----\n");
 
         println!("\t-- Current Frame --");
-        self.print_frame();
-        let frame = self.frames.last().unwrap();
-        println!(
-            "\t-- Curr Instruction -- \n({}) \t{}",
-            frame.ip,
-            frame
-                .code
-                .bytecode
-                .get(frame.ip)
-                .unwrap_or(&PyBytecode::NOP)
-        );
+        // self.print_frame();
+        // let frame = self.frames.last().unwrap();
+        // println!(
+        //     "\t-- Curr Instruction -- \n({}) \t{}",
+        //     frame.ip,
+        //     frame
+        //         .code
+        //         .bytecode
+        //         .get(frame.ip)
+        //         .unwrap_or(&PyBytecode::NOP)
+        // );
 
         println!("\n\t-- Stack Trace --");
         self.print_stack();
 
-        println!("\n\t-- Local Vars --\n{:?}", self.frame().locals);
+        println!("\n\t-- Local Vars --\n");
+        for l in &self.frame().locals {
+            println!("{:?}", l);
+        }
     }
 
     fn throw(&mut self) {

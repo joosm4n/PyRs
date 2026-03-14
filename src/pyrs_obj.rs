@@ -1,25 +1,25 @@
 use crate::{
-    pyrs_codeobject::{PyCodeObj, FuncObj, PyTypeObj, PyClassInst},
+    pyrs_codeobject::{FuncObj, PyClassInst, PyCodeObj, PyTypeObj},
     pyrs_error::{PyError, PyException},
     pyrs_parsing::{Expression, Op},
+    pyrs_pyobject::{AttrDict, PyObjPtr, PyObject},
     pyrs_std::{FnPtr, RangeObj},
     pyrs_utils::PyUtils,
-    pyrs_pyobject::{PyObject, PyObjPtr, AttrDict},
 };
 use std::{
     collections::HashMap,
     ops::{Add, Mul, Neg, Sub},
     process::{ExitCode, Termination},
     str::FromStr,
-    sync::{Arc},
+    sync::Arc,
 };
 
 use rug::Integer;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
 pub enum Obj {
-
+    #[default]
     None,
 
     Bool(bool),
@@ -31,9 +31,9 @@ pub enum Obj {
 
     Except(PyException),
 
-    List(Vec<PyObjPtr>),             // [], mutable, ordered, duplicates, int indexing,
-    Tuple(Vec<PyObjPtr>),            // (), immutable, ordered, duplicates, int indexing,
-    Set(Vec<PyObjPtr>),              // {}, mutable, unordered, no dupes, no indexing,
+    List(Vec<PyObjPtr>),  // [], mutable, ordered, duplicates, int indexing,
+    Tuple(Vec<PyObjPtr>), // (), immutable, ordered, duplicates, int indexing,
+    Set(Vec<PyObjPtr>),   // {}, mutable, unordered, no dupes, no indexing,
     Range(RangeObj),
 
     Dict(HashMap<PyObjPtr, PyObjPtr>),
@@ -47,7 +47,6 @@ pub enum Obj {
     FunctionObj(FuncObj),
 
     BuildClass,
-
     // Binary
     // - bytes
     // - bytearray,
@@ -65,57 +64,52 @@ pub enum Obj {
 //     return map;
 // }
 
-    // dir(object) = 
-    // ['__class__', '__delattr__', '__dir__', '__doc__', '__eq__', '__format__', 
-    // '__ge__', '__getattribute__', '__getstate__', '__gt__', '__hash__', '__init__', 
-    // '__init_subclass__', '__le__', '__lt__', '__ne__', '__new__', '__reduce__', 
-    // '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__str__', '__subclasshook__']
+// dir(object) =
+// ['__class__', '__delattr__', '__dir__', '__doc__', '__eq__', '__format__',
+// '__ge__', '__getattribute__', '__getstate__', '__gt__', '__hash__', '__init__',
+// '__init_subclass__', '__le__', '__lt__', '__ne__', '__new__', '__reduce__',
+// '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__str__', '__subclasshook__']
 
-    // dir(int) = 
-    // ['__abs__', '__add__', '__and__', '__bool__', '__ceil__', '__class__', '__delattr__', 
-    // '__dir__', '__divmod__', '__doc__', '__eq__', '__float__', '__floor__', '__floordiv__',
-    // '__format__', '__ge__', '__getattribute__', '__getnewargs__', '__getstate__', '__gt__', 
-    // '__hash__', '__index__', '__init__', '__init_subclass__', '__int__', '__invert__',
-    // '__le__', '__lshift__', '__lt__', '__mod__', '__mul__', '__ne__', '__neg__', '__new__',
-    // '__or__', '__pos__', '__pow__', '__radd__', '__rand__', '__rdivmod__', '__reduce__',
-    // '__reduce_ex__', '__repr__', '__rfloordiv__', '__rlshift__', '__rmod__', '__rmul__', 
-    // '__ror__', '__round__', '__rpow__', '__rrshift__', '__rshift__', '__rsub__', '__rtruediv__',
-    // '__rxor__', '__setattr__', '__sizeof__', '__str__', '__sub__', '__subclasshook__', 
-    // '__truediv__', '__trunc__', '__xor__', 'as_integer_ratio', 'bit_count', 'bit_length',
-    // 'conjugate', 'denominator', 'from_bytes', 'imag', 'is_integer', 'numerator', 'real', 'to_bytes']
-    
+// dir(int) =
+// ['__abs__', '__add__', '__and__', '__bool__', '__ceil__', '__class__', '__delattr__',
+// '__dir__', '__divmod__', '__doc__', '__eq__', '__float__', '__floor__', '__floordiv__',
+// '__format__', '__ge__', '__getattribute__', '__getnewargs__', '__getstate__', '__gt__',
+// '__hash__', '__index__', '__init__', '__init_subclass__', '__int__', '__invert__',
+// '__le__', '__lshift__', '__lt__', '__mod__', '__mul__', '__ne__', '__neg__', '__new__',
+// '__or__', '__pos__', '__pow__', '__radd__', '__rand__', '__rdivmod__', '__reduce__',
+// '__reduce_ex__', '__repr__', '__rfloordiv__', '__rlshift__', '__rmod__', '__rmul__',
+// '__ror__', '__round__', '__rpow__', '__rrshift__', '__rshift__', '__rsub__', '__rtruediv__',
+// '__rxor__', '__setattr__', '__sizeof__', '__str__', '__sub__', '__subclasshook__',
+// '__truediv__', '__trunc__', '__xor__', 'as_integer_ratio', 'bit_count', 'bit_length',
+// 'conjugate', 'denominator', 'from_bytes', 'imag', 'is_integer', 'numerator', 'real', 'to_bytes']
 
 impl PyObject {
-
     pub fn from<T: ToObj>(arg: T) -> PyObjPtr {
         arg.to_pyptr()
     }
 
     pub fn new_vec() -> Vec<Obj> {
-        return vec![];
+        vec![]
     }
 
     pub fn new_arc_vec() -> Vec<PyObjPtr> {
-        return vec![];
+        vec![]
     }
 
     pub fn new_map() -> HashMap<String, PyObjPtr> {
-        return HashMap::new();
+        HashMap::new()
     }
 
     pub fn empty_dict() -> PyObject {
         PyObject {
             obj: Obj::Dict(HashMap::new()),
             attrs: AttrDict::new(),
-            local_attrs: AttrDict::new()
+            local_attrs: AttrDict::new(),
         }
     }
 
     pub fn is_num(&self) -> bool {
-        match self.obj {
-            Obj::Float(_) | Obj::Int(_) => true,
-            _ => false,
-        }
+        matches!(self.obj, Obj::Float(_) | Obj::Int(_))
     }
 
     pub fn from_atom(c: &str) -> Self {
@@ -123,17 +117,17 @@ impl PyObject {
             return PyObject::new_int(val);
         }
         if let Ok(val) = c.parse::<f64>() {
-            return PyObject::new_float(val);
+            PyObject::new_float(val)
         } else {
             PyObject::new_str(c)
         }
     }
 
     pub fn is_iterable(&self) -> bool {
-        match &self.obj {
-            Obj::Set(_) | Obj::Str(_) | Obj::List(_) | Obj::Dict(_) | Obj::Tuple(_) => true,
-            _ => false,
-        }
+        matches!(
+            &self.obj,
+            Obj::Set(_) | Obj::Str(_) | Obj::List(_) | Obj::Dict(_) | Obj::Tuple(_)
+        )
     }
 
     pub fn iter_next(&mut self) -> Option<PyObjPtr> {
@@ -144,7 +138,6 @@ impl PyObject {
     }
 
     pub fn add(lhs: &Self, rhs: &Self) -> Self {
-
         let err = PyObject::new_exception(PyException {
             error: PyError::TypeError,
             msg: format!("No valid way to add: {} and {}", lhs, rhs.clone(),),
@@ -167,10 +160,7 @@ impl PyObject {
                 Obj::Float(v) => PyObject::new_float(int.to_f64() + v),
                 _ => return err,
             },
-            (Obj::Str(s), other) => match other {
-                Obj::Str(v) => PyObject::new_str(format!("{s}{v}")),
-                _ => return err,
-            },
+            (Obj::Str(s), Obj::Str(other)) => PyObject::new_str(format!("{s}{other}")),
             (Obj::List(l1), other) => match other {
                 Obj::List(l2) => {
                     let mut new_list = Vec::with_capacity(l1.len() + l2.len());
@@ -198,7 +188,7 @@ impl PyObject {
         let lhs = &lhs.obj;
         let rhs = &rhs.obj;
 
-        let obj = match (lhs, rhs) {
+        match (lhs, rhs) {
             (Obj::Float(dbl), other) => {
                 let val = match other {
                     Obj::Float(v) => *v,
@@ -210,11 +200,10 @@ impl PyObject {
             (Obj::Int(int), other) => match other {
                 Obj::Int(v) => PyObject::new_int(int.clone().sub(v)),
                 Obj::Float(v) => PyObject::new_float(int.to_f64() - v),
-                _ => return err,
+                _ => err,
             },
-            _ => return err,
-        };
-        obj
+            _ => err,
+        }
     }
 
     pub fn mul(lhs_: &Self, rhs_: &Self) -> Self {
@@ -240,23 +229,20 @@ impl PyObject {
                 Obj::Float(v) => PyObject::new_float(int.to_f64() * v),
                 _ => return err,
             },
-            (Obj::Str(s), other) => match other {
-                Obj::Int(v) => {
-                    if *v >= 0 {
-                        let mut mult = String::new();
-                        for _i in 0..v.to_u64().unwrap() {
-                            mult = format!("{mult}{s}");
-                        }
-                        PyObject::new_str(mult)
-                    } else {
-                        return PyObject::new_exception(PyException {
-                            error: PyError::TypeError,
-                            msg: format!(" can't multiply sequence by non-int of type {}", lhs_),
-                        });
+            (Obj::Str(s), Obj::Int(v)) => {
+                if *v >= 0 {
+                    let mut mult = String::new();
+                    for _i in 0..v.to_u64().unwrap() {
+                        mult = format!("{mult}{s}");
                     }
+                    PyObject::new_str(mult)
+                } else {
+                    return PyObject::new_exception(PyException {
+                        error: PyError::TypeError,
+                        msg: format!(" can't multiply sequence by non-int of type {}", lhs_),
+                    });
                 }
-                _ => return err,
-            },
+            }
             _ => return err,
         };
         obj
@@ -304,7 +290,7 @@ impl PyObject {
             },
             _ => return type_err,
         };
-        obj.into()
+        obj
     }
 
     pub fn __typestr__(&self) -> &'static str {
@@ -317,7 +303,7 @@ impl PyObject {
             Obj::List(_) => "list",
             Obj::Tuple(_) => "tuple",
             Obj::FunctionObj(_) => "function",
-            _ => "Not Implemented", 
+            _ => "Not Implemented",
         }
     }
 
@@ -338,26 +324,21 @@ impl PyObject {
     }
 
     pub fn __bool__(&self) -> bool {
-        let ret = match &self.obj {
+        match &self.obj {
             Obj::None => false,
             Obj::Bool(v) => *v,
             Obj::Float(v) => *v != 0f64,
             Obj::Int(v) => *v != Integer::ZERO,
-            Obj::Str(v) => *v != "",
-            Obj::List(vec) |
-            Obj::Tuple(vec) | 
-            Obj::Set(vec) => vec.len() != 0usize,
+            Obj::Str(v) => !(*v).is_empty(),
+            Obj::List(vec) | Obj::Tuple(vec) | Obj::Set(vec) => vec.len() != 0usize,
             _ => panic!("TypeError: __bool__() not implemented for: {:?}", self),
-        };
-        return ret;
+        }
     }
 
     pub fn __unpack__(self) -> Result<Vec<PyObjPtr>, PyException> {
         if self.is_iterable() {
             Ok(match &self.obj {
-                Obj::List(vec) |
-                Obj::Set(vec) | 
-                Obj::Tuple(vec) => vec.clone(),
+                Obj::List(vec) | Obj::Set(vec) | Obj::Tuple(vec) => vec.clone(),
                 Obj::Range(range) => range.to_vec(),
                 Obj::Dict(dict) => dict.into_iter().map(|(key, _)| key.clone()).collect(),
                 _ => unreachable!(),
@@ -372,13 +353,14 @@ impl PyObject {
 
     pub fn __str__(&self) -> String {
         match &self.obj {
-            Obj::None => format!("None"),
+            Obj::None => "None".to_string(),
+
             Obj::Bool(val) => match val {
-                true => format!("True"),
-                false => format!("False"),
+                true => "True".to_string(),
+                false => "False".to_string(),
             },
-            Obj::Float(val) => format!("{}", val),
-            Obj::Str(s) => format!("{}", s),
+            Obj::Float(val) => val.to_string(),
+            Obj::Str(s) => s.to_string(),
             Obj::Int(val) => format!("{}", val),
             Obj::FuncPtr(ptr) => format!("{}", ptr),
             Obj::Except(e) => format!("{}", e),
@@ -393,8 +375,8 @@ impl PyObject {
                     list.pop();
                     list.pop();
                 }
-                list.push_str("]");
-                format!("{}", list)
+                list.push(']');
+                list
             }
             Obj::Tuple(objs) => {
                 let mut tuple = String::from("(");
@@ -405,8 +387,8 @@ impl PyObject {
                 }
                 tuple.pop();
                 tuple.pop();
-                tuple.push_str(")");
-                format!("{}", tuple)
+                tuple.push(')');
+                tuple
             }
             Obj::Set(objs) => {
                 let mut set = String::from("{");
@@ -417,8 +399,8 @@ impl PyObject {
                 }
                 set.pop();
                 set.pop();
-                set.push_str("}");
-                format!("{}", set)
+                set.push('}');
+                set
             }
             Obj::Dict(objs) => {
                 let mut map = String::from("{");
@@ -431,19 +413,19 @@ impl PyObject {
                 }
                 map.pop();
                 map.pop();
-                map.push_str("}");
-                format!("{}", map)
+                map.push('}');
+                map
             }
             Obj::Range(range) => {
                 let mut r = String::from("range(");
                 if let Some(start) = &range.start {
-                    r.push_str(&format!("{}", start.to_string()));
+                    r.push_str(&start.to_string());
                 };
                 if let Some(end) = &range.end {
-                    r.push_str(&format!(", {}", end.to_string()));
+                    r.push_str(&end.to_string());
                 };
                 if let Some(inc) = &range.inc {
-                    r.push_str(&format!(", {}", inc.to_string()));
+                    r.push_str(&inc.to_string());
                 };
                 r.push(')');
                 r
@@ -458,10 +440,7 @@ impl PyObject {
                 )
             }
             Obj::Type(class) => {
-                format!(
-                    "<type {}>",
-                    class.name
-                )
+                format!("<type {}>", class.name)
             }
             Obj::FunctionObj(func) => {
                 format!("<function {}>", func.code.name)
@@ -469,9 +448,7 @@ impl PyObject {
             Obj::Code(codeobj) => {
                 format!("<code object {}>", codeobj.name)
             }
-            Obj::BuildClass => {
-                format!("<buildclass>")
-            }
+            Obj::BuildClass => "<buildclass>".to_string(),
         }
     }
 
@@ -484,15 +461,13 @@ impl PyObject {
 
     pub fn __len__(&self) -> usize {
         match &self.obj {
-            Obj::Set(vec ) |
-            Obj::Tuple(vec) |
-            Obj::List(vec) => vec.len(),
+            Obj::Set(vec) | Obj::Tuple(vec) | Obj::List(vec) => vec.len(),
             _ => panic!("TypeError: __len__() not implemented for: {:?}", self),
         }
     }
 
     pub fn compare_op(lhs: &Self, rhs: &Self, op: &Op) -> bool {
-        let ret = match op {
+        match op {
             Op::Eq => lhs.eq(rhs),
             Op::Neq => lhs.ne(rhs),
             Op::LessThan => lhs.lt(rhs),
@@ -500,8 +475,7 @@ impl PyObject {
             Op::LessEq => lhs.le(rhs),
             Op::GreaterEq => lhs.ge(rhs),
             _ => return false,
-        };
-        ret
+        }
     }
 
     pub fn __lt__(lhs: &PyObjPtr, rhs: &PyObjPtr) -> bool {
@@ -520,7 +494,7 @@ impl PyObject {
     }
 
     pub fn __add__(lhs: &PyObjPtr, rhs: &PyObjPtr) -> Result<PyObjPtr, PyException> {
-        let res= PyObject::add(&lhs.get_ref(), &rhs.get_ref());
+        let res = PyObject::add(&lhs.get_ref(), &rhs.get_ref());
         match res.obj {
             Obj::Except(e) => Err(e),
             _ => Ok(res.to_ptr()),
@@ -528,7 +502,7 @@ impl PyObject {
     }
 
     pub fn __sub__(lhs: &PyObjPtr, rhs: &PyObjPtr) -> Result<PyObjPtr, PyException> {
-        let res= PyObject::sub(&lhs.get_ref(), &rhs.get_ref());
+        let res = PyObject::sub(&lhs.get_ref(), &rhs.get_ref());
         match res.obj {
             Obj::Except(e) => Err(e),
             _ => Ok(res.to_ptr()),
@@ -536,7 +510,7 @@ impl PyObject {
     }
 
     pub fn __mul__(lhs: &PyObjPtr, rhs: &PyObjPtr) -> Result<PyObjPtr, PyException> {
-        let res= PyObject::mul(&lhs.get_ref(), &rhs.get_ref());
+        let res = PyObject::mul(&lhs.get_ref(), &rhs.get_ref());
         match res.obj {
             Obj::Except(e) => Err(e),
             _ => Ok(res.to_ptr()),
@@ -544,7 +518,7 @@ impl PyObject {
     }
 
     pub fn __div__(lhs: &PyObjPtr, rhs: &PyObjPtr) -> Result<PyObjPtr, PyException> {
-        let res= PyObject::div(&lhs.get_ref(), &rhs.get_ref());
+        let res = PyObject::div(&lhs.get_ref(), &rhs.get_ref());
         match res.obj {
             Obj::Except(e) => Err(e),
             _ => Ok(res.to_ptr()),
@@ -592,7 +566,6 @@ impl PyObject {
     pub fn to_pyptr(self) -> Arc<Self> {
         Arc::from(self)
     }
-
 }
 
 impl PartialEq for PyObject {
@@ -622,9 +595,6 @@ impl PartialEq for PyObject {
             (_, _) => false,
         }
     }
-    fn ne(&self, other: &Self) -> bool {
-        !self.eq(other)
-    }
 }
 
 impl PartialOrd for PyObject {
@@ -638,11 +608,11 @@ impl PartialOrd for PyObject {
         if self.eq(other) {
             return Some(std::cmp::Ordering::Equal);
         }
-        return None;
+        None
     }
 
     fn lt(&self, other: &Self) -> bool {
-        let ret = match (&self.obj, &other.obj) {
+        match (&self.obj, &other.obj) {
             (Obj::Float(flt), other) => match other {
                 Obj::Float(same) => *flt < *same,
                 Obj::Int(i) => *flt < i.to_f64(),
@@ -658,17 +628,16 @@ impl PartialOrd for PyObject {
             (Obj::Bool(b), other) => match other {
                 Obj::Float(f) => f64::from(*b) < *f,
                 Obj::Int(i) => Integer::from(*b) < *i,
-                Obj::Bool(same) => *b < *same,
+                Obj::Bool(same) => !*b & *same,
                 _ => false,
             },
             (Obj::Str(s1), Obj::Str(s2)) => s1 < s2,
             _ => false,
-        };
-        ret
+        }
     }
 
     fn gt(&self, other: &Self) -> bool {
-        let ret = match (&self.obj, &other.obj) {
+        match (&self.obj, &other.obj) {
             (Obj::Float(flt), other) => match other {
                 Obj::Float(same) => *flt > *same,
                 Obj::Int(i) => *flt > i.to_f64(),
@@ -689,8 +658,7 @@ impl PartialOrd for PyObject {
             },
             (Obj::Str(s1), Obj::Str(s2)) => s1 > s2,
             _ => false,
-        };
-        ret
+        }
     }
 
     fn ge(&self, other: &Self) -> bool {
@@ -708,17 +676,9 @@ impl std::fmt::Display for PyObject {
     }
 }
 
-impl Default for Obj {
-    fn default() -> Self {
-        Obj::None
-    }
-}
-
 impl Termination for Obj {
     fn report(self) -> std::process::ExitCode {
-        match self {
-            _ => ExitCode::SUCCESS,
-        }
+        ExitCode::SUCCESS
     }
 }
 
@@ -748,7 +708,7 @@ impl core::hash::Hash for Obj {
             Obj::ClassInst(c) => c.hash(state),
             Obj::Code(c) => c.hash(state),
             Obj::FunctionObj(f) => f.hash(state),
-            Obj::BuildClass => {},
+            Obj::BuildClass => {}
         }
     }
 }
@@ -763,21 +723,16 @@ pub struct PyObjIter {
 impl PyObjIter {
     pub fn from(obj: &PyObjPtr) -> Option<Self> {
         let iter = match &obj.get_ref().obj {
-            Obj::List(v) |
-            Obj::Tuple(v) | 
-            Obj::Set(v) => PyObjIter {
+            Obj::List(v) | Obj::Tuple(v) | Obj::Set(v) => PyObjIter {
                 items: v.clone(),
                 index: 0,
             },
             Obj::Str(s) => {
-                let items = s
-                    .chars()
-                    .map(|c| PyObject::new_str(c).to_ptr())
-                    .collect();
+                let items = s.chars().map(|c| PyObject::new_str(c).to_ptr()).collect();
                 PyObjIter { items, index: 0 }
             }
             Obj::Dict(m) => {
-                let items = m.keys().cloned().map(|k| k).collect();
+                let items = m.keys().cloned().collect();
                 PyObjIter { items, index: 0 }
             }
             _ => return None,
@@ -822,14 +777,11 @@ impl PyObjIntoIter {
                 } // not correct
             }
             Obj::Str(s) => {
-                let items = s
-                    .chars()
-                    .map(|c| PyObject::new_str(c).to_ptr())
-                    .collect();
+                let items = s.chars().map(|c| PyObject::new_str(c).to_ptr()).collect();
                 PyObjIntoIter { items, index: 0 }
             }
             Obj::Dict(m) => {
-                let items = m.keys().cloned().map(|k| k).collect();
+                let items = m.keys().cloned().collect();
                 PyObjIntoIter { items, index: 0 }
             }
             Obj::Range(r) => {
@@ -862,7 +814,7 @@ impl IntoIterator for PyObjPtr {
     type IntoIter = PyObjIntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        PyObjIntoIter::from(self).expect("not able to iterate").into_iter()
+        PyObjIntoIter::from(self).expect("not able to iterate")
     }
 }
 
@@ -870,25 +822,20 @@ impl IntoIterator for PyObjPtr {
 impl PyObject {
     pub fn iter_py(&self) -> Option<PyObjIter> {
         match &self.obj {
-            Obj::List(v) => {
-                Some(PyObjIter {
-                    items: v.clone(),
-                    index: 0,
-                })
-            }
+            Obj::List(v) => Some(PyObjIter {
+                items: v.clone(),
+                index: 0,
+            }),
             Obj::Tuple(v) | Obj::Set(v) => Some(PyObjIter {
                 items: v.clone(),
                 index: 0,
             }),
             Obj::Str(s) => {
-                let items = s
-                    .chars()
-                    .map(|c| PyObject::new_str(c).to_ptr())
-                    .collect();
+                let items = s.chars().map(|c| PyObject::new_str(c).to_ptr()).collect();
                 Some(PyObjIter { items, index: 0 })
             }
             Obj::Dict(m) => {
-                let items = m.keys().cloned().map(|k| k).collect();
+                let items = m.keys().cloned().collect();
                 Some(PyObjIter { items, index: 0 })
             }
             Obj::Range(r) => {
@@ -901,42 +848,32 @@ impl PyObject {
 
     pub fn __getattr__(&self, field: &String) -> Result<PyObjPtr, PyException> {
         match &self.obj {
-            Obj::ClassInst(inst) => {
-                match inst.fields.get(field).cloned()  {
-                    Some(obj) => {
-                        return Ok(obj.clone());
-                    }
-                    None => { 
-                        Err(PyException {
-                            error: PyError::UndefinedVariableError,
-                            msg: format!("no field \'{field}\' in obj {:?}", self),
-                        })
-                    }
-                }
-            }
-            _ => {
-                Err(PyException {
-                    error: PyError::NotImplementedError,
-                    msg: format!("cannot use __get_attr__ for {:?}", self),
-                })
-            }
+            Obj::ClassInst(inst) => match inst.fields.get(field).cloned() {
+                Some(obj) => Ok(obj.clone()),
+                None => Err(PyException {
+                    error: PyError::UndefinedVariableError,
+                    msg: format!("no field \'{field}\' in obj {:?}", self),
+                }),
+            },
+            _ => Err(PyException {
+                error: PyError::NotImplementedError,
+                msg: format!("cannot use __get_attr__ for {:?}", self),
+            }),
         }
     }
 
     pub fn __set_attr__(&mut self, field: &String, val: PyObjPtr) -> Option<PyException> {
         match &mut self.obj {
-            Obj::ClassInst(inst) => {
-                match inst.fields.get_mut(field) {
-                    Some(obj) => {
-                        *obj = val;
-                        None
-                    }
-                    None => Some(PyException {
-                        error: PyError::UndefinedVariableError,
-                        msg: format!("no field \'{field}\' in obj {:?}", self),
-                    }),
+            Obj::ClassInst(inst) => match inst.fields.get_mut(field) {
+                Some(obj) => {
+                    *obj = val;
+                    None
                 }
-            }
+                None => Some(PyException {
+                    error: PyError::UndefinedVariableError,
+                    msg: format!("no field \'{field}\' in obj {:?}", self),
+                }),
+            },
             _ => None,
         }
     }
@@ -1036,7 +973,6 @@ impl ToObj for rug::Integer {
     fn to_pyobj(self) -> PyObject {
         PyObject::new_int(self)
     }
-
 }
 
 impl ToObj for PyObjIter {
