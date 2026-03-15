@@ -11,7 +11,7 @@ use crate::{
     pyrs_codeobject::{FuncObj, PyCodeObj, PyTypeObj},
     pyrs_error::{PyError, PyException},
     pyrs_interpreter::Interpreter,
-    pyrs_obj::{Obj, ToObj},
+    pyrs_obj::{Obj, PyObjIter, ToObj},
     pyrs_parsing::Op,
     pyrs_pyobject::{AttrDict, PyObjPtr, PyObject},
     pyrs_std::{FnPtr, RangeObj},
@@ -108,6 +108,14 @@ impl PyVM {
         if inst == PyBytecode::NOP {
             return;
         }
+        if self.step_mode {
+            println!("Press Enter to continue >> ");
+            let mut input = String::new();
+            let res = std::io::stdin().read_line(&mut input);
+            if let Err(e) = res {
+                println!("Readline err: {}", e);
+            }
+        }
 
         if self.debug_mode {
             println!("Current CodeObj: {}", self.frame().code.name);
@@ -115,14 +123,6 @@ impl PyVM {
             self.print_stack();
             self.print_locals();
             println!();
-        }
-
-        if self.step_mode {
-            let mut input = String::new();
-            let res = std::io::stdin().read_line(&mut input);
-            if let Err(e) = res {
-                println!("Readline err: {}", e);
-            }
         }
 
         match inst {
@@ -317,12 +317,13 @@ impl PyVM {
         objs
     }
 
-    fn pop_until(&mut self, stop_obj: &PyObjPtr) -> Vec<PyObjPtr> {
+    fn pop_until(&mut self, stop_obj: &Obj) -> Vec<PyObjPtr> {
         let mut objs = vec![];
-        while self.top() != stop_obj {
-            objs.push(self.pop());
+        while let Some(top) = self.frame().stack.last() {
+            if !Obj::same_enum(&top.get_ref().obj, stop_obj) {
+                objs.push(self.pop());
+            }
         }
-
         objs.reverse();
         objs
     }
@@ -695,6 +696,7 @@ impl PyVM {
         let cond = frame.stack.pop().unwrap();
         if !cond.get_ref().__bool__() {
             frame.ip += delta as usize;
+            self.pop_until(&Obj::Iter(PyObjIter::default()));
         }
     }
 
@@ -703,15 +705,18 @@ impl PyVM {
         let cond = frame.stack.pop().unwrap();
         if cond.get_ref().__bool__() {
             frame.ip += delta as usize;
+            self.pop_until(&Obj::Iter(PyObjIter::default()));
         }
     }
 
     fn jump_forward(&mut self, delta: u8) {
         self.frame_mut().ip += delta as usize;
+        self.pop_until(&Obj::Iter(PyObjIter::default()));
     }
 
     fn jump_backward(&mut self, delta: u8) {
         self.frame_mut().ip -= delta as usize;
+        self.pop_until(&Obj::Iter(PyObjIter::default()));
     }
 
     fn compare_op(&mut self, op: Op) {

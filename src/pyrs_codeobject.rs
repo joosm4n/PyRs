@@ -78,11 +78,13 @@ impl PyCodeObj {
         contents.push_str(&format!("{tabs}<codeobj {}>\n", &self.name));
         contents.push_str(&format!("{tabs}consts:\n"));
         for (i, c) in self.consts.iter().enumerate() {
-            match &c.clone().get_ref().obj {
+            let co = c.get_ref();
+            match &co.obj {
                 Obj::Code(code) => {
                     contents.push_str(&format!("{tabs}\t[{i}] {}\n", code.serialize(indent + 1)))
                 }
-                _ => contents.push_str(&format!("{tabs}\t{}\n", *c.get_ref())),
+                _ => contents.push_str(&format!("{tabs}\t{}\n", *co)),
+                // crashing here??
             }
         }
 
@@ -104,8 +106,10 @@ impl PyCodeObj {
             bytecode_string.push_str(format!("({idx}) \t\t{:?}", line).as_str());
 
             let arg: Option<String> = match line {
-                PyBytecode::CallFunction(v) | PyBytecode::LoadConst(v) => Some(v.to_string()),
-
+                PyBytecode::LoadConst(v) => {
+                    let con = &self.consts[*v as usize].get_ref();
+                    Some(con.to_string())
+                }
                 PyBytecode::JumpBackward(v) => Some(format!("to {}", idx - *v as usize)),
 
                 PyBytecode::LoadFast(v)

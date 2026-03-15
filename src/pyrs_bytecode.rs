@@ -405,8 +405,8 @@ impl PyBytecode {
                         let return_delta = context.len() - condition_start + 1;
                         context.push(PyBytecode::JumpBackward(return_delta as u8));
 
-                        let i = context.add_const(PyObject::none());
-                        context.push(PyBytecode::LoadConst(i));
+                        // let i = context.add_const(PyObject::none());
+                        // context.push(PyBytecode::LoadConst(i));
                     }
                     Keyword::For => {
                         let for_err =

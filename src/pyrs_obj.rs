@@ -59,6 +59,12 @@ pub enum Obj {
     // - dict (HashMap)
 }
 
+impl Obj {
+    pub fn same_enum(lhs: &Self, rhs: &Self) -> bool {
+        std::mem::discriminant(lhs) == std::mem::discriminant(rhs)
+    }
+}
+
 // pub fn attrs_obj() -> AttrDict {
 //     let map: AttrDict =  AttrDict::new();
 //     return map;
@@ -78,7 +84,7 @@ pub enum Obj {
 // '__le__', '__lshift__', '__lt__', '__mod__', '__mul__', '__ne__', '__neg__', '__new__',
 // '__or__', '__pos__', '__pow__', '__radd__', '__rand__', '__rdivmod__', '__reduce__',
 // '__reduce_ex__', '__repr__', '__rfloordiv__', '__rlshift__', '__rmod__', '__rmul__',
-// '__ror__', '__round__', '__rpow__', '__rrshift__', '__rshift__', '__rsub__', '__rtruediv__',
+// // '__ror__', '__round__', '__rpow__', '__rrshift__', '__rshift__', '__rsub__', '__rtruediv__',
 // '__rxor__', '__setattr__', '__sizeof__', '__str__', '__sub__', '__subclasshook__',
 // '__truediv__', '__trunc__', '__xor__', 'as_integer_ratio', 'bit_count', 'bit_length',
 // 'conjugate', 'denominator', 'from_bytes', 'imag', 'is_integer', 'numerator', 'real', 'to_bytes']
@@ -714,7 +720,7 @@ impl core::hash::Hash for Obj {
 }
 
 // obj iter
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Hash, Default)]
 pub struct PyObjIter {
     items: Vec<PyObjPtr>,
     index: usize,

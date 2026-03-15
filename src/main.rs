@@ -38,6 +38,9 @@ fn main() -> std::io::Result<()> {
                 if flags.contains(&InterpreterFlags::Debug) {
                     interp.set_debug_mode(true);
                 }
+                if flags.contains(&InterpreterFlags::StepMode) {
+                    interp.set_step_mode(true);
+                }
 
                 let is_py_file = filepath.ends_with(".py");
                 if !flags.contains(&InterpreterFlags::AnyFile) && !is_py_file {

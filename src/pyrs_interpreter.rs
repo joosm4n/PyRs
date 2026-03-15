@@ -358,6 +358,7 @@ impl Interpreter {
     pub fn compile_file(filepath: &str) -> Result<PyCodeObj, PyException> {
         let mut code: PyCompileCtx;
         let path = Path::new(filepath);
+        let working_dir = std::env::current_dir().unwrap_or_default();
         match path.file_stem() {
             Some(filestem) => match filestem.to_str() {
                 Some(file_str) => {
@@ -368,7 +369,8 @@ impl Interpreter {
                     return Err(PyException {
                         error: PyError::FileError,
                         msg: format!(
-                            "Failed to complile \'{filepath}\'. Failed at {} line {}",
+                            "Failed to complile \'{filepath}\'. Working Dir: {}.Failed at {} line {}",
+                            working_dir.display(),
                             file!(),
                             line!()
                         ),
@@ -379,7 +381,8 @@ impl Interpreter {
                 return Err(PyException {
                     error: PyError::FileError,
                     msg: format!(
-                        "Failed to complile \'{filepath}\'. Failed at {} line {}",
+                        "Failed to complile \'{filepath}\'. Working Dir: {} Failed at {} line {}",
+                        working_dir.display(),
                         file!(),
                         line!()
                     ),
@@ -424,6 +427,12 @@ impl Interpreter {
         if !exists {
             std::fs::create_dir("__pycache__")?;
         }
+
+        println!(
+            "CODE_OBJ: \n{}\n{}",
+            codeobj.pretty_format(),
+            PyBytecode::to_string(&codeobj.bytecode)
+        );
 
         println!("Compiling \'{}\'... ", filename);
         let name = filename.strip_suffix(".py").unwrap();
