@@ -13,6 +13,7 @@ pub trait Import {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq)]
+#[allow(unpredictable_function_pointer_comparisons)]
 pub struct FnPtr {
     pub ptr: fn(&[PyObjPtr]) -> PyObjPtr,
     pub name: String,
@@ -54,13 +55,13 @@ impl Funcs {
                 name: "print_ret".to_string(),
             },
         );
-        return func_map;
+        func_map
     }
 
     pub fn print(args: &[PyObjPtr]) -> PyObjPtr {
         let mut msg = String::new();
         for arg in args {
-            msg += &(format!("{} ", *arg.get_ref()).as_str());
+            msg += format!("{} ", *arg.get_ref()).as_str();
         }
         println!("{}", msg);
         PyObjPtr::none()
@@ -69,7 +70,7 @@ impl Funcs {
     pub fn print_ret(args: &[PyObjPtr]) -> PyObjPtr {
         let mut msg = String::new();
         for arg in args {
-            msg += &(format!("{} ", *arg.get_ref()).as_str());
+            msg += format!("{} ", *arg.get_ref()).as_str();
         }
         println!("{}", msg);
         PyObject::new_str(msg).to_ptr()

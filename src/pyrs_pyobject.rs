@@ -18,7 +18,7 @@ pub struct PyObject {
     pub local_attrs: AttrDict,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct AttrDict(pub HashMap<Arc<str>, PyObjPtr>);
 
 #[derive(Clone)]
@@ -198,11 +198,6 @@ impl std::hash::Hash for PyObject {
     }
 }
 
-impl AttrDict {
-    pub fn new() -> Self {
-        AttrDict { 0: HashMap::new() }
-    }
-}
 impl Deref for AttrDict {
     type Target = HashMap<Arc<str>, PyObjPtr>;
     fn deref(&self) -> &Self::Target {
@@ -236,6 +231,12 @@ impl PyObjPtr {
             (PyObjPtr::Mut(l), PyObjPtr::Mut(r)) => Arc::ptr_eq(l, r),
             _ => false,
         }
+    }
+}
+
+impl AttrDict {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 

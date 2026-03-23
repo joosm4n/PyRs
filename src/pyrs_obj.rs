@@ -267,7 +267,7 @@ impl PyObject {
         let lhs = &lhs.obj;
         let rhs = &rhs.obj;
 
-        let obj = match (lhs, rhs) {
+        match (lhs, rhs) {
             (Obj::Float(dbl), other) => {
                 let val = match other {
                     Obj::Float(v) => *v,
@@ -292,11 +292,10 @@ impl PyObject {
                     }
                     PyObject::new_float(int.to_f64() / v)
                 }
-                _ => return type_err,
+                _ => type_err,
             },
-            _ => return type_err,
-        };
-        obj
+            _ => type_err,
+        }
     }
 
     pub fn __typestr__(&self) -> &'static str {
@@ -336,7 +335,7 @@ impl PyObject {
             Obj::Float(v) => *v != 0f64,
             Obj::Int(v) => *v != Integer::ZERO,
             Obj::Str(v) => !(*v).is_empty(),
-            Obj::List(vec) | Obj::Tuple(vec) | Obj::Set(vec) => vec.len() != 0usize,
+            Obj::List(vec) | Obj::Tuple(vec) | Obj::Set(vec) => !vec.is_empty(),
             _ => panic!("TypeError: __bool__() not implemented for: {:?}", self),
         }
     }
@@ -346,7 +345,7 @@ impl PyObject {
             Ok(match &self.obj {
                 Obj::List(vec) | Obj::Set(vec) | Obj::Tuple(vec) => vec.clone(),
                 Obj::Range(range) => range.to_vec(),
-                Obj::Dict(dict) => dict.into_iter().map(|(key, _)| key.clone()).collect(),
+                Obj::Dict(dict) => dict.keys().cloned().collect(),
                 _ => unreachable!(),
             })
         } else {
@@ -480,7 +479,7 @@ impl PyObject {
             Op::GreaterThan => lhs.gt(rhs),
             Op::LessEq => lhs.le(rhs),
             Op::GreaterEq => lhs.ge(rhs),
-            _ => return false,
+            _ => false,
         }
     }
 
@@ -556,7 +555,7 @@ impl PyObject {
                 })
             }
         };
-        Ok(ret.into())
+        Ok(ret)
     }
 
     pub fn __call__(&self, objs: &[PyObjPtr]) -> Result<PyObjPtr, PyException> {
@@ -564,7 +563,7 @@ impl PyObject {
             Obj::FuncPtr(fn_ptr) => Ok((fn_ptr.ptr)(objs)),
             _ => Err(PyException {
                 error: PyError::TypeError,
-                msg: format!("Type is not a function"),
+                msg: "Type is not a function".into(),
             }),
         }
     }
@@ -659,7 +658,7 @@ impl PartialOrd for PyObject {
             (Obj::Bool(b), other) => match other {
                 Obj::Float(f) => f64::from(*b) > *f,
                 Obj::Int(i) => Integer::from(*b) > *i,
-                Obj::Bool(same) => *b > *same,
+                Obj::Bool(same) => *b & !same,
                 _ => false,
             },
             (Obj::Str(s1), Obj::Str(s2)) => s1 > s2,
@@ -894,7 +893,7 @@ pub trait ArcObjIterExt {
 impl ArcObjIterExt for PyObjPtr {
     fn iter(&self) -> Option<PyObjIter> {
         // ObjIter::from takes PyObjPtr and returns Option<ObjIter>
-        PyObjIter::from(&self)
+        PyObjIter::from(self)
     }
 
     fn into_obj_iter(self) -> Option<PyObjIntoIter> {
@@ -924,8 +923,7 @@ impl ToObj for Expression {
                 Op::Plus => {
                     let lhs = args.first().cloned().unwrap().to_pyobj();
                     let rhs = args.last().cloned().unwrap().to_pyobj();
-                    let sum = PyObject::add(&lhs, &rhs);
-                    sum
+                    PyObject::add(&lhs, &rhs)
                 }
                 _ => PyObject::new_exception(PyException {
                     error: PyError::TypeError,

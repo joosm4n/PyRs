@@ -6,7 +6,6 @@ use crate::{
 };
 
 use std::{
-    collections::HashMap,
     ops::{Deref, DerefMut},
     sync::Arc,
 };

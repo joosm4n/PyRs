@@ -3,7 +3,6 @@ use core::mem::size_of;
 use core::hash::Hash;
 use std::collections::HashMap;
 use std::ops::{AddAssign, ShlAssign};
-use std::sync::Arc;
 
 pub struct PyUtils {}
 
@@ -84,7 +83,7 @@ impl PyUtils {
                     let mut end_idx = start_idx + ch.len_utf8();
 
                     // Find the closing quote
-                    while let Some((idx, c)) = chars.next() {
+                    for (idx, c) in chars.by_ref() {
                         end_idx = idx + c.len_utf8();
                         if c == quote_char {
                             break;

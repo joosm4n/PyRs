@@ -48,7 +48,7 @@ mod tests {
     fn join_expr_strings(exprs: Vec<&Expression>) -> String {
         let mut res = String::new();
         for e in exprs {
-            res.push_str(&e.to_string().as_str());
+            res.push_str(e.to_string().as_str());
             res.push_str(" | ");
         }
         res.pop();
@@ -162,7 +162,7 @@ mod tests {
             println!("Evaluating: {expr}");
             assert_eq!(expr.to_string(), expr_results.index(idx).to_string());
             let obj = expr.eval(&mut vars, &mut funcs).handle_panic();
-            println!("Obj: {}", obj.get_ref().to_string());
+            println!("Obj: {}", *obj.get_ref());
             println!("vars: {:?}", vars);
             assert_eq!(obj, obj_results.index(idx).clone());
         }
@@ -232,7 +232,7 @@ mod tests {
         "#,
         );
 
-        let ret_strs = vec![
+        let ret_strs = [
             "Op[= Ident(i) Atom(0)]",
             "Op[= Ident(n1) Atom(0)]",
             "Op[= Ident(n2) Atom(1)]",
@@ -253,15 +253,13 @@ mod tests {
         let idx_err = "[Bad Index]";
 
         let mut ret_objs = vec![];
-        let mut idx = 0;
-        for e in expr {
+        for (idx, e) in expr.iter().enumerate() {
             let obj = e.eval(&mut vars, &mut funcs).handle_panic();
             assert_eq!(
                 e.to_string(),
                 ret_strs.get(idx).unwrap_or(&idx_err).to_string()
             );
             ret_objs.push(obj);
-            idx += 1;
         }
     }
 
@@ -278,7 +276,7 @@ mod tests {
          \tprint(\"d: good\")",
         );
 
-        let ret_strs = vec![
+        let ret_strs = [
             r#"Keyword[if conds[ Keyword[True conds[] args[]]] args[ Call[print_ret args[ Atom(a: good)]] Keyword[if conds[ Keyword[False conds[] args[]]] args[ Call[print_ret args[ Atom(b: bad)]]]] Keyword[if conds[ Keyword[True conds[] args[]]] args[ Call[print_ret args[ Atom(c: good)]]]] Call[print args[ Atom(d: good)]]]]"#,
         ];
 
@@ -288,15 +286,13 @@ mod tests {
         let idx_err = "[Bad Index]";
 
         let mut ret_objs = vec![];
-        let mut idx = 0;
-        for e in expr {
+        for (idx, e) in expr.iter().enumerate() {
             let obj = e.eval(&mut vars, &mut funcs).handle_panic();
             assert_eq!(
                 e.to_string(),
                 ret_strs.get(idx).unwrap_or(&idx_err).to_string()
             );
             ret_objs.push(obj);
-            idx += 1;
         }
     }
 
@@ -314,7 +310,7 @@ mod tests {
          \tprint(\"d: good\")",
         );
 
-        let ret_strs = vec![
+        let ret_strs = [
             r#"Keyword[if conds[ Keyword[False conds[] args[]]] args[ Call[print_ret args[ Atom(a: bad)]] Keyword[elif conds[ Keyword[True conds[] args[]]] args[]] Call[print_ret args[ Atom(b: good)]]]]"#,
             r#"Keyword[if conds[ Keyword[False conds[] args[]]] args[ Call[print_ret args[ Atom(c: good)]] Keyword[else conds[] args[]] Call[print args[ Atom(d: good)]]]]"#,
         ];
@@ -325,15 +321,13 @@ mod tests {
         let idx_err = "[Bad Index]";
 
         let mut ret_objs = vec![];
-        let mut idx = 0;
-        for e in expr {
+        for (idx, e) in expr.iter().enumerate() {
             let obj = e.eval(&mut vars, &mut funcs).handle_panic();
             assert_eq!(
                 e.to_string(),
                 ret_strs.get(idx).unwrap_or(&idx_err).to_string()
             );
             ret_objs.push(obj);
-            idx += 1;
         }
     }
 
@@ -1158,7 +1152,7 @@ mod tests {
 
     #[test]
     fn list_concat() {
-        let list_ops = vec![
+        let list_ops = [
             ("[1, 2] + [3, 4]", "[1, 2, 3, 4]"),
             // Add more list operations as they get implemented
         ];
@@ -1290,9 +1284,8 @@ mod tests {
 
     #[test]
     fn calling_simple() {
-        let code_obj = PyBytecode::from_string(&format!(
-            "class vec2:\n\tx = 0\nx = vec2\nx.x = 1\nprint(x.x)"
-        ));
+        let code_obj =
+            PyBytecode::from_string("class vec2:\n\tx = 0\nx = vec2\nx.x = 1\nprint(x.x)");
         dbg!(&code_obj);
 
         let mut vm = PyVM::new();

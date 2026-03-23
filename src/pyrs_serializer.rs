@@ -55,8 +55,8 @@ impl PyHeader {
         vec
     }
 
-    pub fn deserialize(bytes: &Vec<u8>) -> Self {
-        let s = unsafe { String::from_utf8_unchecked(bytes.clone()) };
+    pub fn deserialize(bytes: &[u8]) -> Self {
+        let s = unsafe { String::from_utf8_unchecked(bytes.to_vec()) };
         let starter = &s[0..4];
         assert_eq!(starter, "pyrs");
 
@@ -71,11 +71,11 @@ impl PyHeader {
         let name = &s[4..i];
         i += 1; // skip '\0'
 
-        let time_bytes = s[i..i + 8].as_bytes().to_vec();
+        let time_bytes = &s.as_bytes()[i..i + 8];
         dbg!(&time_bytes);
-        let time_num = u64::from_bytes_be(time_bytes.as_slice()).unwrap();
+        let time_num = u64::from_bytes_be(time_bytes).unwrap();
 
-        let vers = s[i + 8..i + 12].as_bytes().to_vec();
+        let vers = &s.as_bytes()[i + 8..i + 12];
 
         let mut filename = String::new();
         i += 11;

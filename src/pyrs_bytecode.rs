@@ -6,7 +6,7 @@ use crate::{
     pyrs_vm::IntrinsicFunc,
 };
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 // Format: offset INSTRUCTION argument (value)
 // 0 LOAD_CONST 0 (0)      # Load constant at index 0, which is the integer 0
 // 2 STORE_NAME 0 (i)      # Store the top stack value into variable name at index 0 (variable "i")
