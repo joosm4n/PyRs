@@ -102,8 +102,8 @@ impl PyObject {
         vec![]
     }
 
-    pub fn new_map() -> HashMap<String, PyObjPtr> {
-        HashMap::new()
+    pub fn new_map() -> AttrDict {
+        AttrDict::new()
     }
 
     pub fn empty_dict() -> PyObject {
@@ -852,7 +852,7 @@ impl PyObject {
         }
     }
 
-    pub fn __getattr__(&self, field: &String) -> Result<PyObjPtr, PyException> {
+    pub fn __getattr__(&self, field: &Arc<str>) -> Result<PyObjPtr, PyException> {
         match &self.obj {
             Obj::ClassInst(inst) => match inst.fields.get(field).cloned() {
                 Some(obj) => Ok(obj.clone()),
@@ -868,7 +868,7 @@ impl PyObject {
         }
     }
 
-    pub fn __set_attr__(&mut self, field: &String, val: PyObjPtr) -> Option<PyException> {
+    pub fn __set_attr__(&mut self, field: &Arc<str>, val: PyObjPtr) -> Option<PyException> {
         match &mut self.obj {
             Obj::ClassInst(inst) => match inst.fields.get_mut(field) {
                 Some(obj) => {
@@ -1026,6 +1026,11 @@ impl ToObj for String {
 impl ToObj for &str {
     fn to_pyobj(self) -> PyObject {
         PyObject::from_atom(self)
+    }
+}
+impl ToObj for Arc<str> {
+    fn to_pyobj(self) -> PyObject {
+        PyObject::from_atom(&self)
     }
 }
 

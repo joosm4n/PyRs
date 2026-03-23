@@ -110,7 +110,7 @@ impl PyBytecode {
                 }
             },
             Expression::Operation(op, args) => {
-                let mut name = String::new();
+                let mut name: Arc<str> = "".into();
                 match op {
                     Op::Equals => {
                         let mut attr: Option<Expression> = None;
@@ -152,7 +152,7 @@ impl PyBytecode {
                         }
 
                         if name.is_empty() {
-                            name = match context.get_last_name().cloned() {
+                            name = match context.get_last_name() {
                                 Some(n) => n,
                                 None => panic!(),
                             }
@@ -425,7 +425,7 @@ impl PyBytecode {
                         };
 
                         let x = match args.first().unwrap() {
-                            Expression::Ident(ident) => ident,
+                            Expression::Ident(ident) => ident.clone(),
                             e => panic!("{} found {}", for_err, e),
                         };
 
@@ -538,7 +538,7 @@ impl PyBytecode {
                 };
 
                 // Compile function body into its OWN bytecode
-                let mut fn_ctx = PyCompileCtx::new(&name);
+                let mut fn_ctx = PyCompileCtx::new(name);
 
                 for a in func_args {
                     match a {
@@ -574,10 +574,10 @@ impl PyBytecode {
             e => panic!("class name must be an identifier not: {:?}", e),
         };
 
-        let mut ctx = PyCompileCtx::new(&name);
-        let name__ = ctx.add_name_load("__name__");
+        let mut ctx = PyCompileCtx::new(name.clone());
+        let name__ = ctx.add_name_load("__name__".into());
         ctx.push(name__);
-        let module__ = ctx.add_name_store("__module__");
+        let module__ = ctx.add_name_store("__module__".into());
         ctx.push(module__);
 
         {
@@ -585,19 +585,19 @@ impl PyBytecode {
             ctx.load_const(format!("{parent_name}.<locals>.{name}").to_pyptr());
         }
 
-        let qualname__ = ctx.add_name_store("__qualname__");
+        let qualname__ = ctx.add_name_store("__qualname__".into());
         ctx.push(qualname__);
 
         // let firstlineno__ = ctx.add_name("__firstlineno__");
 
-        let mut class_fields: HashMap<String, PyObjPtr> = HashMap::new();
+        let mut class_fields: AttrDict = AttrDict::new();
         for field in body.into_iter() {
             match field {
                 Expression::Operation(Op::Equals, mut v) => {
                     let member_name = v[0].get_value_string();
                     let default_val = v.pop().unwrap();
                     PyBytecode::from_expr(default_val, &mut ctx);
-                    let namei = ctx.add_name(&member_name);
+                    let namei = ctx.add_name(member_name.clone());
                     ctx.push(PyBytecode::StoreName(namei));
                     class_fields.insert(member_name, PyObjPtr::none());
                 }
@@ -610,7 +610,7 @@ impl PyBytecode {
                     ctx.push(PyBytecode::LoadConst(idx));
                     ctx.push(PyBytecode::MakeFunction);
 
-                    let namei = ctx.add_name(&name);
+                    let namei = ctx.add_name(name.clone());
                     ctx.push(PyBytecode::StoreName(namei));
                     class_fields.insert(name, PyObjPtr::none());
                 }
@@ -620,7 +620,7 @@ impl PyBytecode {
 
         PyTypeObj {
             name,
-            static_attribs: AttrDict(class_fields),
+            static_attribs: class_fields,
             code: Arc::new(ctx.finish()),
         }
     }

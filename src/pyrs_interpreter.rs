@@ -9,7 +9,7 @@ use crate::{
     pyrs_codeobject::{PyCodeObj, PyCompileCtx},
     pyrs_error::{PyError, PyException, PyPanicHandle},
     pyrs_parsing::{Expression, Keyword},
-    pyrs_pyobject::PyObjPtr,
+    pyrs_pyobject::{AttrDict, PyObjPtr},
     pyrs_std::{FnPtr, Funcs},
     pyrs_utils::PyUtils,
     pyrs_vm::PyVM,
@@ -41,7 +41,7 @@ impl std::fmt::Display for PyRsVersion {
 }
 
 pub struct Interpreter {
-    variables: HashMap<String, PyObjPtr>,
+    variables: AttrDict,
     funcs: HashMap<String, FnPtr>,
     running: bool,
     curr_line: isize,
@@ -84,7 +84,7 @@ pub enum InterpreterCommand {
 impl Default for Interpreter {
     fn default() -> Self {
         Interpreter {
-            variables: HashMap::new(),
+            variables: AttrDict::new(),
             running: true,
             funcs: Funcs::get_std_map(),
             curr_line: -1,
@@ -305,7 +305,7 @@ impl Interpreter {
             let value = lhs.eval(&mut self.variables, &mut self.funcs);
             match value {
                 Ok(val) => {
-                    self.variables.insert(var_name.to_string(), val);
+                    self.variables.insert(var_name.into(), val);
                 }
                 Err(e) => {
                     e.print();
@@ -361,9 +361,8 @@ impl Interpreter {
         let working_dir = std::env::current_dir().unwrap_or_default();
         match path.file_stem() {
             Some(filestem) => match filestem.to_str() {
-                Some(file_str) => {
-                    let filename = file_str.to_string();
-                    code = PyCompileCtx::new(&filename);
+                Some(filename) => {
+                    code = PyCompileCtx::new(filename.into());
                 }
                 None => {
                     return Err(PyException {
@@ -416,7 +415,7 @@ impl Interpreter {
 
     #[allow(dead_code)]
     fn execute_expr(&mut self, expr: Expression) {
-        let mut code = PyCompileCtx::new("__temp__");
+        let mut code = PyCompileCtx::new("__temp__".into());
         PyBytecode::from_expr(expr, &mut code);
         self.vm.execute(code.finish());
     }

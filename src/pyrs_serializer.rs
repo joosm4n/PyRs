@@ -171,7 +171,7 @@ impl PySerializer {
         final_bytes.append(&mut (varnames.len() as u64).to_be_bytes().to_vec()); // 8 bytes of num_varnames
         for v in varnames {
             final_bytes.append(&mut (v.len() as u64).to_be_bytes().to_vec()); // n bytes of obj string
-            final_bytes.append(&mut v.clone().into_bytes()); // n bytes of obj string
+            final_bytes.append(&mut v.to_string().into_bytes()); // n bytes of obj string
         }
 
         let nms = "__names__";
@@ -180,7 +180,7 @@ impl PySerializer {
         final_bytes.append(&mut (names.len() as u64).to_be_bytes().to_vec()); // 8 bytes of num_names
         for n in names {
             final_bytes.append(&mut (n.len() as u64).to_be_bytes().to_vec()); // n bytes of obj string
-            final_bytes.append(&mut n.clone().into_bytes()); // n bytes of obj string
+            final_bytes.append(&mut n.to_string().into_bytes()); // n bytes of obj string
         }
 
         let bcde = "__bytecode__";

@@ -18,8 +18,8 @@ pub struct PyObject {
     pub local_attrs: AttrDict,
 }
 
-#[derive(Debug, Clone)]
-pub struct AttrDict(pub HashMap<String, PyObjPtr>);
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttrDict(pub HashMap<Arc<str>, PyObjPtr>);
 
 #[derive(Clone)]
 pub enum PyObjPtr {
@@ -204,7 +204,7 @@ impl AttrDict {
     }
 }
 impl Deref for AttrDict {
-    type Target = HashMap<String, PyObjPtr>;
+    type Target = HashMap<Arc<str>, PyObjPtr>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }

@@ -6,8 +6,7 @@ n3 = 0  # this is a test comment
 print("Fibbonacci: ")
 while i < 10000:
     n3 = n1 + n2
-    print("(", i, ")")
+    print("(", i, ") ", n3)
     n1 = n2
     n2 = n3
     i = i + 1
-

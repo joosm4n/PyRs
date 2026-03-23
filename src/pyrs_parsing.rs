@@ -1,12 +1,12 @@
 use crate::{
     pyrs_error::{PyError, PyException},
-    pyrs_obj::{ToObj},
+    pyrs_obj::ToObj,
+    pyrs_pyobject::{AttrDict, PyObjPtr, PyObject},
     pyrs_std::FnPtr,
     pyrs_utils::PyUtils,
-    pyrs_pyobject::{PyObjPtr, PyObject}
 };
 
-use std::{collections::HashMap};
+use std::{collections::HashMap, sync::Arc};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
@@ -355,7 +355,7 @@ impl<'a> Lexer<'a> {
         //println!("Expr: {:?}", self.peek());
         let mut lhs = match self.next() {
             Token::Eof => return Expression::None,
-            Token::Atom(it) => Expression::Atom(it.to_string()),
+            Token::Atom(it) => Expression::Atom(it.into()),
             Token::Ident(ident) => {
                 /*
 
@@ -398,9 +398,9 @@ impl<'a> Lexer<'a> {
                     }
                     self.next();
                     //println!("args: {:#?}", args);
-                    Expression::Call(ident.to_string(), args)
+                    Expression::Call(ident.into(), args)
                 } else {
-                    Expression::Ident(ident.to_string())
+                    Expression::Ident(ident.into())
                 }
                 /*} */
             }
@@ -443,7 +443,7 @@ impl<'a> Lexer<'a> {
                     Keyword::Def => {
                         // dbg!(&self);
                         let name = match self.next() {
-                            Token::Ident(ident) => ident.to_string(),
+                            Token::Ident(ident) => ident.into(),
                             t => panic!("Syntax Error: must be ident after def, not {}", t),
                         };
                         if self.next() != Token::Op(Op::RoundBracketsOpen) {
@@ -467,7 +467,7 @@ impl<'a> Lexer<'a> {
                                     let expr = match self.peek() {
                                         Token::Op(Op::Equals) => {
                                             self.next();
-                                            let mut vals = vec![Expression::Ident(var.to_string())];
+                                            let mut vals = vec![Expression::Ident(var.into())];
                                             while self.peek() != Token::Sep(',')
                                                 && self.peek() != Token::Op(Op::RoundBracketsClose)
                                             {
@@ -490,10 +490,10 @@ impl<'a> Lexer<'a> {
                                         }
                                         Token::Sep(_) => {
                                             self.next();
-                                            Expression::Ident(var.to_string())
+                                            Expression::Ident(var.into())
                                         }
                                         Token::Op(Op::RoundBracketsClose) => {
-                                            Expression::Ident(var.to_string())
+                                            Expression::Ident(var.into())
                                         }
                                         t => panic!("Syntax Error: Unexpected token \'{}\'", t),
                                     };
@@ -717,11 +717,11 @@ impl std::fmt::Display for Keyword {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Expression {
     None,
-    Ident(String),
-    Atom(String),
+    Ident(Arc<str>),
+    Atom(Arc<str>),
     Operation(Op, Vec<Expression>),
     //Func(FnPtr, Vec<Expression>),
-    Call(String, Vec<Expression>),
+    Call(Arc<str>, Vec<Expression>),
     Keyword(Keyword, Vec<Expression>, Vec<Expression>),
     // Definition(String, Vec<Expression>, String, Vec<Expression>),
 }
@@ -733,7 +733,7 @@ impl Default for Expression {
 }
 
 impl Expression {
-    pub fn get_value_string(&self) -> String {
+    pub fn get_value_string(&self) -> Arc<str> {
         match self {
             Expression::Ident(ident) => ident.clone(),
             Expression::Atom(atom) => atom.clone(),
@@ -854,7 +854,7 @@ impl Expression {
     // turns expressions into objects
     pub fn eval(
         &self,
-        variables: &mut HashMap<String, PyObjPtr>,
+        variables: &mut AttrDict,
         funcs: &mut HashMap<String, FnPtr>,
     ) -> Result<PyObjPtr, PyException> {
         // println!("Eval: {self}");
@@ -932,7 +932,12 @@ impl Expression {
                 Keyword::If | Keyword::While => {
                     let condition = conds
                         .iter()
-                        .map(|x| x.eval(&mut *variables, &mut *funcs).unwrap().get_ref().__bool__())
+                        .map(|x| {
+                            x.eval(&mut *variables, &mut *funcs)
+                                .unwrap()
+                                .get_ref()
+                                .__bool__()
+                        })
                         .all(|x| x);
                     condition.to_pyptr()
                 }

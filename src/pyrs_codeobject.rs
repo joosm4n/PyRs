@@ -13,21 +13,21 @@ use std::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PyCodeObj {
-    pub name: String,
+    pub name: Arc<str>,
     pub bytecode: Vec<PyBytecode>,
     pub consts: Vec<PyObjPtr>,
-    pub names: Vec<String>,
-    pub varnames: Vec<String>,
+    pub names: Vec<Arc<str>>,
+    pub varnames: Vec<Arc<str>>,
     pub num_consts: usize,
     pub num_varnames: usize,
     pub num_names: usize,
-    pub globals: HashMap<String, PyObjPtr>,
+    pub globals: AttrDict,
 }
 
 impl PyCodeObj {
     pub fn new(name: &str, code: Vec<PyBytecode>) -> Self {
         PyCodeObj {
-            name: name.to_string(),
+            name: name.into(),
             bytecode: code,
             consts: vec![],
             names: vec![],
@@ -35,7 +35,7 @@ impl PyCodeObj {
             num_consts: 0,
             num_names: 0,
             num_varnames: 0,
-            globals: HashMap::new(),
+            globals: AttrDict::new(),
         }
     }
 
@@ -119,9 +119,9 @@ impl PyCodeObj {
                 | PyBytecode::LoadGlobal(v)
                 | PyBytecode::StoreGlobal(v) => {
                     if let Some(name) = self.names.get(*v as usize) {
-                        Some(name.clone())
+                        Some(name.to_string())
                     } else if let Some(name) = self.varnames.get(*v as usize) {
-                        Some(name.clone())
+                        Some(name.to_string())
                     } else {
                         panic!()
                     }
@@ -140,23 +140,23 @@ impl PyCodeObj {
 
 #[derive(Debug, Clone)]
 pub struct PyCompileCtx {
-    name: String,
+    name: Arc<str>,
     bytecode: Vec<PyBytecode>,
     consts: Vec<PyObjPtr>,
-    names: Vec<String>,
-    varnames: Vec<String>,
-    globals: HashMap<String, PyObjPtr>,
+    names: Vec<Arc<str>>,
+    varnames: Vec<Arc<str>>,
+    globals: AttrDict,
 }
 
 impl PyCompileCtx {
-    pub fn new<T: Into<String>>(name: T) -> Self {
+    pub fn new(name: Arc<str>) -> Self {
         Self {
-            name: name.into(),
+            name,
             bytecode: vec![PyBytecode::Resume],
             consts: vec![],
             names: vec![],
             varnames: vec![],
-            globals: HashMap::new(),
+            globals: AttrDict::new(),
         }
     }
 
@@ -180,90 +180,83 @@ impl PyCompileCtx {
         }
     }
 
-    pub fn add_varname<T: Into<String>>(&mut self, name: T) -> u8 {
-        let name_s: String = name.into();
-        if let Some(i) = self.varnames.iter().position(|n| n == &name_s) {
+    pub fn add_varname(&mut self, name: Arc<str>) -> u8 {
+        if let Some(i) = self.varnames.iter().position(|n| n == &name) {
             i as u8
         } else {
             let i = self.varnames.len();
-            self.varnames.push(name_s);
+            self.varnames.push(name);
             i as u8
         }
     }
 
-    pub fn add_name<T: Into<String>>(&mut self, name: T) -> u8 {
-        let name_s: String = name.into();
-        if let Some(i) = self.names.iter().position(|n| n == &name_s) {
+    pub fn add_name(&mut self, name: Arc<str>) -> u8 {
+        if let Some(i) = self.names.iter().position(|n| n == &name) {
             i as u8
         } else {
             let i = self.names.len();
-            self.names.push(name_s);
+            self.names.push(name);
             i as u8
         }
     }
 
-    pub fn add_varname_load<T: Into<String>>(&mut self, name: T) -> PyBytecode {
-        let name_s: String = name.into();
-        if self.globals.contains_key(&name_s) {
-            let i = self.names.iter().position(|n| n == &name_s).unwrap();
+    pub fn add_varname_load(&mut self, name: Arc<str>) -> PyBytecode {
+        if self.globals.contains_key(&name) {
+            let i = self.names.iter().position(|n| n == &name).unwrap();
             PyBytecode::LoadGlobal(i as u8)
-        } else if let Some(i) = self.varnames.iter().position(|n| n == &name_s) {
+        } else if let Some(i) = self.varnames.iter().position(|n| n == &name) {
             PyBytecode::LoadFast(i as u8)
         } else {
             let i = self.varnames.len();
-            self.varnames.push(name_s);
+            self.varnames.push(name);
             PyBytecode::LoadFast(i as u8)
         }
     }
 
-    pub fn add_name_load<T: Into<String>>(&mut self, name: T) -> PyBytecode {
-        let name_s: String = name.into();
-        if let Some(i) = self.names.iter().position(|n| n == &name_s) {
+    pub fn add_name_load(&mut self, name: Arc<str>) -> PyBytecode {
+        if let Some(i) = self.names.iter().position(|n| n == &name) {
             PyBytecode::LoadName(i as u8)
-        } else if self.globals.contains_key(&name_s) {
-            let i = self.names.iter().position(|n| n == &name_s).unwrap();
+        } else if self.globals.contains_key(&name) {
+            let i = self.names.iter().position(|n| n == &name).unwrap();
             PyBytecode::LoadGlobal(i as u8)
         } else {
             let i = self.names.len();
-            self.names.push(name_s);
+            self.names.push(name);
             PyBytecode::LoadName(i as u8)
         }
     }
 
-    pub fn add_varname_store<T: Into<String>>(&mut self, name: T) -> PyBytecode {
-        let name_s: String = name.into();
-        if let Some(i) = self.varnames.iter().position(|n| n == &name_s) {
+    pub fn add_varname_store(&mut self, name: Arc<str>) -> PyBytecode {
+        if let Some(i) = self.varnames.iter().position(|n| n == &name) {
             PyBytecode::StoreFast(i as u8)
         } else {
             let i = self.varnames.len();
-            self.varnames.push(name_s);
+            self.varnames.push(name);
             PyBytecode::StoreFast(i as u8)
         }
     }
 
-    pub fn add_name_store<T: Into<String>>(&mut self, name: T) -> PyBytecode {
-        let name_s: String = name.into();
-        if let Some(i) = self.names.iter().position(|n| n == &name_s) {
+    pub fn add_name_store(&mut self, name: Arc<str>) -> PyBytecode {
+        if let Some(i) = self.names.iter().position(|n| n == &name) {
             PyBytecode::StoreName(i as u8)
         } else {
             let i = self.names.len();
-            self.names.push(name_s);
+            self.names.push(name);
             PyBytecode::StoreName(i as u8)
         }
     }
 
-    pub fn get_last_name(&self) -> Option<&String> {
-        self.names.last()
+    pub fn get_last_name(&self) -> Option<Arc<str>> {
+        self.names.last().cloned()
     }
 
-    pub fn get_context_name(&self) -> &String {
-        &self.name
+    pub fn get_context_name(&self) -> Arc<str> {
+        self.name.clone()
     }
 
-    pub fn add_global<T: Into<String>>(&mut self, name: T, obj: PyObject) {
-        let name_s: String = name.into();
-        self.names.push(name_s.clone());
-        self.globals.insert(name_s, obj.to_ptr());
+    pub fn add_global(&mut self, name: Arc<str>, obj: PyObject) {
+        self.names.push(name.clone());
+        self.globals.insert(name, obj.to_ptr());
     }
 
     pub fn extract_code(self) -> Vec<PyBytecode> {
@@ -351,7 +344,7 @@ impl FuncObj {
 
 #[derive(Debug, Clone)]
 pub struct PyTypeObj {
-    pub name: String,
+    pub name: Arc<str>,
     pub static_attribs: AttrDict,
     pub code: Arc<PyCodeObj>,
 }
@@ -361,7 +354,7 @@ use uuid::Uuid;
 impl PyTypeObj {
     pub fn new_instance(&self) -> PyClassInst {
         PyClassInst {
-            fields: self.static_attribs.0.clone(),
+            fields: self.static_attribs.clone(),
             id: Uuid::new_v4(),
         }
     }
@@ -376,7 +369,7 @@ impl core::hash::Hash for PyTypeObj {
 
 #[derive(Debug, Clone)]
 pub struct PyClassInst {
-    pub fields: HashMap<String, PyObjPtr>,
+    pub fields: AttrDict,
     pub id: Uuid,
 }
 impl core::hash::Hash for PyClassInst {

@@ -23,13 +23,13 @@ pub struct PyFrame {
     pub ip: usize,
     pub stack: Vec<PyObjPtr>,
     pub locals: Vec<PyObjPtr>,
-    pub globals: Arc<Mutex<HashMap<String, PyObjPtr>>>,
+    pub globals: Arc<Mutex<AttrDict>>,
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PyVM {
-    builtins: HashMap<String, PyObjPtr>,
+    builtins: AttrDict,
     curr_namespace: String,
     frames: Vec<PyFrame>,
 
@@ -363,12 +363,12 @@ impl PyVM {
         }
     }
 
-    fn get_name(&self, namei: u8) -> Option<&String> {
-        self.frame().code.names.get(namei as usize)
+    fn get_name(&self, namei: u8) -> Option<Arc<str>> {
+        self.frame().code.names.get(namei as usize).cloned()
     }
 
-    fn get_varname(&self, namei: u8) -> Option<&String> {
-        self.frame().code.varnames.get(namei as usize)
+    fn get_varname(&self, namei: u8) -> Option<Arc<str>> {
+        self.frame().code.varnames.get(namei as usize).cloned()
     }
 
     pub fn print_stack(&self) {
@@ -554,7 +554,7 @@ impl PyVM {
             }
         };
 
-        match obj.get_ref().__set_attr__(attr_name, value) {
+        match obj.get_ref().__set_attr__(&attr_name, value) {
             None => {}
             Some(e) => self.throw_err(e),
         };
@@ -578,7 +578,7 @@ impl PyVM {
             }
         };
 
-        match obj.get_ref().__getattr__(name) {
+        match obj.get_ref().__getattr__(&name) {
             Ok(val) => self.push(val),
             Err(e) => {
                 self.throw_err(e);
@@ -863,7 +863,11 @@ impl PyVM {
         };
         dbg!(&name);
 
-        let filepath: String = self.working_dir.to_str().unwrap().to_owned() + "/" + name + ".py";
+        let filepath: String = format!(
+            "{}/{}.py",
+            self.working_dir.to_str().unwrap().to_owned(),
+            name
+        );
         let module = match Interpreter::compile_file(&filepath) {
             Ok(m) => m,
             Err(e) => panic!("can't load module \'{}\': {}", &name, e),
@@ -882,12 +886,12 @@ impl PyVM {
             Obj::FunctionObj(c) => c.code.clone(),
             _ => panic!(),
         };
-        let name = match &(args[1]).get_ref().obj {
-            Obj::Str(s) => s.clone(),
+        let name: Arc<str> = match &(args[1]).get_ref().obj {
+            Obj::Str(s) => s.clone().into(),
             _ => panic!(),
         };
         let mut fields: AttrDict = AttrDict::new();
-        fields.insert("__name__".to_string(), name.clone().to_pyptr());
+        fields.insert("__name__".into(), name.clone().to_pyptr());
         let mut stack: Vec<PyObjPtr> = vec![];
         for bc in code.bytecode.iter().copied() {
             match bc {
@@ -1028,10 +1032,10 @@ impl IntrinsicFunc {
         unsafe { std::mem::transmute(value) }
     }
 
-    pub fn new_builtins() -> HashMap<String, PyObjPtr> {
-        let mut map = HashMap::new();
+    pub fn new_builtins() -> AttrDict {
+        let mut map = AttrDict::new();
         map.insert(
-            "print".to_string(),
+            "print".into(),
             FnPtr {
                 ptr: IntrinsicFunc::print,
                 name: "print".into(),
@@ -1039,7 +1043,7 @@ impl IntrinsicFunc {
             .to_pyptr(),
         );
         map.insert(
-            "input".to_string(),
+            "input".into(),
             FnPtr {
                 ptr: IntrinsicFunc::input,
                 name: "input".into(),
@@ -1047,7 +1051,7 @@ impl IntrinsicFunc {
             .to_pyptr(),
         );
         map.insert(
-            "range".to_string(),
+            "range".into(),
             FnPtr {
                 ptr: IntrinsicFunc::range,
                 name: "range".into(),
@@ -1055,7 +1059,7 @@ impl IntrinsicFunc {
             .to_pyptr(),
         );
         map.insert(
-            "exit".to_string(),
+            "exit".into(),
             FnPtr {
                 ptr: IntrinsicFunc::exit,
                 name: "exit".into(),

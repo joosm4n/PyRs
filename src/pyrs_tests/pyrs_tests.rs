@@ -24,7 +24,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     struct EqTester {
-        vars: HashMap<String, PyObjPtr>,
+        vars: AttrDict,
         funcs: HashMap<String, FnPtr>,
     }
 
@@ -351,13 +351,13 @@ mod tests {
         let code_obj = PyCodeObj {
             name: "__test_bytecode_manual__".into(),
             consts: vec![5.to_pyptr()],
-            varnames: vec!["x".to_string()],
+            varnames: vec!["x".into()],
             names: vec![],
             bytecode: code,
             num_varnames: 1,
             num_consts: 1,
             num_names: 0,
-            globals: HashMap::new(),
+            globals: AttrDict::new(),
         };
 
         println!("Instruction Queue: ");
@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn bytecode_from_expr() {
         let expr = Expression::from_multiline("x = 2\n if x:\n\t print(x) ");
-        let mut code = PyCompileCtx::new("__test_bytecode_from_expr__");
+        let mut code = PyCompileCtx::new("__test_bytecode_from_expr__".into());
         for e in expr {
             PyBytecode::from_expr(e, &mut code);
         }
@@ -444,7 +444,7 @@ mod tests {
             num_consts: 3,
             num_varnames: 1,
             num_names: 0,
-            globals: HashMap::new(),
+            globals: AttrDict::new(),
         };
 
         let mut vm = PyVM::new();
@@ -502,7 +502,7 @@ mod tests {
             num_consts: 2,
             num_varnames: 0,
             num_names: 0,
-            globals: HashMap::new(),
+            globals: AttrDict::new(),
         };
 
         assert_eq!(&code_obj, &expected_codeobj);
@@ -524,7 +524,7 @@ mod tests {
 
         let exprs = Expression::from_multiline(src);
         dbg!(&exprs);
-        let mut code = PyCompileCtx::new("__test_module_import__");
+        let mut code = PyCompileCtx::new("__test_module_import__".into());
         for e in exprs {
             PyBytecode::from_expr(e, &mut code);
         }
@@ -592,7 +592,7 @@ mod tests {
             "Call[print args[ Op[+ Ident(x) Op[list Atom(add) Atom(none)]]]]"
         );
 
-        let mut bytecode = PyCompileCtx::new("__test_list__");
+        let mut bytecode = PyCompileCtx::new("__test_list__".into());
         PyBytecode::from_expr(line1, &mut bytecode);
         PyBytecode::from_expr(line2, &mut bytecode);
 
@@ -708,7 +708,7 @@ mod tests {
 
     #[test]
     fn bytecode_unary() {
-        let mut code = PyCompileCtx::new("__test_bytecode_unary__");
+        let mut code = PyCompileCtx::new("__test_bytecode_unary__".into());
         PyBytecode::from_expr(Expression::from_line("-42"), &mut code);
 
         let code_obj = code.finish();
@@ -756,7 +756,7 @@ mod tests {
         let tuple_expr = Expression::from_line("(1, 2, 3)");
         println!("Tuple expression: {}", tuple_expr);
 
-        let mut code = PyCompileCtx::new("__test_ops_tuple__");
+        let mut code = PyCompileCtx::new("__test_ops_tuple__".into());
         PyBytecode::from_expr(tuple_expr, &mut code);
         let code_obj = code.finish();
         println!(
@@ -770,7 +770,7 @@ mod tests {
         let tuple_expr = Expression::from_line("{1, 2, 3}");
         println!("Tuple expression: {}", tuple_expr);
 
-        let mut code = PyCompileCtx::new("__test_ops_set__");
+        let mut code = PyCompileCtx::new("__test_ops_set__".into());
         PyBytecode::from_expr(tuple_expr, &mut code);
 
         let code_obj = code.finish();
@@ -860,7 +860,7 @@ mod tests {
             "Op[list Op[list Atom(1) Atom(2)] Op[list Atom(3) Atom(4)]]"
         );
 
-        let mut code = PyCompileCtx::new("__test_nested_list__");
+        let mut code = PyCompileCtx::new("__test_nested_list__".into());
         PyBytecode::from_expr(nested_list, &mut code);
 
         let code_obj = code.finish();
@@ -969,7 +969,7 @@ mod tests {
         let empty_expr = Expression::None;
         assert_eq!(empty_expr.to_string(), "None");
 
-        let mut code = PyCompileCtx::new("__test_expression_none_handling__");
+        let mut code = PyCompileCtx::new("__test_expression_none_handling__".into());
         PyBytecode::from_expr(empty_expr, &mut code);
 
         let code_obj = code.finish();
@@ -1141,7 +1141,7 @@ mod tests {
         assert!(expr.len() >= 2); // At least assignment and while loop
 
         // Test bytecode generation doesn't crash
-        let mut code = PyCompileCtx::new("__test_nested_while_loops__");
+        let mut code = PyCompileCtx::new("__test_nested_while_loops__".into());
         for e in expr {
             PyBytecode::from_expr(e, &mut code);
         }
@@ -1260,7 +1260,7 @@ mod tests {
 
     #[test]
     fn attr_get() {
-        let mut c = PyCompileCtx::new("__test_calling__");
+        let mut c = PyCompileCtx::new("__test_calling__".into());
         let a = Expression::from_line("v = 1");
         dbg!(&a);
         PyBytecode::from_expr(a, &mut c);
@@ -1315,13 +1315,13 @@ mod tests {
         let code_obj = PyCodeObj {
             name: "__test_bytecode_manual__".into(),
             consts: vec![5.to_pyptr()],
-            varnames: vec!["x".to_string()],
-            names: vec!["print".to_string()],
+            varnames: vec!["x".into()],
+            names: vec!["print".into()],
             bytecode: vec![],
             num_varnames: 1,
             num_consts: 1,
             num_names: 1,
-            globals: HashMap::new(),
+            globals: AttrDict::new(),
         };
         code_obj.pretty_format();
     }
