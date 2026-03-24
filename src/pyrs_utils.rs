@@ -8,7 +8,7 @@ pub struct PyUtils {}
 
 impl PyUtils {
     pub fn str_starts_with(input: &str, op: fn(char) -> bool) -> bool {
-        input.chars().next().map_or(false, |c| op(c))
+        input.chars().next().map(op).unwrap_or(false)
     }
 
     pub fn trim_first_and_last(value: &str) -> &str {
@@ -61,7 +61,7 @@ impl PyUtils {
         }
         lines.push(&file[start_of_line_idx..final_idx]);
         dbg!(&lines);
-        return lines;
+        lines
     }
 
     pub fn split_to_words(sentence: &str) -> Vec<&str> {
@@ -83,7 +83,7 @@ impl PyUtils {
                     let mut end_idx = start_idx + ch.len_utf8();
 
                     // Find the closing quote
-                    while let Some((idx, c)) = chars.next() {
+                    for (idx, c) in chars.by_ref() {
                         end_idx = idx + c.len_utf8();
                         if c == quote_char {
                             break;

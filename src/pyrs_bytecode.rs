@@ -1,14 +1,12 @@
 use crate::{
-    pyrs_codeobject::{PyTypeObj, PyCodeObj, PyCompileCtx},
-    pyrs_obj::{Obj, ToObj},
+    pyrs_codeobject::{PyCodeObj, PyCompileCtx, PyTypeObj},
+    pyrs_obj::ToObj,
     pyrs_parsing::{Expression, Keyword, Op},
+    pyrs_pyobject::{AttrDict, PyObjPtr, PyObject},
     pyrs_vm::IntrinsicFunc,
 };
 
-use std::{ 
-    sync::{Arc},
-    collections::{HashMap},
-};
+use std::sync::Arc;
 // Format: offset INSTRUCTION argument (value)
 // 0 LOAD_CONST 0 (0)      # Load constant at index 0, which is the integer 0
 // 2 STORE_NAME 0 (i)      # Store the top stack value into variable name at index 0 (variable "i")
@@ -95,7 +93,6 @@ pub enum PyBytecode {
 }
 
 impl PyBytecode {
-
     pub fn from_expr(expr: Expression, context: &mut PyCompileCtx) {
         // println!("Compiling: {}", expr.to_string());
         match expr {
@@ -103,22 +100,19 @@ impl PyBytecode {
                 let load_name = context.add_varname_load(x);
                 context.push(load_name);
             }
-            Expression::Atom(a) => {
-                match a.parse::<u8>() {
-                    Ok(small_int) => {
-                        context.push(PyBytecode::LoadSmallInt(small_int));
-                    }
-                    Err(_) => {
-                        let i = context.add_const(a.to_obj());
-                        context.push(PyBytecode::LoadConst(i));
-                    } 
+            Expression::Atom(a) => match a.parse::<u8>() {
+                Ok(small_int) => {
+                    context.push(PyBytecode::LoadSmallInt(small_int));
                 }
-            }
+                Err(_) => {
+                    let i = context.add_const(a.to_pyptr());
+                    context.push(PyBytecode::LoadConst(i));
+                }
+            },
             Expression::Operation(op, args) => {
-                let mut name = String::new();
+                let mut name: Arc<str> = "".into();
                 match op {
                     Op::Equals => {
-
                         let mut attr: Option<Expression> = None;
                         for (idx, a) in args.into_iter().enumerate() {
                             if idx == 0 {
@@ -126,7 +120,7 @@ impl PyBytecode {
                                     Expression::Ident(ident) => {
                                         name = ident;
                                         let _namei = context.add_varname(name.clone());
-                                    },
+                                    }
                                     dot @ Expression::Operation(Op::Dot, _) => attr = Some(dot),
                                     e => panic!("SyntaxError: invalid expr {e}"),
                                 };
@@ -139,8 +133,8 @@ impl PyBytecode {
                                             PyBytecode::from_expr(a, context);
                                         }
                                         let namei = context.add_varname(fn_name);
-                                        context.push(PyBytecode::LoadFast(namei));
-
+                                        context.push(PyBytecode::PushNull);
+                                        context.push(PyBytecode::LoadName(namei));
                                         context.push(PyBytecode::CallFunction(argc as u8));
                                     }
                                     _ => PyBytecode::from_expr(a, context),
@@ -158,7 +152,7 @@ impl PyBytecode {
                         }
 
                         if name.is_empty() {
-                            name = match context.get_last_name().cloned() {
+                            name = match context.get_last_name() {
                                 Some(n) => n,
                                 None => panic!(),
                             }
@@ -211,8 +205,8 @@ impl PyBytecode {
                     Op::List => {
                         context.push(PyBytecode::BuildList(0));
 
-                        let objs = args.into_iter().map(|x| x.to_arc()).collect();
-                        let i = context.add_const(Obj::Tuple(objs));
+                        let objs = args.into_iter().map(|x| x.to_pyptr()).collect();
+                        let i = context.add_const(PyObject::new_tuple(objs).to_ptr());
                         context.push(PyBytecode::LoadConst(i));
 
                         context.push(PyBytecode::ListAppend(0));
@@ -240,10 +234,10 @@ impl PyBytecode {
                                 0 => {
                                     let namei = context.add_varname_load(a.get_value_string());
                                     context.push(namei);
-                                },
+                                }
                                 1 => {
                                     match a {
-                                        c @ Expression::Call(_, _) => { 
+                                        c @ Expression::Call(_, _) => {
                                             PyBytecode::from_expr(c, context);
                                         }
                                         Expression::Ident(ident) => {
@@ -289,21 +283,20 @@ impl PyBytecode {
             }
             Expression::Call(name, args) => {
                 let argc = args.len();
-                // dbg!(&args);
-
-                if let Some(_) = IntrinsicFunc::try_get(&name) {
-                    let namei = context.add_name(name);
-                    context.push(PyBytecode::LoadGlobal(namei));
-                    context.push(PyBytecode::PushNull);
-                } else {
-                    let namei = context.add_varname(name);
-                    context.push(PyBytecode::LoadFast(namei));
-                    context.push(PyBytecode::PushNull);
-                }
 
                 for a in args {
                     //dbg!(&a);
                     PyBytecode::from_expr(a, context);
+                }
+
+                if IntrinsicFunc::try_get(&name).is_some() {
+                    let namei = context.add_name(name);
+                    context.push(PyBytecode::PushNull);
+                    context.push(PyBytecode::LoadGlobal(namei));
+                } else {
+                    let namei = context.add_varname(name);
+                    context.push(PyBytecode::PushNull);
+                    context.push(PyBytecode::LoadName(namei));
                 }
 
                 context.push(PyBytecode::CallFunction(argc as u8));
@@ -311,18 +304,17 @@ impl PyBytecode {
             Expression::Keyword(keyword, mut args, body) => {
                 match keyword {
                     Keyword::True => {
-                        let i = context.add_const(Obj::Bool(true));
+                        let i = context.add_const(true.to_pyptr());
                         context.push(PyBytecode::LoadConst(i));
                     }
                     Keyword::False => {
-                        let i = context.add_const(Obj::Bool(false));
+                        let i = context.add_const(false.to_pyptr());
                         context.push(PyBytecode::LoadConst(i));
                     }
                     Keyword::Elif | Keyword::Else => {
                         panic!("Shouldn't have a stand alone elif/else expression")
                     }
                     Keyword::If => {
-
                         let parts = Expression::split_if_elif_else(args, body);
 
                         let mut elif_else_parts = vec![];
@@ -413,8 +405,8 @@ impl PyBytecode {
                         let return_delta = context.len() - condition_start + 1;
                         context.push(PyBytecode::JumpBackward(return_delta as u8));
 
-                        let i = context.add_const(Obj::None);
-                        context.push(PyBytecode::LoadConst(i));
+                        // let i = context.add_const(PyObject::none());
+                        // context.push(PyBytecode::LoadConst(i));
                     }
                     Keyword::For => {
                         let for_err =
@@ -433,7 +425,7 @@ impl PyBytecode {
                         };
 
                         let x = match args.first().unwrap() {
-                            Expression::Ident(ident) => ident,
+                            Expression::Ident(ident) => ident.clone(),
                             e => panic!("{} found {}", for_err, e),
                         };
 
@@ -457,7 +449,7 @@ impl PyBytecode {
                         let fn_code =
                             PyBytecode::compile_fn(Expression::Keyword(Keyword::Def, args, body));
                         let name = fn_code.name.clone();
-                        let idx = context.add_const(Obj::Code(fn_code));
+                        let idx = context.add_const(fn_code.to_pyptr());
 
                         context.push(PyBytecode::LoadConst(idx));
                         context.push(PyBytecode::MakeFunction);
@@ -468,10 +460,10 @@ impl PyBytecode {
                         context.push(PyBytecode::StoreFast(namei));
                     }
                     Keyword::Class => {
-                        let class = PyBytecode::compile_class(args, body, &context);
-                        let class_name= class.name.__str__();
-                        let code_namei = context.add_const(class.to_obj());
-                        let namei = context.add_const(class_name.clone().to_obj());
+                        let class = PyBytecode::compile_class(args, body, context);
+                        let class_name = class.name.clone();
+                        let code_namei = context.add_const(class.to_pyptr());
+                        let namei = context.add_const(class_name.clone().to_pyptr());
                         context.push(PyBytecode::LoadBuildClass);
                         context.push(PyBytecode::PushNull);
                         context.push(PyBytecode::LoadConst(code_namei));
@@ -493,7 +485,7 @@ impl PyBytecode {
                         context.push(PyBytecode::ReturnValue);
                     }
                     Keyword::None => {
-                        let i = context.add_const(Obj::None);
+                        let i = context.add_const(PyObject::none());
                         context.push(PyBytecode::LoadConst(i));
                     }
                     Keyword::Pass => {
@@ -506,7 +498,7 @@ impl PyBytecode {
         }
     }
 
-    pub fn from_str(s: &str) -> PyCodeObj {
+    pub fn from_string(s: &str) -> PyCodeObj {
         use crate::pyrs_interpreter::Interpreter;
         use std::fs;
         use std::io::Write;
@@ -546,7 +538,7 @@ impl PyBytecode {
                 };
 
                 // Compile function body into its OWN bytecode
-                let mut fn_ctx = PyCompileCtx::new(&name);
+                let mut fn_ctx = PyCompileCtx::new(name);
 
                 for a in func_args {
                     match a {
@@ -561,7 +553,7 @@ impl PyBytecode {
                     PyBytecode::from_expr(b, &mut fn_ctx);
                 }
 
-                let const_num = fn_ctx.add_const(Obj::None);
+                let const_num = fn_ctx.add_const(PyObjPtr::none());
                 fn_ctx.push(PyBytecode::LoadConst(const_num));
                 fn_ctx.push(PyBytecode::ReturnValue);
 
@@ -571,67 +563,69 @@ impl PyBytecode {
         }
     }
 
-    fn compile_class(args: Vec<Expression>, body: Vec<Expression>, parent_context: &PyCompileCtx) -> PyTypeObj {
-        
+    fn compile_class(
+        args: Vec<Expression>,
+        body: Vec<Expression>,
+        parent_context: &PyCompileCtx,
+    ) -> PyTypeObj {
         //dbg!(&args);
         let name = match args.first().unwrap() {
             Expression::Ident(ident) => ident.clone(),
             e => panic!("class name must be an identifier not: {:?}", e),
         };
 
-        let mut ctx = PyCompileCtx::new(&name);
-        let name__ = ctx.add_name_load("__name__");
+        let mut ctx = PyCompileCtx::new(name.clone());
+        let name__ = ctx.add_name_load("__name__".into());
         ctx.push(name__);
-        let module__ = ctx.add_name_store("__module__");
+        let module__ = ctx.add_name_store("__module__".into());
         ctx.push(module__);
 
         {
             let parent_name = parent_context.get_context_name();
-            ctx.load_const(format!("{parent_name}.<locals>.{name}").to_obj());
+            ctx.load_const(format!("{parent_name}.<locals>.{name}").to_pyptr());
         }
 
-        let qualname__ = ctx.add_name_store("__qualname__");
+        let qualname__ = ctx.add_name_store("__qualname__".into());
         ctx.push(qualname__);
 
         // let firstlineno__ = ctx.add_name("__firstlineno__");
 
-        let mut class_fields: HashMap<String, Arc<Obj>> = HashMap::new();
+        let mut class_fields: AttrDict = AttrDict::new();
         for field in body.into_iter() {
             match field {
                 Expression::Operation(Op::Equals, mut v) => {
                     let member_name = v[0].get_value_string();
                     let default_val = v.pop().unwrap();
                     PyBytecode::from_expr(default_val, &mut ctx);
-                    let namei = ctx.add_name(&member_name);
+                    let namei = ctx.add_name(member_name.clone());
                     ctx.push(PyBytecode::StoreName(namei));
-                    class_fields.insert(member_name, Obj::None.to_arc());
+                    class_fields.insert(member_name, PyObjPtr::none());
                 }
                 Expression::Keyword(Keyword::Def, conds, body) => {
-
                     let fn_code =
-                            PyBytecode::compile_fn(Expression::Keyword(Keyword::Def, conds, body));
+                        PyBytecode::compile_fn(Expression::Keyword(Keyword::Def, conds, body));
                     let name = fn_code.name.clone();
-                    let idx = ctx.add_const(Obj::Code(fn_code));
+                    let idx = ctx.add_const(fn_code.to_pyptr());
 
                     ctx.push(PyBytecode::LoadConst(idx));
                     ctx.push(PyBytecode::MakeFunction);
 
-                    let namei = ctx.add_name(&name);
+                    let namei = ctx.add_name(name.clone());
                     ctx.push(PyBytecode::StoreName(namei));
-                    class_fields.insert(name, Obj::None.to_arc());
+                    class_fields.insert(name, PyObjPtr::none());
                 }
                 _ => panic!("invalid expr for default"),
             }
         }
 
         PyTypeObj {
-            name: name.to_arc(),
+            name,
             static_attribs: class_fields,
             code: Arc::new(ctx.finish()),
         }
     }
 
-    pub fn to_string(vec: &Vec<Self>) -> String {
+    pub fn to_string(vec: &[Self]) -> String {
         let mut string = String::new();
         for (idx, line) in vec.iter().enumerate() {
             string.push_str(format!("({idx}) \t\t{:?}\n", line).as_str());
@@ -654,226 +648,61 @@ impl PyBytecode {
 
     pub const fn get_type_str_slice(&self) -> &[u8; PyBytecode::TYPE_STR_LEN] {
         match self {
-            PyBytecode::NOP => &[
-                b'N', b'O', b'P', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::ImportName(_) => &[
-                b'I', b'm', b'p', b'o', b'r', b't', b'N', b'a', b'm', b'e', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::ImportFrom(_) => &[
-                b'I', b'm', b'p', b'o', b'r', b't', b'F', b'r', b'o', b'm', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::PopIter => &[
-                b'P', b'o', b'p', b'I', b't', b'e', b'r', b'_', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::PopTop => &[
-                b'P', b'o', b'p', b'T', b'o', b'p', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::EndFor => &[
-                b'E', b'n', b'd', b'F', b'o', b'r', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::Copy(_) => &[
-                b'C', b'o', b'p', b'y', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::Swap(_) => &[
-                b'S', b'w', b'a', b'p', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::UnaryNegative => &[
-                b'U', b'n', b'a', b'r', b'y', b'N', b'e', b'g', b'a', b't', b'i', b'v', b'e', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::UnaryNot => &[
-                b'U', b'n', b'a', b'r', b'y', b'N', b'o', b't', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::UnaryInvert => &[
-                b'U', b'n', b'a', b'r', b'y', b'I', b'n', b'v', b'e', b'r', b't', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::ToBool => &[
-                b'T', b'o', b'B', b'o', b'o', b'l', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::BinaryOp(_) => &[
-                b'B', b'i', b'n', b'a', b'r', b'y', b'O', b'p', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::BinaryAdd => &[
-                b'B', b'i', b'n', b'a', b'r', b'y', b'A', b'd', b'd', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::BinaryMultiply => &[
-                b'B', b'i', b'n', b'a', b'r', b'y', b'M', b'u', b'l', b't', b'i', b'p', b'l', b'y',
-                b'_', b'_',
-            ],
-            PyBytecode::BinarySubtract => &[
-                b'B', b'i', b'n', b'a', b'r', b'y', b'S', b'u', b'b', b't', b'r', b'a', b'c', b't',
-                b'_', b'_',
-            ],
-            PyBytecode::BinaryDivide => &[
-                b'B', b'i', b'n', b'a', b'r', b'y', b'D', b'i', b'v', b'i', b'd', b'e', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::BinaryXOR => &[
-                b'B', b'i', b'n', b'a', b'r', b'y', b'X', b'O', b'R', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::LoadConst(_) => &[
-                b'L', b'o', b'a', b'd', b'C', b'o', b'n', b's', b't', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::LoadFast(_) => &[
-                b'L', b'o', b'a', b'd', b'F', b'a', b's', b't', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::StoreFast(_) => &[
-                b'S', b't', b'o', b'r', b'e', b'F', b'a', b's', b't', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::LoadName(_) => &[
-                b'L', b'o', b'a', b'd', b'N', b'a', b'm', b'e', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::StoreName(_) => &[
-                b'S', b't', b'o', b'r', b'e', b'N', b'a', b'm', b'e', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::LoadGlobal(_) => &[
-                b'L', b'o', b'a', b'd', b'G', b'l', b'o', b'b', b'a', b'l', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::StoreGlobal(_) => &[
-                b'S', b't', b'o', b'r', b'e', b'G', b'l', b'o', b'b', b'a', b'l', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::PushNull => &[
-                b'P', b'u', b's', b'h', b'N', b'u', b'l', b'l', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::Cache => &[
-                b'C', b'a', b'c', b'h', b'e', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::CallFunction(_) => &[
-                b'C', b'a', b'l', b'l', b'F', b'u', b'n', b'c', b't', b'i', b'o', b'n', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::CallInstrinsic1(_) => &[
-                b'C', b'a', b'l', b'l', b'I', b'n', b's', b't', b'r', b'i', b'n', b's', b'i', b'c',
-                b'1', b'_',
-            ],
-            PyBytecode::CallInstrinsic2(_) => &[
-                b'C', b'a', b'l', b'l', b'I', b'n', b's', b't', b'r', b'i', b'n', b's', b'i', b'c',
-                b'2', b'_',
-            ],
-            PyBytecode::ReturnValue => &[
-                b'R', b'e', b't', b'u', b'r', b'n', b'V', b'a', b'l', b'u', b'e', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::MakeFunction => &[
-                b'M', b'a', b'k', b'e', b'F', b'u', b'n', b'c', b't', b'i', b'o', b'n', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::LoadBuildClass => &[
-                b'L', b'o', b'a', b'd', b'B', b'u', b'i', b'l', b'd', b'C', b'l', b'a', b's', b's',
-                b'_', b'_',
-            ],
-            PyBytecode::PopJumpIfFalse(_) => &[
-                b'P', b'o', b'p', b'J', b'u', b'm', b'p', b'I', b'f', b'F', b'a', b'l', b's', b'e',
-                b'_', b'_',
-            ],
-            PyBytecode::PopJumpIfTrue(_) => &[
-                b'P', b'o', b'p', b'J', b'u', b'm', b'p', b'I', b'f', b'T', b'r', b'u', b'e', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::JumpForward(_) => &[
-                b'J', b'u', b'm', b'p', b'F', b'o', b'r', b'w', b'a', b'r', b'd', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::JumpBackward(_) => &[
-                b'J', b'u', b'm', b'p', b'B', b'a', b'c', b'k', b'w', b'a', b'r', b'd', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::CompareOp(_) => &[
-                b'C', b'o', b'm', b'p', b'a', b'r', b'e', b'O', b'p', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::UnpackSequence => &[
-                b'U', b'n', b'p', b'a', b'c', b'k', b'S', b'e', b'q', b'u', b'e', b'n', b'c', b'e',
-                b'_', b'_',
-            ],
-            PyBytecode::UnpackEx => &[
-                b'U', b'n', b'p', b'a', b'c', b'k', b'E', b'x', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::LoadDeref(_) => &[
-                b'L', b'o', b'a', b'd', b'D', b'e', b'r', b'e', b'f', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::BuildList(_) => &[
-                b'B', b'u', b'i', b'l', b'd', b'L', b'i', b's', b't', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::BuildTuple(_) => &[
-                b'B', b'u', b'i', b'l', b'd', b'T', b'u', b'p', b'l', b'e', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::BuildSet(_) => &[
-                b'B', b'u', b'i', b'l', b'd', b'S', b'e', b't', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::BuildMap => &[
-                b'B', b'u', b'i', b'l', b'd', b'M', b'a', b'p', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::BuildString(_) => &[
-                b'B', b'u', b'i', b'l', b'd', b'S', b't', b'r', b'i', b'n', b'g', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::ListAppend(_) => &[
-                b'L', b'i', b's', b't', b'A', b'p', b'p', b'e', b'n', b'd', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::ForIter(_) => &[
-                b'F', b'o', b'r', b'I', b't', b'e', b'r', b'_', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::GetIter => &[
-                b'G', b'e', b't', b'I', b't', b'e', b'r', b'_', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::Resume => &[
-                b'R', b'e', b's', b'u', b'm', b'e', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::LoadNameEx(_) => &[
-                b'L', b'o', b'a', b'd', b'N', b'a', b'm', b'e', b'E', b'x', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::LoadAttr(_) => &[
-                b'L', b'o', b'a', b'd', b'A', b't', b't', b't', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::StoreAttr(_) => &[
-                b'S', b't', b'o', b'r', b'e', b'A', b't', b't', b'r', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::LoadSmallInt(_) => &[
-                b'L', b'o', b'a', b'd', b'S', b'm', b'a', b'l', b'l', b'I', b'n', b't', b'_', b'_',
-                b'_', b'_',
-            ],
-            PyBytecode::Error => &[
-                b'E', b'r', b'r', b'o', b'r', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_', b'_',
-                b'_', b'_',
-            ],
+            PyBytecode::NOP => b"NOP_____________",
+            PyBytecode::ImportName(_) => b"ImportName______",
+            PyBytecode::ImportFrom(_) => b"ImportFrom______",
+            PyBytecode::PopIter => b"PopIter_________",
+            PyBytecode::PopTop => b"PopTop__________",
+            PyBytecode::EndFor => b"EndFor__________",
+            PyBytecode::Copy(_) => b"Copy____________",
+            PyBytecode::Swap(_) => b"Swap____________",
+            PyBytecode::UnaryNegative => b"UnaryNegative___",
+            PyBytecode::UnaryInvert => b"UnaryInvert_____",
+            PyBytecode::UnaryNot => b"UnaryNot________",
+            PyBytecode::ToBool => b"ToBool__________",
+            PyBytecode::BinaryOp(_) => b"BinaryOp________",
+            PyBytecode::BinaryAdd => b"BinaryAdd_______",
+            PyBytecode::BinaryMultiply => b"BinaryMultiply__",
+            PyBytecode::BinarySubtract => b"BinarySubtract__",
+            PyBytecode::BinaryDivide => b"BinaryDivide____",
+            PyBytecode::BinaryXOR => b"BinaryXOR_______",
+            PyBytecode::LoadConst(_) => b"LoadConst_______",
+            PyBytecode::LoadFast(_) => b"LoadFast________",
+            PyBytecode::StoreFast(_) => b"StoreFast_______",
+            PyBytecode::LoadName(_) => b"LoadName________",
+            PyBytecode::StoreName(_) => b"StoreName_______",
+            PyBytecode::LoadGlobal(_) => b"LoadGlobal______",
+            PyBytecode::StoreGlobal(_) => b"StoreGlobal_____",
+            PyBytecode::PushNull => b"PushNull________",
+            PyBytecode::Cache => b"Cache___________",
+            PyBytecode::CallFunction(_) => b"CallFunction____",
+            PyBytecode::CallInstrinsic1(_) => b"CallInstrinsic1_",
+            PyBytecode::CallInstrinsic2(_) => b"CallInstrinsic2_",
+            PyBytecode::ReturnValue => b"ReturnValue_____",
+            PyBytecode::MakeFunction => b"MakeFunction____",
+            PyBytecode::LoadBuildClass => b"LoadBuildClass__",
+            PyBytecode::PopJumpIfFalse(_) => b"PopJumpIfFalse__",
+            PyBytecode::PopJumpIfTrue(_) => b"PopJumpIfTrue___",
+            PyBytecode::JumpForward(_) => b"JumpForward_____",
+            PyBytecode::JumpBackward(_) => b"JumpBackward____",
+            PyBytecode::CompareOp(_) => b"CompareOp_______",
+            PyBytecode::UnpackSequence => b"UnpackSequence__",
+            PyBytecode::UnpackEx => b"UnpackEx________",
+            PyBytecode::LoadDeref(_) => b"LoadDeref_______",
+            PyBytecode::BuildList(_) => b"BuildList_______",
+            PyBytecode::BuildTuple(_) => b"BuildTuple______",
+            PyBytecode::BuildSet(_) => b"BuildSet________",
+            PyBytecode::BuildMap => b"BuildMap________",
+            PyBytecode::BuildString(_) => b"BuildString_____",
+            PyBytecode::ListAppend(_) => b"ListAppend______",
+            PyBytecode::ForIter(_) => b"ForIter_________",
+            PyBytecode::GetIter => b"GetIter_________",
+            PyBytecode::Resume => b"Resume__________",
+            PyBytecode::LoadNameEx(_) => b"LoadNameEx______",
+            PyBytecode::LoadAttr(_) => b"LoadAttr________",
+            PyBytecode::StoreAttr(_) => b"StoreAttr_______",
+            PyBytecode::LoadSmallInt(_) => b"LoadSmallInt____",
+            PyBytecode::Error => b"Error___________",
         }
     }
 
@@ -946,11 +775,12 @@ impl PyBytecode {
         }
     }
 
+    #[allow(clippy::unnecessary_cast)]
     pub const fn to_bytes(&self) -> [u8; 2] {
         match self {
             PyBytecode::NOP => [0, 0],
-            PyBytecode::ImportName(v) => [1, *v as u8],
-            PyBytecode::ImportFrom(v) => [2, *v as u8],
+            PyBytecode::ImportName(v) => [1, *v],
+            PyBytecode::ImportFrom(v) => [2, *v],
             PyBytecode::PopIter => [3, 0],
             PyBytecode::PopTop => [4, 0],
             PyBytecode::EndFor => [5, 0],

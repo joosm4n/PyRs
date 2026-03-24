@@ -47,10 +47,10 @@ impl std::process::Termination for PyException
 }
 
 pub trait PyPanicHandle<T> {
-    fn handle(self) -> T;
+    fn handle_panic(self) -> T;
 }
 impl<T> PyPanicHandle<T> for Result<T, PyException> {
-    fn handle(self) -> T {
+    fn handle_panic(self) -> T {
         match self {
             Ok(s) => s,
             Err(e) => panic!("{e}"),

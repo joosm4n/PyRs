@@ -4,33 +4,34 @@ use crate::{
     pyrs_codeobject::{PyCodeObj, PyCompileCtx},
     pyrs_error::PyException,
     pyrs_interpreter::{Interpreter, InterpreterCommand},
-    pyrs_obj::{Obj, PyObj, ToObj},
+    pyrs_obj::{Obj, ToObj},
     pyrs_parsing::{Expression, Keyword, Lexer, Op, Token},
+    pyrs_pyobject::{AttrDict, PyObjPtr, PyObject},
+    pyrs_serializer::{PyHeader, PySerializer},
     pyrs_std::{FnPtr, Funcs},
-    pyrs_utils::{PyUtils, FromBytes},
-    pyrs_vm::{IntrinsicFunc, PyVM, PyFrame},
-    pyrs_serializer::{PySerializer, PyHeader},
+    pyrs_utils::{FromBytes, PyUtils},
+    pyrs_vm::{IntrinsicFunc, PyFrame, PyVM},
 };
 
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, mem::size_of, ops::Index, sync::Arc};
+    use std::{collections::HashMap, mem::size_of, ops::Index};
 
-    use crate::pyrs_interpreter::PyRsVersion;
+    use crate::{pyrs_error::PyPanicHandle, pyrs_interpreter::PyRsVersion};
 
     use super::*;
     use pretty_assertions::assert_eq;
 
     struct EqTester {
-        vars: HashMap<String, Arc<Obj>>,
+        vars: AttrDict,
         funcs: HashMap<String, FnPtr>,
     }
 
     impl EqTester {
         fn new() -> Self {
             EqTester {
-                vars: Obj::new_map(),
+                vars: PyObject::new_map(),
                 funcs: Funcs::get_std_map(),
             }
         }
@@ -40,14 +41,14 @@ mod tests {
                 Ok(val) => val,
                 Err(e) => panic!("{e}"),
             };
-            assert_eq!(res.to_string(), result);
+            assert_eq!(res.get_ref().to_string(), result);
         }
     }
 
     fn join_expr_strings(exprs: Vec<&Expression>) -> String {
         let mut res = String::new();
         for e in exprs {
-            res.push_str(&e.to_string().as_str());
+            res.push_str(e.to_string().as_str());
             res.push_str(" | ");
         }
         res.pop();
@@ -140,32 +141,35 @@ mod tests {
     }
 
     #[test]
-    fn test_12() -> Result<Obj, PyException> {
+    fn test_12() {
         let exprs = Expression::from_multiline("x = 2\n if x:\n\t print_ret(x) ");
         assert_eq!(exprs.len(), 2);
         println!("Exprs: {:?}", exprs);
 
-        let mut vars = Obj::new_map();
+        let mut vars = PyObject::new_map();
         let mut funcs = Funcs::get_std_map();
         let expr_results = vec![
             "Op[= Ident(x) Atom(2)]",
             "Keyword[if conds[ Ident(x)] args[ Call[print_ret args[ Ident(x)]]]]",
         ];
-        let obj_results: Vec<Arc<Obj>> = vec![Obj::from(2usize), Obj::from(true), Obj::from("2 ")];
+        let obj_results = vec![
+            PyObject::from(2usize),
+            PyObject::from(true),
+            PyObject::from("2 "),
+        ];
 
         for (idx, expr) in exprs.iter().enumerate() {
             println!("Evaluating: {expr}");
             assert_eq!(expr.to_string(), expr_results.index(idx).to_string());
-            let obj = expr.eval(&mut vars, &mut funcs)?;
-            println!("Obj: {}", obj.to_string());
+            let obj = expr.eval(&mut vars, &mut funcs).handle_panic();
+            println!("Obj: {}", *obj.get_ref());
             println!("vars: {:?}", vars);
             assert_eq!(obj, obj_results.index(idx).clone());
         }
-        Ok(Obj::None)
     }
 
     #[test]
-    fn equality() -> Result<Obj, PyException> {
+    fn equality() {
         let s1 = Expression::from_line("1 < 0");
         let s2 = Expression::from_line("1 > 0");
         let s3 = Expression::from_line("\"poop\" != 0");
@@ -184,23 +188,15 @@ mod tests {
         eq.eval_eq(&s4, "False");
         eq.eval_eq(&s5, "False");
         eq.eval_eq(&s6, "True");
-        Ok(Obj::None)
     }
 
     #[test]
     fn obj_equality() {
-        assert_eq!(Obj::None, Obj::None);
-        assert_eq!(&Obj::None, &Obj::None);
-        assert_eq!(Obj::None.to_arc(), Obj::None.to_arc());
-        assert_eq!(Obj::None.to_arc().as_ref(), &Obj::None);
+        assert_eq!(PyObjPtr::none(), PyObjPtr::none());
+        assert_eq!(&PyObjPtr::none(), &PyObjPtr::none());
 
-        assert_eq!(Obj::Bool(true).to_arc(), Obj::Float(1.0).to_arc());
-        assert_ne!(Obj::new_dict(), Obj::new_dict());
-
-        let null_obj = Arc::new(Obj::Null);
-        let null_ref = null_obj.clone();
-        assert_eq!(null_obj.as_ref(), null_ref.as_ref());
-        assert_eq!(null_obj, null_ref);
+        assert_eq!(true.to_pyptr(), 1.0.to_pyptr());
+        assert_ne!(PyObject::empty_dict(), PyObject::empty_dict());
     }
 
     #[test]
@@ -219,7 +215,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn while_test() -> Result<Obj, PyException> {
+    fn while_test() {
         let expr = Expression::from_multiline(
             r#"
         i = 0
@@ -236,7 +232,7 @@ mod tests {
         "#,
         );
 
-        let ret_strs = vec![
+        let ret_strs = [
             "Op[= Ident(i) Atom(0)]",
             "Op[= Ident(n1) Atom(0)]",
             "Op[= Ident(n2) Atom(1)]",
@@ -251,27 +247,24 @@ mod tests {
             "None",
         ];
 
-        let mut vars = Obj::new_map();
+        let mut vars = PyObject::new_map();
         let mut funcs = Funcs::get_std_map();
 
         let idx_err = "[Bad Index]";
 
-        let mut ret_objs: Vec<Arc<Obj>> = vec![];
-        let mut idx = 0;
-        for e in expr {
-            let obj = e.eval(&mut vars, &mut funcs)?;
+        let mut ret_objs = vec![];
+        for (idx, e) in expr.iter().enumerate() {
+            let obj = e.eval(&mut vars, &mut funcs).handle_panic();
             assert_eq!(
                 e.to_string(),
                 ret_strs.get(idx).unwrap_or(&idx_err).to_string()
             );
             ret_objs.push(obj);
-            idx += 1;
         }
-        Ok(Obj::None)
     }
 
     #[test]
-    fn nested_ifs() -> Result<Obj, PyException> {
+    fn nested_ifs() {
         //panic!();
         let expr = Expression::from_multiline(
             "if True:\n\
@@ -283,31 +276,28 @@ mod tests {
          \tprint(\"d: good\")",
         );
 
-        let ret_strs = vec![
+        let ret_strs = [
             r#"Keyword[if conds[ Keyword[True conds[] args[]]] args[ Call[print_ret args[ Atom(a: good)]] Keyword[if conds[ Keyword[False conds[] args[]]] args[ Call[print_ret args[ Atom(b: bad)]]]] Keyword[if conds[ Keyword[True conds[] args[]]] args[ Call[print_ret args[ Atom(c: good)]]]] Call[print args[ Atom(d: good)]]]]"#,
         ];
 
-        let mut vars = Obj::new_map();
+        let mut vars = PyObject::new_map();
         let mut funcs = Funcs::get_std_map();
 
         let idx_err = "[Bad Index]";
 
-        let mut ret_objs: Vec<Arc<Obj>> = vec![];
-        let mut idx = 0;
-        for e in expr {
-            let obj = e.eval(&mut vars, &mut funcs)?;
+        let mut ret_objs = vec![];
+        for (idx, e) in expr.iter().enumerate() {
+            let obj = e.eval(&mut vars, &mut funcs).handle_panic();
             assert_eq!(
                 e.to_string(),
                 ret_strs.get(idx).unwrap_or(&idx_err).to_string()
             );
             ret_objs.push(obj);
-            idx += 1;
         }
-        Ok(Obj::None)
     }
 
     #[test]
-    fn if_elif_else_expr() -> Result<Obj, PyException> {
+    fn if_elif_else_expr() {
         //panic!();
         let expr = Expression::from_multiline(
             "if False:\n\
@@ -320,29 +310,25 @@ mod tests {
          \tprint(\"d: good\")",
         );
 
-        let ret_strs = vec![
+        let ret_strs = [
             r#"Keyword[if conds[ Keyword[False conds[] args[]]] args[ Call[print_ret args[ Atom(a: bad)]] Keyword[elif conds[ Keyword[True conds[] args[]]] args[]] Call[print_ret args[ Atom(b: good)]]]]"#,
             r#"Keyword[if conds[ Keyword[False conds[] args[]]] args[ Call[print_ret args[ Atom(c: good)]] Keyword[else conds[] args[]] Call[print args[ Atom(d: good)]]]]"#,
         ];
 
-        let mut vars = Obj::new_map();
+        let mut vars = PyObject::new_map();
         let mut funcs = Funcs::get_std_map();
 
         let idx_err = "[Bad Index]";
 
-        let mut ret_objs: Vec<Arc<Obj>> = vec![];
-        let mut idx = 0;
-        for e in expr {
-            let obj = e.eval(&mut vars, &mut funcs)?;
+        let mut ret_objs = vec![];
+        for (idx, e) in expr.iter().enumerate() {
+            let obj = e.eval(&mut vars, &mut funcs).handle_panic();
             assert_eq!(
                 e.to_string(),
                 ret_strs.get(idx).unwrap_or(&idx_err).to_string()
             );
             ret_objs.push(obj);
-            idx += 1;
         }
-
-        Ok(Obj::None)
     }
 
     #[test]
@@ -358,14 +344,14 @@ mod tests {
 
         let code_obj = PyCodeObj {
             name: "__test_bytecode_manual__".into(),
-            consts: vec![5.to_obj()],
-            varnames: vec!["x".to_string()],
+            consts: vec![5.to_pyptr()],
+            varnames: vec!["x".into()],
             names: vec![],
             bytecode: code,
             num_varnames: 1,
             num_consts: 1,
             num_names: 0,
-            globals: HashMap::new(),
+            globals: AttrDict::new(),
         };
 
         println!("Instruction Queue: ");
@@ -378,12 +364,16 @@ mod tests {
     #[test]
     fn bytecode_from_expr() {
         let expr = Expression::from_multiline("x = 2\n if x:\n\t print(x) ");
-        let mut code = PyCompileCtx::new("__test_bytecode_from_expr__");
+        let mut code = PyCompileCtx::new("__test_bytecode_from_expr__".into());
         for e in expr {
             PyBytecode::from_expr(e, &mut code);
         }
         let code_obj = code.finish();
-        assert_eq!(code_obj.num_varnames, 1, "varnames: {:?}", code_obj.varnames);
+        assert_eq!(
+            code_obj.num_varnames, 1,
+            "varnames: {:?}",
+            code_obj.varnames
+        );
 
         let inst_str = PyBytecode::to_string(&code_obj.bytecode);
         println!("Instructions:\n{}", inst_str);
@@ -399,14 +389,17 @@ mod tests {
 
     #[test]
     fn bytecode_while_loop() {
-        let code_obj = PyBytecode::from_str(
+        let code_obj = PyBytecode::from_string(
             r#"x = 0
         while x < 3:
 	        print(x)
 	        x += 1
-        "#
+        "#,
         );
-        println!("Instructions:\n{}", PyBytecode::to_string(&code_obj.bytecode));
+        println!(
+            "Instructions:\n{}",
+            PyBytecode::to_string(&code_obj.bytecode)
+        );
         assert_eq!(format!("{:?}", &code_obj.bytecode), r#"[Resume, LoadConst(0), StoreFast(0), LoadFast(0), LoadConst(1), CompareOp(LessThan), PopJumpIfFalse(9), LoadGlobal(0), LoadFast(0), CallFunction(1), LoadFast(0), LoadConst(2), BinaryAdd, StoreFast(0), JumpBackward(12), LoadConst(3)]"#.to_string());
 
         let mut vm = PyVM::new();
@@ -439,13 +432,13 @@ mod tests {
         let code_obj = PyCodeObj {
             name: "__test_bytecode_handwritten__".into(),
             bytecode: code,
-            consts: vec![0.into(), 3.into(), 1.into()],
+            consts: vec![0.to_pyptr(), 3.to_pyptr(), 1.to_pyptr()],
             varnames: vec!["x".into()],
             names: vec![],
             num_consts: 3,
             num_varnames: 1,
             num_names: 0,
-            globals: HashMap::new(),
+            globals: AttrDict::new(),
         };
 
         let mut vm = PyVM::new();
@@ -497,13 +490,13 @@ mod tests {
         let expected_codeobj = PyCodeObj {
             name: "compile_test_1".into(),
             bytecode: expected,
-            consts: vec!["sum_a".to_obj(), 1.to_obj()],
+            consts: vec!["sum_a".to_pyptr(), 1.to_pyptr()],
             varnames: vec![],
             names: vec![],
             num_consts: 2,
             num_varnames: 0,
             num_names: 0,
-            globals: HashMap::new(),
+            globals: AttrDict::new(),
         };
 
         assert_eq!(&code_obj, &expected_codeobj);
@@ -525,7 +518,7 @@ mod tests {
 
         let exprs = Expression::from_multiline(src);
         dbg!(&exprs);
-        let mut code = PyCompileCtx::new("__test_module_import__");
+        let mut code = PyCompileCtx::new("__test_module_import__".into());
         for e in exprs {
             PyBytecode::from_expr(e, &mut code);
         }
@@ -593,7 +586,7 @@ mod tests {
             "Call[print args[ Op[+ Ident(x) Op[list Atom(add) Atom(none)]]]]"
         );
 
-        let mut bytecode = PyCompileCtx::new("__test_list__");
+        let mut bytecode = PyCompileCtx::new("__test_list__".into());
         PyBytecode::from_expr(line1, &mut bytecode);
         PyBytecode::from_expr(line2, &mut bytecode);
 
@@ -617,7 +610,7 @@ mod tests {
     #[test]
     fn bytecode_if_elif_else() {
         //panic!();
-        let code_obj = PyBytecode::from_str(
+        let code_obj = PyBytecode::from_string(
             "if False:\n\
             \tprint(\"a: bad\")\n\
             elif False:\n\
@@ -668,12 +661,11 @@ mod tests {
 
         let mut vm = PyVM::new();
         vm.execute(code_obj);
-
     }
 
     #[test]
     fn function_definition_bytecode() {
-        let code_obj = PyBytecode::from_str(
+        let code_obj = PyBytecode::from_string(
             "def add(x, y):\n\
              \treturn x + y\n\
             result = add(5, 3)",
@@ -710,7 +702,7 @@ mod tests {
 
     #[test]
     fn bytecode_unary() {
-        let mut code = PyCompileCtx::new("__test_bytecode_unary__");
+        let mut code = PyCompileCtx::new("__test_bytecode_unary__".into());
         PyBytecode::from_expr(Expression::from_line("-42"), &mut code);
 
         let code_obj = code.finish();
@@ -739,13 +731,13 @@ mod tests {
             ("\"xyz\" > \"abc\"", "True"),
         ];
 
-        let mut vs = Obj::new_map();
+        let mut vs = PyObject::new_map();
         let mut fns = Funcs::get_std_map();
 
         for (expr_str, expected) in comparisons {
             let expr = Expression::from_line(expr_str);
             assert_eq!(
-                expr.eval(&mut vs, &mut fns).unwrap().to_string(),
+                expr.eval(&mut vs, &mut fns).unwrap().get_ref().to_string(),
                 expected,
                 "{}",
                 expr.to_string()
@@ -758,10 +750,13 @@ mod tests {
         let tuple_expr = Expression::from_line("(1, 2, 3)");
         println!("Tuple expression: {}", tuple_expr);
 
-        let mut code = PyCompileCtx::new("__test_ops_tuple__");
+        let mut code = PyCompileCtx::new("__test_ops_tuple__".into());
         PyBytecode::from_expr(tuple_expr, &mut code);
         let code_obj = code.finish();
-        println!("Tuple bytecode:\n {}", PyBytecode::to_string(&code_obj.bytecode));
+        println!(
+            "Tuple bytecode:\n {}",
+            PyBytecode::to_string(&code_obj.bytecode)
+        );
     }
 
     #[test]
@@ -769,11 +764,14 @@ mod tests {
         let tuple_expr = Expression::from_line("{1, 2, 3}");
         println!("Tuple expression: {}", tuple_expr);
 
-        let mut code = PyCompileCtx::new("__test_ops_set__");
+        let mut code = PyCompileCtx::new("__test_ops_set__".into());
         PyBytecode::from_expr(tuple_expr, &mut code);
 
         let code_obj = code.finish();
-        println!("Tuple bytecode: {}", PyBytecode::to_string(&code_obj.bytecode));
+        println!(
+            "Tuple bytecode: {}",
+            PyBytecode::to_string(&code_obj.bytecode)
+        );
     }
 
     #[test]
@@ -797,22 +795,22 @@ mod tests {
         println!("For loop: {}", for_expr[1]);
 
         /*
-        bytecode:
-(0)             LoadConst(0)
-(1)             LoadConst(1)
-(2)             LoadConst(2)
-(3)             BuildList(3)
-(4)             StoreFast(0)
-(5)             LoadName(0)
-(6)             GetIter
-(7)             ForIter(5)
-(8)             StoreFast(1)
-(9)             PushNull
-(10)            LoadFast(1)
-(11)            CallInstrinsic1(Print)
-(12)            JumpBackward(6)
-<end __temp_bytecode_ThreadId(13)_1771182827630945031__>
- */
+                bytecode:
+        (0)             LoadConst(0)
+        (1)             LoadConst(1)
+        (2)             LoadConst(2)
+        (3)             BuildList(3)
+        (4)             StoreFast(0)
+        (5)             LoadName(0)
+        (6)             GetIter
+        (7)             ForIter(5)
+        (8)             StoreFast(1)
+        (9)             PushNull
+        (10)            LoadFast(1)
+        (11)            CallInstrinsic1(Print)
+        (12)            JumpBackward(6)
+        <end __temp_bytecode_ThreadId(13)_1771182827630945031__>
+         */
         match &for_expr[0] {
             Expression::Operation(Op::Equals, args) => {
                 assert_eq!(args[0], Expression::Ident("v".into()));
@@ -840,7 +838,7 @@ mod tests {
             _ => panic!("Expected for loop keyword expression"),
         }
 
-        let code_obj = PyBytecode::from_str(source_code);
+        let code_obj = PyBytecode::from_string(source_code);
         println!("code: \n{}", PyBytecode::to_string(&code_obj.bytecode));
 
         let mut vm = PyVM::new();
@@ -856,12 +854,13 @@ mod tests {
             "Op[list Op[list Atom(1) Atom(2)] Op[list Atom(3) Atom(4)]]"
         );
 
-        let mut code = PyCompileCtx::new("__test_nested_list__");
+        let mut code = PyCompileCtx::new("__test_nested_list__".into());
         PyBytecode::from_expr(nested_list, &mut code);
 
         let code_obj = code.finish();
         // Should have multiple BuildList instructions
-        let build_list_count = code_obj.bytecode
+        let build_list_count = code_obj
+            .bytecode
             .iter()
             .filter(|inst| matches!(inst, PyBytecode::BuildList(_)))
             .count();
@@ -890,7 +889,7 @@ mod tests {
 
     #[test]
     fn parse_precedence_complex_maths() {
-        let code_obj = PyBytecode::from_str("2 + 3 * 4 - 5 / 2");
+        let code_obj = PyBytecode::from_string("2 + 3 * 4 - 5 / 2");
         println!("code: \n{}", PyBytecode::to_string(&code_obj.bytecode));
 
         let mut vm = PyVM::new();
@@ -904,7 +903,7 @@ mod tests {
     #[ignore]
     fn variable_scoping() {
         // Test variable assignment and retrieval
-        let code_obj = PyBytecode::from_str(
+        let code_obj = PyBytecode::from_string(
             "x = 10\n\
              y = x * 2\n\
             print(y)",
@@ -964,7 +963,7 @@ mod tests {
         let empty_expr = Expression::None;
         assert_eq!(empty_expr.to_string(), "None");
 
-        let mut code = PyCompileCtx::new("__test_expression_none_handling__");
+        let mut code = PyCompileCtx::new("__test_expression_none_handling__".into());
         PyBytecode::from_expr(empty_expr, &mut code);
 
         let code_obj = code.finish();
@@ -1040,7 +1039,6 @@ mod tests {
 
     #[test]
     fn split_to_words_comprehensive() {
-
         // Test basic splitting
         let words = PyUtils::split_to_words("hello world");
         assert_eq!(words, vec!["hello", "world"]);
@@ -1065,8 +1063,7 @@ mod tests {
     }
 
     #[test]
-    fn utils_from_bytes()
-    {
+    fn utils_from_bytes() {
         let bytes1: Vec<u8> = vec![1, 0, 0, 0, 0, 0, 0, 0];
         let val1 = usize::from_bytes_le(bytes1.as_slice()).unwrap();
         assert_eq!(val1, 1usize);
@@ -1080,7 +1077,7 @@ mod tests {
     #[test]
 
     fn complex_if_elif_else_evaluation() {
-        let code_obj = PyBytecode::from_str(
+        let code_obj = PyBytecode::from_string(
             "x = 15\n\
              if x < 10:\n\
              \tresult = \"small\"\n\
@@ -1120,7 +1117,6 @@ mod tests {
         let mut vm = PyVM::new();
         vm.set_debug_mode(true);
         vm.execute(code_obj);
-
     }
 
     #[test]
@@ -1139,7 +1135,7 @@ mod tests {
         assert!(expr.len() >= 2); // At least assignment and while loop
 
         // Test bytecode generation doesn't crash
-        let mut code = PyCompileCtx::new("__test_nested_while_loops__");
+        let mut code = PyCompileCtx::new("__test_nested_while_loops__".into());
         for e in expr {
             PyBytecode::from_expr(e, &mut code);
         }
@@ -1156,7 +1152,7 @@ mod tests {
 
     #[test]
     fn list_concat() {
-        let list_ops = vec![
+        let list_ops = [
             ("[1, 2] + [3, 4]", "[1, 2, 3, 4]"),
             // Add more list operations as they get implemented
         ];
@@ -1165,23 +1161,22 @@ mod tests {
             println!("Line: {}", expr_str);
             let exprs = Expression::from_multiline(expr_str);
             let expr = exprs.first().unwrap();
-            let obj = expr.clone().to_obj();
+            let obj = expr.clone().to_pyobj();
             assert_eq!(&obj.__str__(), expected, "expr(#{i}) {}", expr.to_string());
         }
     }
 
     #[test]
     fn iteration() {
-
-        let list = vec![1.to_arc(), 2.to_arc()].to_obj();
+        let list = vec![1.to_pyptr(), 2.to_pyptr()].to_pyptr();
         for x in list {
-            println!("{}", x);
+            println!("{}", *x.get_ref());
         }
 
-        let list = vec![1.to_arc(), 2.to_arc()].to_obj();
+        let list = vec![1.to_pyptr(), 2.to_pyptr()].to_pyptr();
         for mut x in &mut list.into_iter() {
-            x = Obj::add(x.as_ref(), &2.to_obj()).to_arc();
-            println!("{}", x);
+            x = PyObject::__add__(&x, &2.to_pyptr()).handle_panic();
+            println!("{}", *x.get_ref());
         }
     }
 
@@ -1223,8 +1218,7 @@ mod tests {
     }
 
     #[test]
-    fn serialize_header()
-    {
+    fn serialize_header() {
         let header = PyHeader {
             name: "__test_serialize_header__".into(),
             time: PyUtils::curr_time(),
@@ -1233,18 +1227,23 @@ mod tests {
         };
 
         let bytes = header.seralize();
-        
+
         let _r = std::fs::write("tests/hex.lib", bytes.clone());
 
         let deserial = PyHeader::deserialize(&bytes);
         assert_eq!(header, deserial);
-
     }
 
     #[test]
-    fn serialize_bytecode_map() 
-    {
-        let c = PyCodeObj::new("__test_serialize_bytecode_map__", vec![PyBytecode::LoadConst(0), PyBytecode::LoadConst(1), PyBytecode::BinaryAdd]);
+    fn serialize_bytecode_map() {
+        let c = PyCodeObj::new(
+            "__test_serialize_bytecode_map__",
+            vec![
+                PyBytecode::LoadConst(0),
+                PyBytecode::LoadConst(1),
+                PyBytecode::BinaryAdd,
+            ],
+        );
         let bytes = PySerializer::seralize_codeobj(&c);
 
         let _ = std::fs::write("tests/hex.lib", bytes.clone());
@@ -1254,15 +1253,14 @@ mod tests {
     }
 
     #[test]
-    fn attr_get()
-    {
-        let mut c = PyCompileCtx::new("__test_calling__");
+    fn attr_get() {
+        let mut c = PyCompileCtx::new("__test_calling__".into());
         let a = Expression::from_line("v = 1");
         dbg!(&a);
-        PyBytecode::from_expr(a,&mut c);
+        PyBytecode::from_expr(a, &mut c);
         let b = Expression::from_line("v.x");
         dbg!(&b);
-        PyBytecode::from_expr(b,&mut c);
+        PyBytecode::from_expr(b, &mut c);
 
         let codeobj = c.finish();
         dbg!(&codeobj);
@@ -1273,9 +1271,9 @@ mod tests {
     }
 
     #[test]
-    fn classobj()
-    {
-        let code_obj = PyBytecode::from_str("class vec2:\n\tx=0\nv = vec2\nv.x = 10\ny = vec2\nprint(y.x)");
+    fn classobj() {
+        let code_obj =
+            PyBytecode::from_string("class vec2:\n\tx=0\nv = vec2\nv.x = 10\ny = vec2\nprint(y.x)");
         dbg!(&code_obj);
 
         let mut vm = PyVM::new();
@@ -1285,9 +1283,9 @@ mod tests {
     }
 
     #[test]
-    fn calling_simple()
-    {
-        let code_obj = PyBytecode::from_str(&format!("class vec2:\n\tx = 0\nx = vec2\nx.x = 1\nprint(x.x)"));
+    fn calling_simple() {
+        let code_obj =
+            PyBytecode::from_string("class vec2:\n\tx = 0\nx = vec2\nx.x = 1\nprint(x.x)");
         dbg!(&code_obj);
 
         let mut vm = PyVM::new();
@@ -1295,34 +1293,31 @@ mod tests {
         vm.execute(code_obj);
     }
 
-    #[test] 
-    fn calling_medium() 
-    {
+    #[test]
+    fn calling_medium() {
         let code_obj = Interpreter::compile_file("tests/class_test_1.py").unwrap();
         let mut vm = PyVM::new();
         vm.set_debug_mode(true);
         vm.execute(code_obj);
-        
+
         //panic!();
     }
 
     #[test]
-    fn pretty_print()
-    {
+    fn pretty_print() {
         let code_obj = PyCodeObj {
             name: "__test_bytecode_manual__".into(),
-            consts: vec![5.to_obj()],
-            varnames: vec!["x".to_string()],
-            names: vec!["print".to_string()],
+            consts: vec![5.to_pyptr()],
+            varnames: vec!["x".into()],
+            names: vec!["print".into()],
             bytecode: vec![],
             num_varnames: 1,
             num_consts: 1,
             num_names: 1,
-            globals: HashMap::new(),
+            globals: AttrDict::new(),
         };
         code_obj.pretty_format();
     }
-
 
     /*
     Usage: cargo.exe test [OPTIONS] [TESTNAME] [-- [ARGS]...]

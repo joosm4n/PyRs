@@ -1,6 +1,7 @@
 use crate::{
     pyrs_error::{PyError, PyException},
-    pyrs_obj::{Obj, ToObj},
+    pyrs_obj::ToObj,
+    pyrs_pyobject::{AttrDict, PyObjPtr, PyObject},
     pyrs_std::FnPtr,
     pyrs_utils::PyUtils,
 };
@@ -183,10 +184,6 @@ impl<'a, 'b> PartialEq<Token<'b>> for Token<'a> {
             _ => false,
         }
     }
-
-    fn ne(&self, other: &Token<'b>) -> bool {
-        return !self.eq(other);
-    }
 }
 
 impl std::fmt::Display for Op {
@@ -260,7 +257,7 @@ impl<'a> Token<'a> {
             "import" => Keyword::Import,
             _ => return None,
         };
-        return Some(Token::Keyword(keyword));
+        Some(Token::Keyword(keyword))
     }
 }
 
@@ -272,7 +269,7 @@ pub struct Lexer<'a> {
 impl<'a> std::fmt::Display for Lexer<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Lexer[")?;
-        if self.tokens.len() == 0 {
+        if self.tokens.is_empty() {
             return write!(f, "]");
         }
         for token in &self.tokens[0..(self.tokens.len() - 1)] {
@@ -338,10 +335,10 @@ impl<'a> Lexer<'a> {
 
         token_list.push(Token::Sep('\n'));
         token_list.reverse();
-        return Lexer { tokens: token_list };
+        Lexer { tokens: token_list }
     }
 
-    pub fn next(&mut self) -> Token<'a> {
+    pub fn next_tk(&mut self) -> Token<'a> {
         self.tokens.pop().unwrap_or(Token::Eof)
     }
 
@@ -352,9 +349,9 @@ impl<'a> Lexer<'a> {
     #[allow(unused_variables)]
     pub fn parse_expression(&mut self, min_bp: f32) -> Expression {
         //println!("Expr: {:?}", self.peek());
-        let mut lhs = match self.next() {
+        let mut lhs = match self.next_tk() {
             Token::Eof => return Expression::None,
-            Token::Atom(it) => Expression::Atom(it.to_string()),
+            Token::Atom(it) => Expression::Atom(it.into()),
             Token::Ident(ident) => {
                 /*
 
@@ -386,20 +383,20 @@ impl<'a> Lexer<'a> {
                 None => {
                 */
                 if self.peek() == Token::Op(Op::RoundBracketsOpen) {
-                    self.next();
+                    self.next_tk();
                     let mut args = vec![];
                     while self.peek() != Token::Op(Op::RoundBracketsClose) {
                         if self.peek() == Token::Sep(',') {
-                            self.next();
+                            self.next_tk();
                             continue;
                         }
                         args.push(self.parse_expression(0.0));
                     }
-                    self.next();
+                    self.next_tk();
                     //println!("args: {:#?}", args);
-                    Expression::Call(ident.to_string(), args)
+                    Expression::Call(ident.into(), args)
                 } else {
-                    Expression::Ident(ident.to_string())
+                    Expression::Ident(ident.into())
                 }
                 /*} */
             }
@@ -418,20 +415,20 @@ impl<'a> Lexer<'a> {
                     Keyword::For => {
                         let mut objs = vec![];
 
-                        let x = match self.next() {
+                        let x = match self.next_tk() {
                             Token::Ident(ident) => ident,
                             e => panic!("Syntax Error: expected an ident token, but found {}", e),
                         };
                         objs.push(Expression::Ident(x.into()));
 
-                        let _in_tk = match self.next() {
+                        match self.next_tk() {
                             Token::Keyword(Keyword::In) => {}
                             e => panic!("Syntax Error: expected token \'in\', but found {}", e),
                         };
 
                         loop {
                             if self.peek() == Token::Op(Op::Colon) {
-                                self.next();
+                                self.next_tk();
                                 break;
                             }
                             let cond = self.parse_expression(0.0);
@@ -441,11 +438,11 @@ impl<'a> Lexer<'a> {
                     }
                     Keyword::Def => {
                         // dbg!(&self);
-                        let name = match self.next() {
-                            Token::Ident(ident) => ident.to_string(),
+                        let name = match self.next_tk() {
+                            Token::Ident(ident) => ident.into(),
                             t => panic!("Syntax Error: must be ident after def, not {}", t),
                         };
-                        if self.next() != Token::Op(Op::RoundBracketsOpen) {
+                        if self.next_tk() != Token::Op(Op::RoundBracketsOpen) {
                             panic!();
                         }
 
@@ -459,14 +456,14 @@ impl<'a> Lexer<'a> {
                                 panic!("Max loops");
                             }
 
-                            let next = self.next();
+                            let next = self.next_tk();
                             //println!("tk: {}",tk);
                             match next {
                                 Token::Ident(var) => {
                                     let expr = match self.peek() {
                                         Token::Op(Op::Equals) => {
-                                            self.next();
-                                            let mut vals = vec![Expression::Ident(var.to_string())];
+                                            self.next_tk();
+                                            let mut vals = vec![Expression::Ident(var.into())];
                                             while self.peek() != Token::Sep(',')
                                                 && self.peek() != Token::Op(Op::RoundBracketsClose)
                                             {
@@ -474,9 +471,9 @@ impl<'a> Lexer<'a> {
                                                 vals.push(v);
                                             }
                                             match self.peek() {
-                                                Token::Sep(_) => self.next(),
+                                                Token::Sep(_) => self.next_tk(),
                                                 Token::Op(Op::RoundBracketsClose) => {
-                                                    self.next();
+                                                    self.next_tk();
                                                     break;
                                                 }
                                                 t => panic!(
@@ -488,11 +485,11 @@ impl<'a> Lexer<'a> {
                                             Expression::Operation(Op::Equals, vals)
                                         }
                                         Token::Sep(_) => {
-                                            self.next();
-                                            Expression::Ident(var.to_string())
+                                            self.next_tk();
+                                            Expression::Ident(var.into())
                                         }
                                         Token::Op(Op::RoundBracketsClose) => {
-                                            Expression::Ident(var.to_string())
+                                            Expression::Ident(var.into())
                                         }
                                         t => panic!("Syntax Error: Unexpected token \'{}\'", t),
                                     };
@@ -505,7 +502,7 @@ impl<'a> Lexer<'a> {
                                 t => panic!("Syntax Error: Unexpected token \'{}\'", t),
                             }
                         }
-                        let colon = self.next();
+                        let colon = self.next_tk();
                         assert_eq!(colon, Token::Op(Op::Colon));
                         return Expression::Keyword(Keyword::Def, args, vec![]);
                     }
@@ -515,7 +512,7 @@ impl<'a> Lexer<'a> {
                             let a = self.peek();
                             match a {
                                 Token::Sep('\n') => {
-                                    self.next();
+                                    self.next_tk();
                                     break;
                                 }
                                 Token::Eof => {
@@ -577,7 +574,7 @@ impl<'a> Lexer<'a> {
                             } else {
                                 let lhs = self.parse_expression(0.0);
 
-                                let open = self.next();
+                                let open = self.next_tk();
                                 if open == Token::Op(Op::RoundBracketsClose) {
                                     lhs
                                 } else {
@@ -587,11 +584,11 @@ impl<'a> Lexer<'a> {
                                         match next {
                                             Token::Eof => panic!("Expected \')\' at end of file"),
                                             Token::Op(Op::RoundBracketsClose) => {
-                                                self.next();
+                                                self.next_tk();
                                                 break;
                                             }
                                             Token::Sep(_) => {
-                                                self.next();
+                                                self.next_tk();
                                                 continue;
                                             }
                                             _ => args.push(self.parse_expression(0.0)),
@@ -609,11 +606,11 @@ impl<'a> Lexer<'a> {
                                 match next {
                                     Token::Eof => panic!("Expected \']\' at end of file"),
                                     Token::Op(Op::SquareBracketsClose) => {
-                                        self.next();
+                                        self.next_tk();
                                         break;
                                     }
                                     Token::Sep(_) => {
-                                        self.next();
+                                        self.next_tk();
                                         continue;
                                     }
                                     _ => args.push(self.parse_expression(0.0)),
@@ -629,11 +626,11 @@ impl<'a> Lexer<'a> {
                                 match next {
                                     Token::Eof => panic!("Expected \'}}\' at end of file"),
                                     Token::Op(Op::CurlyBracketsClose) => {
-                                        self.next();
+                                        self.next_tk();
                                         break;
                                     }
                                     Token::Sep(_) => {
-                                        self.next();
+                                        self.next_tk();
                                         continue;
                                     }
                                     _ => args.push(self.parse_expression(0.0)),
@@ -664,11 +661,11 @@ impl<'a> Lexer<'a> {
                 if l_bp < min_bp {
                     break;
                 }
-                self.next();
+                self.next_tk();
 
                 lhs = if op == Op::SquareBracketsOpen {
                     let rhs = self.parse_expression(0.0);
-                    assert_eq!(self.next(), Token::Op(Op::SquareBracketsClose));
+                    assert_eq!(self.next_tk(), Token::Op(Op::SquareBracketsClose));
                     Expression::Operation(op, vec![lhs, rhs])
                 } else {
                     Expression::Operation(op, vec![lhs])
@@ -681,7 +678,7 @@ impl<'a> Lexer<'a> {
                 break;
             }
 
-            self.next();
+            self.next_tk();
             let rhs = self.parse_expression(r_bp);
             lhs = Expression::Operation(op, vec![lhs, rhs])
         }
@@ -713,26 +710,21 @@ impl std::fmt::Display for Keyword {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub enum Expression {
+    #[default]
     None,
-    Ident(String),
-    Atom(String),
+    Ident(Arc<str>),
+    Atom(Arc<str>),
     Operation(Op, Vec<Expression>),
     //Func(FnPtr, Vec<Expression>),
-    Call(String, Vec<Expression>),
+    Call(Arc<str>, Vec<Expression>),
     Keyword(Keyword, Vec<Expression>, Vec<Expression>),
     // Definition(String, Vec<Expression>, String, Vec<Expression>),
 }
 
-impl Default for Expression {
-    fn default() -> Self {
-        Expression::None
-    }
-}
-
 impl Expression {
-    pub fn get_value_string(&self) -> String {
+    pub fn get_value_string(&self) -> Arc<str> {
         match self {
             Expression::Ident(ident) => ident.clone(),
             Expression::Atom(atom) => atom.clone(),
@@ -817,21 +809,20 @@ impl Expression {
     }
 
     pub fn from_line(input: &str) -> Expression {
-        let word_list = PyUtils::split_to_words(&input);
+        let word_list = PyUtils::split_to_words(input);
         let mut token_list = Lexer::from(&word_list);
 
-        let expr = token_list.parse_expression(0f32);
-        expr
+        token_list.parse_expression(0f32)
     }
 
     pub fn is_assign(&self) -> Option<(String, &Expression)> {
         match self {
-            Expression::None => return None,
+            Expression::None => None,
             //Expression::Func(_, _) => return None,
-            Expression::Atom(_) => return None,
-            Expression::Ident(_) => return None,
-            Expression::Keyword(_, _, _) => return None,
-            Expression::Call(_, _) => return None,
+            Expression::Atom(_) => None,
+            Expression::Ident(_) => None,
+            Expression::Keyword(_, _, _) => None,
+            Expression::Call(_, _) => None,
             Expression::Operation(c, operands) => {
                 if *c == Op::Equals {
                     let var_name = match operands.first().unwrap() {
@@ -845,7 +836,7 @@ impl Expression {
                     };
                     return Some((var_name, operands.last().unwrap()));
                 }
-                return None;
+                None
             }
         }
     }
@@ -853,13 +844,13 @@ impl Expression {
     // turns expressions into objects
     pub fn eval(
         &self,
-        variables: &mut HashMap<String, Arc<Obj>>,
+        variables: &mut AttrDict,
         funcs: &mut HashMap<String, FnPtr>,
-    ) -> Result<Arc<Obj>, PyException> {
+    ) -> Result<PyObjPtr, PyException> {
         // println!("Eval: {self}");
-        let ret: Arc<Obj> = match self {
-            Expression::None => Obj::None.into(),
-            Expression::Atom(c) => Obj::from_atom(c).into(),
+        let ret: PyObjPtr = match self {
+            Expression::None => PyObject::none(),
+            Expression::Atom(c) => PyObject::from_atom(c).to_ptr(),
             Expression::Ident(ident) => {
                 let obj = match variables.get(ident) {
                     Some(var) => var.clone(),
@@ -886,12 +877,12 @@ impl Expression {
                     variables.insert(var_name, value.clone());
                     return Ok(value);
                 } else if *operator == Op::List {
-                    let mut objs: Vec<Arc<Obj>> = vec![];
+                    let mut objs = vec![];
                     for o in operands {
                         let obj = o.eval(variables, funcs)?;
-                        objs.push(Arc::from(obj));
+                        objs.push(obj);
                     }
-                    return Ok(objs.to_arc());
+                    return Ok(objs.to_pyptr());
                 }
 
                 // unary
@@ -901,24 +892,23 @@ impl Expression {
                     .eval(&mut *variables, &mut *funcs)?;
                 let lhs = first.eval(&mut *variables, &mut *funcs)?;
                 match operator {
-                    Op::Pos => return Obj::__pos__(&lhs),
-                    Op::Neg => return Obj::__neg__(&lhs),
+                    Op::Pos => return PyObject::__pos__(&lhs),
+                    Op::Neg => return PyObject::__neg__(&lhs),
                     _ => {}
                 };
 
                 // binary
-                let val: Arc<Obj> = match operator {
-                    Op::Plus => Obj::__add__(&lhs, &rhs)?,
-                    Op::Minus => Obj::__sub__(&lhs, &rhs)?,
-                    Op::Asterisk => Obj::__mul__(&lhs, &rhs)?,
-                    Op::ForwardSlash => Obj::__div__(&lhs, &rhs)?,
-                    Op::Eq => Obj::__eq__(&lhs, &rhs).to_arc(),
-                    Op::Neq => Obj::__ne__(&lhs, &rhs).to_arc(),
-                    Op::LessThan => Obj::__lt__(&lhs, &rhs).to_arc(),
-                    Op::GreaterThan => Obj::__gt__(&lhs, &rhs).to_arc(),
-                    Op::LessEq => Obj::__le__(&lhs, &rhs).to_arc(),
-                    Op::GreaterEq => Obj::__ge__(&lhs, &rhs).to_arc(),
-                    Op::Equals => Obj::__default__().into(),
+                let val = match operator {
+                    Op::Plus => PyObject::__add__(&lhs, &rhs)?,
+                    Op::Minus => PyObject::__sub__(&lhs, &rhs)?,
+                    Op::Asterisk => PyObject::__mul__(&lhs, &rhs)?,
+                    Op::ForwardSlash => PyObject::__div__(&lhs, &rhs)?,
+                    Op::Eq => PyObject::__eq__(&lhs, &rhs).to_pyptr(),
+                    Op::Neq => PyObject::__ne__(&lhs, &rhs).to_pyptr(),
+                    Op::LessThan => PyObject::__lt__(&lhs, &rhs).to_pyptr(),
+                    Op::GreaterThan => PyObject::__gt__(&lhs, &rhs).to_pyptr(),
+                    Op::LessEq => PyObject::__le__(&lhs, &rhs).to_pyptr(),
+                    Op::GreaterEq => PyObject::__ge__(&lhs, &rhs).to_pyptr(),
                     op => panic!("Bad operator: {}", op),
                 };
                 val
@@ -927,14 +917,16 @@ impl Expression {
                 panic!();
             }
             Expression::Keyword(keyword, conds, _args) => match keyword {
-                Keyword::True => true.to_arc(),
-                Keyword::False => false.to_arc(),
+                Keyword::True => true.to_pyptr(),
+                Keyword::False => false.to_pyptr(),
                 Keyword::If | Keyword::While => {
-                    let condition = conds
-                        .iter()
-                        .map(|x| x.eval(&mut *variables, &mut *funcs).unwrap().__bool__())
-                        .all(|x| x);
-                    condition.to_arc()
+                    let condition = conds.iter().all(|x| {
+                        x.eval(&mut *variables, &mut *funcs)
+                            .unwrap()
+                            .get_ref()
+                            .__bool__()
+                    });
+                    condition.to_pyptr()
                 }
                 _ => panic!("Unimplemented Keyword: {:?}", keyword),
             },

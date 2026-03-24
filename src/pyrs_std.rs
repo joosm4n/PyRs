@@ -1,8 +1,9 @@
 use crate::{
     pyrs_error::{PyError, PyException},
     pyrs_obj::{Obj, ToObj},
+    pyrs_pyobject::{PyObjPtr, PyObject},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use rug::Integer;
 
@@ -11,20 +12,18 @@ pub trait Import {
     fn try_get(name: &str) -> Option<FnPtr>;
 }
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, PartialEq)]
+#[allow(unpredictable_function_pointer_comparisons)]
 pub struct FnPtr {
-    pub ptr: fn(&Vec<Arc<Obj>>) -> Arc<Obj>,
+    pub ptr: fn(&[PyObjPtr]) -> PyObjPtr,
     pub name: String,
 }
 
-impl PartialEq for FnPtr {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-    }
-    fn ne(&self, other: &Self) -> bool {
-        self.name != other.name
-    }
-}
+// impl PartialEq for FnPtr {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.name == other.name
+//     }
+// }
 impl PartialOrd for FnPtr {
     fn partial_cmp(&self, _other: &Self) -> Option<std::cmp::Ordering> {
         None
@@ -56,42 +55,42 @@ impl Funcs {
                 name: "print_ret".to_string(),
             },
         );
-        return func_map;
+        func_map
     }
 
-    pub fn print(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
+    pub fn print(args: &[PyObjPtr]) -> PyObjPtr {
         let mut msg = String::new();
         for arg in args {
-            msg += &(format!("{} ", arg).as_str());
+            msg += format!("{} ", *arg.get_ref()).as_str();
         }
         println!("{}", msg);
-        Arc::from(Obj::None)
+        PyObjPtr::none()
     }
 
-    pub fn print_ret(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
+    pub fn print_ret(args: &[PyObjPtr]) -> PyObjPtr {
         let mut msg = String::new();
         for arg in args {
-            msg += &(format!("{} ", arg).as_str());
+            msg += format!("{} ", *arg.get_ref()).as_str();
         }
         println!("{}", msg);
-        Arc::from(Obj::Str(msg))
+        PyObject::new_str(msg).to_ptr()
     }
 
-    pub fn bin(obj: &Obj) -> Arc<Obj> {
+    pub fn bin(obj: &Obj) -> PyObjPtr {
         // num.index_
         let s = match obj {
             Obj::Int(i) => format!("{:b}", i),
             _ => unimplemented!(),
         };
-        Arc::from(Obj::Str(s))
+        PyObject::new_str(s).to_ptr()
     }
 
-    pub fn float(obj: &Obj) -> Result<Obj, PyException> {
-        let ret = match obj {
+    pub fn float(obj: &PyObject) -> Result<PyObject, PyException> {
+        let ret = match &obj.obj {
             Obj::Float(_) => obj.clone(),
-            Obj::Int(i) => Obj::Float(i.to_f64()),
+            Obj::Int(i) => PyObject::new_float(i.to_f64()),
             Obj::Str(s) => match s.parse::<f64>() {
-                Ok(f) => Obj::Float(f),
+                Ok(f) => PyObject::new_float(f),
                 Err(e) => {
                     return Err(PyException {
                         error: PyError::FloatParseError,
@@ -155,32 +154,33 @@ impl RangeObj {
         }
     }
 
-    pub fn to_vec(self) -> Vec<Arc<Obj>> {
+    pub fn to_vec(&self) -> Vec<PyObjPtr> {
         let mut objs = vec![];
 
+        let r = self.clone();
         let start: Integer;
         let end: Integer;
         let inc: Integer;
         if self.one_arg {
             start = Integer::ZERO;
-            end = self.start.unwrap_or(Integer::ZERO);
+            end = r.start.unwrap_or(Integer::ZERO);
             inc = Integer::from(1);
         } else {
-            start = self.start.unwrap_or(Integer::ZERO);
-            end = self.end.unwrap_or(Integer::ZERO);
-            inc = self.inc.unwrap_or(Integer::from(1));
+            start = r.start.unwrap_or(Integer::ZERO);
+            end = r.end.unwrap_or(Integer::ZERO);
+            inc = r.inc.unwrap_or(Integer::from(1));
         }
 
         if start < end {
             let mut curr = start;
             while curr < end {
-                objs.push(curr.clone().to_arc());
+                objs.push(curr.clone().to_pyptr());
                 curr += inc.clone();
             }
         } else {
             let mut curr = start;
             while curr > end {
-                objs.push(curr.clone().to_arc());
+                objs.push(curr.clone().to_pyptr());
                 curr += inc.clone();
             }
         }
@@ -236,13 +236,13 @@ impl Import for Maths {
 
 #[allow(dead_code)]
 impl Maths {
-    pub fn sin(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
+    pub fn sin(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{sin}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg.as_ref() {
+        let val = match &arg.get_ref().obj {
             Obj::Float(d) => *d,
             Obj::Int(i) => i.to_f64(),
             _ => panic!(
@@ -250,16 +250,16 @@ impl Maths {
                 arg
             ),
         };
-        Arc::from(Obj::Float(val.sin()))
+        PyObject::new_float(val.sin()).to_ptr()
     }
 
-    pub fn cos(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
+    pub fn cos(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{cos}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg.as_ref() {
+        let val = match &arg.get_ref().obj {
             Obj::Float(d) => *d,
             Obj::Int(i) => i.to_f64(),
             _ => panic!(
@@ -267,16 +267,16 @@ impl Maths {
                 arg
             ),
         };
-        Arc::from(Obj::Float(val.cos()))
+        PyObject::new_float(val.cos()).to_ptr()
     }
 
-    pub fn tan(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
+    pub fn tan(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{tan}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg.as_ref() {
+        let val = match &arg.get_ref().obj {
             Obj::Float(d) => *d,
             Obj::Int(i) => i.to_f64(),
             _ => panic!(
@@ -284,16 +284,16 @@ impl Maths {
                 arg
             ),
         };
-        Arc::from(Obj::Float(val.tan()))
+        PyObject::new_float(val.tan()).to_ptr()
     }
 
-    pub fn sqrt(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
+    pub fn sqrt(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{sqrt}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg.as_ref() {
+        let val = match &arg.get_ref().obj {
             Obj::Float(d) => *d,
             Obj::Int(i) => i.to_f64(),
             _ => panic!(
@@ -301,16 +301,16 @@ impl Maths {
                 arg
             ),
         };
-        Arc::from(Obj::Float(val.sqrt()))
+        PyObject::new_float(val.sqrt()).to_ptr()
     }
 
-    pub fn abs(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
+    pub fn abs(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{abs}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg.as_ref() {
+        let val = match &arg.get_ref().obj {
             Obj::Float(d) => *d,
             Obj::Int(i) => i.to_f64(),
             _ => panic!(
@@ -318,16 +318,16 @@ impl Maths {
                 arg
             ),
         };
-        Arc::from(Obj::Float(val.abs()))
+        PyObject::new_float(val.abs()).to_ptr()
     }
 
-    pub fn ln(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
+    pub fn ln(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{ln}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg.as_ref() {
+        let val = match &arg.get_ref().obj {
             Obj::Float(d) => *d,
             Obj::Int(i) => i.to_f64(),
             _ => panic!(
@@ -335,16 +335,16 @@ impl Maths {
                 arg
             ),
         };
-        Arc::from(Obj::Float(val.ln()))
+        PyObject::new_float(val.ln()).to_ptr()
     }
 
-    pub fn log10(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
+    pub fn log10(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{log10}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg.as_ref() {
+        let val = match &arg.get_ref().obj {
             Obj::Float(d) => *d,
             Obj::Int(i) => i.to_f64(),
             _ => panic!(
@@ -352,16 +352,16 @@ impl Maths {
                 arg
             ),
         };
-        Arc::from(Obj::Float(val.log10()))
+        PyObject::new_float(val.log10()).to_ptr()
     }
 
-    pub fn exp(args: &Vec<Arc<Obj>>) -> Arc<Obj> {
+    pub fn exp(args: &[PyObjPtr]) -> PyObjPtr {
         if args.len() != 1 {
             panic!("[Type Error] Func{{exp}} only takes 1 argument");
         }
         let arg = args.first().unwrap();
 
-        let val = match arg.as_ref() {
+        let val = match &arg.get_ref().obj {
             Obj::Float(d) => *d,
             Obj::Int(i) => i.to_f64(),
             _ => panic!(
@@ -369,6 +369,6 @@ impl Maths {
                 arg
             ),
         };
-        Arc::from(Obj::Float(val.exp()))
+        PyObject::new_float(val.exp()).to_ptr()
     }
 }

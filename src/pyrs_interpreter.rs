@@ -2,15 +2,14 @@ use std::{
     collections::HashMap,
     io::{self, Write},
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 use crate::{
     pyrs_bytecode::PyBytecode,
     pyrs_codeobject::{PyCodeObj, PyCompileCtx},
     pyrs_error::{PyError, PyException, PyPanicHandle},
-    pyrs_obj::{Obj},
     pyrs_parsing::{Expression, Keyword},
+    pyrs_pyobject::{AttrDict, PyObjPtr},
     pyrs_std::{FnPtr, Funcs},
     pyrs_utils::PyUtils,
     pyrs_vm::PyVM,
@@ -28,7 +27,11 @@ pub struct PyRsVersion {
 }
 impl PyRsVersion {
     pub const fn get() -> Self {
-        PyRsVersion { major: PYRS_MAJOR_VERSION, minor: PYRS_MINOR_VERSION, patch: PYRS_PATCH_VERSION }
+        PyRsVersion {
+            major: PYRS_MAJOR_VERSION,
+            minor: PYRS_MINOR_VERSION,
+            patch: PYRS_PATCH_VERSION,
+        }
     }
 }
 impl std::fmt::Display for PyRsVersion {
@@ -38,7 +41,7 @@ impl std::fmt::Display for PyRsVersion {
 }
 
 pub struct Interpreter {
-    variables: HashMap<String, Arc<Obj>>,
+    variables: AttrDict,
     funcs: HashMap<String, FnPtr>,
     running: bool,
     curr_line: isize,
@@ -50,6 +53,7 @@ pub struct Interpreter {
     //cache: Expression,
     last_line: String,
     debug_mode: bool,
+    step_mode: bool,
     repr: bool,
 
     vm: PyVM,
@@ -67,6 +71,7 @@ pub enum InterpreterFlags {
     Debug,
     AnyFile,
     Compile,
+    StepMode,
 }
 pub enum InterpreterCommand {
     Error(&'static str),
@@ -76,10 +81,32 @@ pub enum InterpreterCommand {
     PrintHelp,
 }
 
-impl Interpreter {
-    pub fn new() -> Self {
+use clap::Parser;
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(short, long = "all-files", default_value_t = false)]
+    pub all_files: bool,
+
+    #[arg(short, long, default_value_t = false)]
+    pub compile: bool,
+
+    #[arg(short, long, default_value_t = false)]
+    pub debug: bool,
+
+    #[arg(short, long, default_value_t = false)]
+    pub steps: bool,
+
+    pub filepath: Option<String>,
+
+    #[arg(last = true, allow_hyphen_values = true, num_args=0..)]
+    pub forwarded: Vec<String>,
+}
+
+impl Default for Interpreter {
+    fn default() -> Self {
         Interpreter {
-            variables: HashMap::new(),
+            variables: AttrDict::new(),
             running: true,
             funcs: Funcs::get_std_map(),
             curr_line: -1,
@@ -88,15 +115,27 @@ impl Interpreter {
             block_stack: Vec::new(),
             last_line: String::new(),
             debug_mode: false,
+            step_mode: false,
             repr: false,
             vm: PyVM::new(),
-            working_dir: std::env::current_dir().unwrap_or(PathBuf::new()),
+            working_dir: std::env::current_dir().unwrap_or_default(),
         }
+    }
+}
+
+impl Interpreter {
+    pub fn new() -> Self {
+        Interpreter::default()
     }
 
     pub fn set_debug_mode(&mut self, debug: bool) {
         self.debug_mode = debug;
         self.vm.set_debug_mode(debug);
+    }
+
+    pub fn set_step_mode(&mut self, step: bool) {
+        self.step_mode = step;
+        self.vm.set_step_mode(step);
     }
 
     pub fn set_working_dir(&mut self, path: &str) {
@@ -127,12 +166,14 @@ impl Interpreter {
                 Compiles the file
             -d, --debug
                 Runs in debug mode, this means it will print various things inc stack traces or parsed exprs
+            -s, --step
+                Runs in step mode, meaning you have to press enter to step through each bytecode instruction
 
         "#;
         println!("{help}");
     }
 
-    fn eval_expr(&mut self, expr: &Expression) -> Result<Arc<Obj>, PyException> {
+    fn eval_expr(&mut self, expr: &Expression) -> Result<PyObjPtr, PyException> {
         expr.eval(&mut self.variables, &mut self.funcs)
     }
 
@@ -176,33 +217,30 @@ impl Interpreter {
         }
     }
 
-    pub fn parse_args(argv: &Vec<String>) -> Vec<InterpreterCommand> {
-        let arg_err = "Invalid args. \nEg: cargo run -- test.py \n or: cargo run -- -a test.x";
+    pub fn parse_args() -> Vec<InterpreterCommand> {
+        let args = Args::parse();
 
         let mut commands = vec![];
         let mut flags = vec![];
 
-        if argv.len() == 1 {
+        if args.filepath.is_none() {
             return vec![InterpreterCommand::Live];
         } else {
-            for (i, arg) in argv.iter().enumerate() {
-                if i == 0 {
-                    continue;
-                }
-                match arg.as_str() {
-                    "-a" | "--all" => flags.push(InterpreterFlags::AnyFile),
-                    "-d" | "--debug" => flags.push(InterpreterFlags::Debug),
-                    "-c" | "--compile" => flags.push(InterpreterFlags::Compile),
-                    "-h" | "--help" => commands.push(InterpreterCommand::PrintHelp),
-                    a if a.contains('.') => {
-                        let mut file_flags = vec![];
-                        file_flags.append(&mut flags);
-                        commands.push(InterpreterCommand::File(arg.to_string(), file_flags));
-                        flags = vec![];
-                    }
-                    _ => return vec![InterpreterCommand::Error(arg_err)],
-                };
+            if args.all_files {
+                flags.push(InterpreterFlags::AnyFile);
             }
+            if args.debug {
+                flags.push(InterpreterFlags::Debug);
+            }
+            if args.compile {
+                flags.push(InterpreterFlags::Compile);
+            }
+            if args.steps {
+                flags.push(InterpreterFlags::StepMode);
+            }
+            if let Some(filepath) = args.filepath {
+                commands.push(InterpreterCommand::File(filepath.to_string(), flags));
+            };
         }
         commands
     }
@@ -234,43 +272,41 @@ impl Interpreter {
             line = line_before;
         }
 
-        let expr = Expression::from_line(&line);
+        let expr = Expression::from_line(line);
         if line.trim().ends_with(":") {
             if let Expression::Keyword(_, _, _) = expr {
                 self.start_block(line_indent + 4, expr);
             } else {
                 panic!("Only keywords can start blocks");
             }
+        } else if self.block_stack.is_empty() {
+            self.process_expr(&expr); // keyword args are in
         } else {
-            if self.block_stack.is_empty() {
-                self.process_expr(&expr); // keyword args are in
-            } else {
-                self.push_to_current_block(expr);
-            }
+            self.push_to_current_block(expr);
         }
     }
 
     fn process_expr(&mut self, expr: &Expression) {
-        match expr {
-            Expression::Keyword(keyword, _conds, args) => match keyword {
-                Keyword::If => match self.eval_expr(&expr) {
+        if let Expression::Keyword(keyword, _conds, args) = expr {
+            match keyword {
+                Keyword::If => match self.eval_expr(expr) {
                     Ok(cond) => {
-                        if cond.__bool__() {
+                        if cond.get_ref().__bool__() {
                             for a in args {
-                                self.process_expr(&a);
+                                self.process_expr(a);
                             }
                         }
                     }
                     Err(e) => e.print(),
                 },
                 Keyword::While => loop {
-                    match self.eval_expr(&expr) {
+                    match self.eval_expr(expr) {
                         Ok(cond) => {
-                            if !cond.__bool__() {
+                            if !cond.get_ref().__bool__() {
                                 break;
                             }
                             for a in args {
-                                self.process_expr(&a);
+                                self.process_expr(a);
                             }
                         }
                         Err(e) => {
@@ -280,15 +316,14 @@ impl Interpreter {
                     }
                 },
                 _ => unimplemented!(),
-            },
-            _ => {}
+            }
         }
 
         if let Some((var_name, lhs)) = expr.is_assign() {
             let value = lhs.eval(&mut self.variables, &mut self.funcs);
             match value {
                 Ok(val) => {
-                    self.variables.insert(var_name.to_string(), val);
+                    self.variables.insert(var_name.into(), val);
                 }
                 Err(e) => {
                     e.print();
@@ -297,11 +332,11 @@ impl Interpreter {
             return;
         }
 
-        let res = self.eval_expr(&expr);
+        let res = self.eval_expr(expr);
         match res {
             Ok(obj) => {
-                if self.repr && obj.as_ref() != &Obj::None {
-                    println!("{}", obj.__repr__())
+                if self.repr && obj != PyObjPtr::none() {
+                    println!("{}", obj.get_ref().__repr__())
                 }
             }
             Err(e) => {
@@ -334,30 +369,40 @@ impl Interpreter {
     }
 
     pub fn interpret_file(&mut self, filepath: &str) {
-        let bytecode = Interpreter::compile_file(filepath).handle();
+        let bytecode = Interpreter::compile_file(filepath).handle_panic();
         self.vm.execute(bytecode);
     }
 
     pub fn compile_file(filepath: &str) -> Result<PyCodeObj, PyException> {
         let mut code: PyCompileCtx;
         let path = Path::new(filepath);
+        let working_dir = std::env::current_dir().unwrap_or_default();
         match path.file_stem() {
             Some(filestem) => match filestem.to_str() {
-                Some(file_str) => {
-                    let filename = file_str.to_string();
-                    code = PyCompileCtx::new(&filename);
+                Some(filename) => {
+                    code = PyCompileCtx::new(filename.into());
                 }
                 None => {
                     return Err(PyException {
                         error: PyError::FileError,
-                        msg: format!("Failed to complile \'{filepath}\'. Failed at {} line {}", file!(), line!()),
+                        msg: format!(
+                            "Failed to complile \'{filepath}\'. Working Dir: {}.Failed at {} line {}",
+                            working_dir.display(),
+                            file!(),
+                            line!()
+                        ),
                     });
                 }
             },
             None => {
                 return Err(PyException {
                     error: PyError::FileError,
-                    msg: format!("Failed to complile \'{filepath}\'. Failed at {} line {}", file!(), line!()),
+                    msg: format!(
+                        "Failed to complile \'{filepath}\'. Working Dir: {} Failed at {} line {}",
+                        working_dir.display(),
+                        file!(),
+                        line!()
+                    ),
                 });
             }
         }
@@ -367,13 +412,17 @@ impl Interpreter {
             Err(e) => {
                 return Err(PyException {
                     error: PyError::FileError,
-                    msg: format!("Failed to complile \'{filepath}\'. Fileread error: {e}. Failed at {} line {}", file!(), line!()),
+                    msg: format!(
+                    "Failed to complile \'{filepath}\'. Fileread error: {e}. Failed at {} line {}",
+                    file!(),
+                    line!()
+                ),
                 })
             }
         };
 
         let parsed = Expression::from_multiline(contents.as_str());
-        dbg!(&parsed);
+        // dbg!(&parsed);
         //println!("Exprs: \n{}", Expression::to_string_vec(&parsed));
         for expr in parsed {
             PyBytecode::from_expr(expr, &mut code);
@@ -384,7 +433,7 @@ impl Interpreter {
 
     #[allow(dead_code)]
     fn execute_expr(&mut self, expr: Expression) {
-        let mut code = PyCompileCtx::new("__temp__");
+        let mut code = PyCompileCtx::new("__temp__".into());
         PyBytecode::from_expr(expr, &mut code);
         self.vm.execute(code.finish());
     }
@@ -396,12 +445,18 @@ impl Interpreter {
             std::fs::create_dir("__pycache__")?;
         }
 
+        println!(
+            "CODE_OBJ: \n{}\n{}",
+            codeobj.pretty_format(),
+            PyBytecode::to_string(&codeobj.bytecode)
+        );
+
         println!("Compiling \'{}\'... ", filename);
         let name = filename.strip_suffix(".py").unwrap();
         let pyc_name = format!("__pycache__/{}.{}.pyc", name, PyRsVersion::get());
         let mut file = fs::File::create(&pyc_name)?;
 
-        let contents = format!("{}", codeobj.serialize(0));
+        let contents = codeobj.serialize(0).to_string();
         file.write_all(contents.as_bytes())?;
 
         println!("Compiled: {filename} into {pyc_name}");

@@ -55,8 +55,8 @@ impl PyHeader {
         vec
     }
 
-    pub fn deserialize(bytes: &Vec<u8>) -> Self {
-        let s = unsafe { String::from_utf8_unchecked(bytes.clone()) };
+    pub fn deserialize(bytes: &[u8]) -> Self {
+        let s = unsafe { String::from_utf8_unchecked(bytes.to_vec()) };
         let starter = &s[0..4];
         assert_eq!(starter, "pyrs");
 
@@ -71,11 +71,11 @@ impl PyHeader {
         let name = &s[4..i];
         i += 1; // skip '\0'
 
-        let time_bytes = s[i..i + 8].as_bytes().to_vec();
+        let time_bytes = &s.as_bytes()[i..i + 8];
         dbg!(&time_bytes);
-        let time_num = u64::from_bytes_be(time_bytes.as_slice()).unwrap();
+        let time_num = u64::from_bytes_be(time_bytes).unwrap();
 
-        let vers = s[i + 8..i + 12].as_bytes().to_vec();
+        let vers = &s.as_bytes()[i + 8..i + 12];
 
         let mut filename = String::new();
         i += 11;
@@ -160,7 +160,7 @@ impl PySerializer {
         final_bytes.push(0); // null term
         final_bytes.append(&mut (consts.len() as u64).to_be_bytes().to_vec()); // 8 bytes of num_consts
         for c in consts {
-            let obj_str = c.__str__();
+            let obj_str = c.get_ref().__str__();
             final_bytes.append(&mut (obj_str.len() as u64).to_be_bytes().to_vec()); // 8 bytes of obj len = n
             final_bytes.append(&mut obj_str.into_bytes()); // n bytes of obj string
         }
@@ -171,7 +171,7 @@ impl PySerializer {
         final_bytes.append(&mut (varnames.len() as u64).to_be_bytes().to_vec()); // 8 bytes of num_varnames
         for v in varnames {
             final_bytes.append(&mut (v.len() as u64).to_be_bytes().to_vec()); // n bytes of obj string
-            final_bytes.append(&mut v.clone().into_bytes()); // n bytes of obj string
+            final_bytes.append(&mut v.to_string().into_bytes()); // n bytes of obj string
         }
 
         let nms = "__names__";
@@ -180,7 +180,7 @@ impl PySerializer {
         final_bytes.append(&mut (names.len() as u64).to_be_bytes().to_vec()); // 8 bytes of num_names
         for n in names {
             final_bytes.append(&mut (n.len() as u64).to_be_bytes().to_vec()); // n bytes of obj string
-            final_bytes.append(&mut n.clone().into_bytes()); // n bytes of obj string
+            final_bytes.append(&mut n.to_string().into_bytes()); // n bytes of obj string
         }
 
         let bcde = "__bytecode__";
