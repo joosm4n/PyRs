@@ -1,6 +1,7 @@
 # PyRs
 
 A Python interpreter written in Rust.
+- Currently only runs on linux
 
 PyRs parses and executes Python source files by compiling them to an internal bytecode and running them on a custom stack-based virtual machine. It also provides an interactive REPL for quick experimentation.
 
