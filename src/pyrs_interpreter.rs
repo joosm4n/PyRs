@@ -81,6 +81,28 @@ pub enum InterpreterCommand {
     PrintHelp,
 }
 
+use clap::Parser;
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(short, long = "all-files", default_value_t = false)]
+    pub all_files: bool,
+
+    #[arg(short, long, default_value_t = false)]
+    pub compile: bool,
+
+    #[arg(short, long, default_value_t = false)]
+    pub debug: bool,
+
+    #[arg(short, long, default_value_t = false)]
+    pub steps: bool,
+
+    pub filepath: Option<String>,
+
+    #[arg(last = true, allow_hyphen_values = true, num_args=0..)]
+    pub forwarded: Vec<String>,
+}
+
 impl Default for Interpreter {
     fn default() -> Self {
         Interpreter {
@@ -195,34 +217,30 @@ impl Interpreter {
         }
     }
 
-    pub fn parse_args(argv: &[String]) -> Vec<InterpreterCommand> {
-        let arg_err = "Invalid args. \nEg: cargo run -- test.py \n or: cargo run -- -a test.x";
+    pub fn parse_args() -> Vec<InterpreterCommand> {
+        let args = Args::parse();
 
         let mut commands = vec![];
         let mut flags = vec![];
 
-        if argv.len() == 1 {
+        if args.filepath.is_none() {
             return vec![InterpreterCommand::Live];
         } else {
-            for (i, arg) in argv.iter().enumerate() {
-                if i == 0 {
-                    continue;
-                }
-                match arg.as_str() {
-                    "-a" | "--all" => flags.push(InterpreterFlags::AnyFile),
-                    "-d" | "--debug" => flags.push(InterpreterFlags::Debug),
-                    "-c" | "--compile" => flags.push(InterpreterFlags::Compile),
-                    "-h" | "--help" => commands.push(InterpreterCommand::PrintHelp),
-                    "-s" | "--step" => flags.push(InterpreterFlags::StepMode),
-                    a if a.contains('.') => {
-                        let mut file_flags = vec![];
-                        file_flags.append(&mut flags);
-                        commands.push(InterpreterCommand::File(arg.to_string(), file_flags));
-                        flags = vec![];
-                    }
-                    _ => return vec![InterpreterCommand::Error(arg_err)],
-                };
+            if args.all_files {
+                flags.push(InterpreterFlags::AnyFile);
             }
+            if args.debug {
+                flags.push(InterpreterFlags::Debug);
+            }
+            if args.compile {
+                flags.push(InterpreterFlags::Compile);
+            }
+            if args.steps {
+                flags.push(InterpreterFlags::StepMode);
+            }
+            if let Some(filepath) = args.filepath {
+                commands.push(InterpreterCommand::File(filepath.to_string(), flags));
+            };
         }
         commands
     }

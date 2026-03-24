@@ -23,14 +23,8 @@ use crate::{
 };
 
 fn main() -> std::io::Result<()> {
-    let args = std::env::args();
-    let mut argv: Vec<String> = vec![];
-    for a in args {
-        argv.push(a);
-    }
-
     let mut interp = Interpreter::new();
-    let commands = Interpreter::parse_args(&argv);
+    let commands = Interpreter::parse_args();
     for (i, cmd) in commands.into_iter().enumerate() {
         match cmd {
             InterpreterCommand::Live => interp.live_interpret(),
