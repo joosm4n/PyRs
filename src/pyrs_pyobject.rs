@@ -8,7 +8,7 @@ use rug::Integer;
 use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
-    sync::{Arc, LazyLock, Mutex, MutexGuard},
+    sync::{Arc, LazyLock, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 #[derive(Debug, Clone)]
@@ -24,13 +24,14 @@ pub struct AttrDict(pub HashMap<Arc<str>, PyObjPtr>);
 #[derive(Clone)]
 pub enum PyObjPtr {
     Const(Arc<PyObject>),
-    Mut(Arc<Mutex<PyObject>>),
+    Mut(Arc<RwLock<PyObject>>),
 }
 
 #[derive(Debug)]
 pub enum PyObjRef<'a> {
     Const(&'a PyObject),
-    Mut(MutexGuard<'a, PyObject>),
+    Read(RwLockReadGuard<'a, PyObject>),
+    Write(RwLockWriteGuard<'a, PyObject>),
 }
 
 static PYOBJECT_NONE: LazyLock<PyObjPtr> = LazyLock::new(|| {
@@ -173,20 +174,20 @@ impl PyObject {
             Obj::None => PyObjPtr::none(),
             Obj::Bool(_) => PyObjPtr::Const(Arc::new(self)),
             Obj::Float(_) => PyObjPtr::Const(Arc::new(self)),
-            Obj::Str(_) => PyObjPtr::Mut(Arc::new(Mutex::new(self))),
+            Obj::Str(_) => PyObjPtr::Mut(Arc::new(RwLock::new(self))),
             Obj::Int(_) => PyObjPtr::Const(Arc::new(self)),
             Obj::FuncPtr(_) => PyObjPtr::Const(Arc::new(self)),
             Obj::Except(_) => PyObjPtr::Const(Arc::new(self)),
-            Obj::List(_) => PyObjPtr::Mut(Arc::new(Mutex::new(self))),
-            Obj::Set(_) => PyObjPtr::Mut(Arc::new(Mutex::new(self))),
-            Obj::Tuple(_) => PyObjPtr::Mut(Arc::new(Mutex::new(self))),
+            Obj::List(_) => PyObjPtr::Mut(Arc::new(RwLock::new(self))),
+            Obj::Set(_) => PyObjPtr::Mut(Arc::new(RwLock::new(self))),
+            Obj::Tuple(_) => PyObjPtr::Mut(Arc::new(RwLock::new(self))),
             Obj::Range(_) => PyObjPtr::Const(Arc::new(self)),
-            Obj::Dict(_) => PyObjPtr::Mut(Arc::new(Mutex::new(self))),
-            Obj::Iter(_) => PyObjPtr::Mut(Arc::new(Mutex::new(self))),
-            Obj::Type(_) => PyObjPtr::Mut(Arc::new(Mutex::new(self))),
-            Obj::ClassInst(_) => PyObjPtr::Mut(Arc::new(Mutex::new(self))),
+            Obj::Dict(_) => PyObjPtr::Mut(Arc::new(RwLock::new(self))),
+            Obj::Iter(_) => PyObjPtr::Mut(Arc::new(RwLock::new(self))),
+            Obj::Type(_) => PyObjPtr::Mut(Arc::new(RwLock::new(self))),
+            Obj::ClassInst(_) => PyObjPtr::Mut(Arc::new(RwLock::new(self))),
             Obj::Code(_) => PyObjPtr::Const(Arc::new(self)),
-            Obj::FunctionObj(_) => PyObjPtr::Mut(Arc::new(Mutex::new(self))),
+            Obj::FunctionObj(_) => PyObjPtr::Mut(Arc::new(RwLock::new(self))),
             Obj::BuildClass => PyObjPtr::Const(Arc::new(self)),
         }
     }
@@ -222,9 +223,17 @@ impl PyObjPtr {
     pub fn get_ref(&self) -> PyObjRef<'_> {
         match self {
             PyObjPtr::Const(v) => PyObjRef::Const(v.as_ref()),
-            PyObjPtr::Mut(v) => PyObjRef::Mut(v.as_ref().lock().expect("unable to lock mutex")),
+            PyObjPtr::Mut(v) => PyObjRef::Read(v.as_ref().read().expect("unable to lock mutex")),
         }
     }
+
+    pub fn get_ref_mut(&self) -> PyObjRef<'_> {
+        match self {
+            PyObjPtr::Const(v) => PyObjRef::Const(v.as_ref()),
+            PyObjPtr::Mut(v) => PyObjRef::Write(v.as_ref().write().expect("unable to lock mutex")),
+        }
+    }
+
     pub fn ptr_eq(lhs: &Self, rhs: &Self) -> bool {
         match (lhs, rhs) {
             (PyObjPtr::Const(l), PyObjPtr::Const(r)) => Arc::ptr_eq(l, r),
@@ -269,7 +278,8 @@ impl<'a> Deref for PyObjRef<'a> {
     fn deref(&self) -> &Self::Target {
         match self {
             PyObjRef::Const(v) => v,
-            PyObjRef::Mut(v) => v,
+            PyObjRef::Read(v) => v,
+            PyObjRef::Write(v) => v,
         }
     }
 }
@@ -277,8 +287,9 @@ impl<'a> Deref for PyObjRef<'a> {
 impl<'a> DerefMut for PyObjRef<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
-            PyObjRef::Mut(v) => v,
             PyObjRef::Const(_) => panic!("Cannot mutate this object"),
+            PyObjRef::Read(v) => panic!("Cannot mutate this object"),
+            PyObjRef::Write(v) => v,
         }
     }
 }

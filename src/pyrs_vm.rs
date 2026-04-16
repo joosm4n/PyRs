@@ -658,7 +658,7 @@ impl PyVM {
 
     fn for_iter(&mut self, delta: u8) {
         let iter = self.top().clone();
-        match &mut iter.clone().get_ref().obj {
+        match &mut iter.clone().get_ref_mut().obj {
             Obj::Iter(it) => {
                 if let Some(item) = it.next() {
                     self.push(item);
