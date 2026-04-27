@@ -288,7 +288,7 @@ impl<'a> DerefMut for PyObjRef<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             PyObjRef::Const(_) => panic!("Cannot mutate this object"),
-            PyObjRef::Read(v) => panic!("Cannot mutate this object"),
+            PyObjRef::Read(_v) => panic!("Cannot mutate this object"),
             PyObjRef::Write(v) => v,
         }
     }
