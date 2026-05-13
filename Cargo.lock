@@ -3,18 +3,6 @@
 version = 4
 
 [[package]]
-name = "Pyrs"
-version = "0.1.0"
-dependencies = [
- "bitflags",
- "clap",
- "int-enum",
- "pretty_assertions",
- "rug",
- "uuid",
-]
-
-[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -335,6 +323,17 @@ dependencies = [
  "quote",
  "syn",
  "version_check",
+]
+
+[[package]]
+name = "pyrs"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "int-enum",
+ "pretty_assertions",
+ "rug",
+ "uuid",
 ]
 
 [[package]]
