@@ -2,6 +2,7 @@ pub mod pyrs_bytecode;
 pub mod pyrs_codeobject;
 pub mod pyrs_error;
 pub mod pyrs_interpreter;
+pub mod pyrs_lexer;
 pub mod pyrs_modules;
 pub mod pyrs_obj;
 pub mod pyrs_parser2;
