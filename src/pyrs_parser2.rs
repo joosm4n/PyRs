@@ -1,8 +1,8 @@
 // input: file
 // ouput: item tree
 
-use crate::pyrs_tokentypes::{NumLit, NumLitKind, Op, TokenKind};
-use std::{iter::Peekable, str::CharIndices, sync::Arc};
+use crate::pyrs_tokentypes::{NumLit, Op, TokenKind};
+use std::{iter::Peekable, os::raw, str::CharIndices, sync::Arc};
 
 pub type DynError = Box<dyn std::error::Error>;
 
@@ -126,7 +126,10 @@ impl TokenData for ParserError {
     fn get_line_fmt(&self) -> String {
         let mut line_fmt = format!(
             "{}\n  \t|  ",
-            self.file.get_line_fmt(self.line, false).unwrap()
+            match self.file.get_line_fmt(self.line, false) {
+                Some(s) => s,
+                None => format!("<Invalid Line Number: {}>", self.line),
+            }
         );
         for _ in 0..self.col {
             line_fmt.push(' ');
@@ -146,7 +149,7 @@ impl TokenData for ParserError {
 }
 
 impl ParserError {
-    pub fn new_dyn<'a>(msg: String, token: &Token<'a>) -> DynError {
+    pub fn new_dyn<'a>(msg: String, token: Token<'a>) -> DynError {
         Box::new(ParserError {
             msg,
             data: token.data.into(),
@@ -305,21 +308,46 @@ impl Parser {
                     let mut end_idx = start_idx + c.len_utf8();
                     let mut has_dot = false;
                     let mut last_was_underscore = false;
-                    let mut lit_kind = NumLitKind::Dec;
+                    let mut lit_kind = NumLit::Dec;
 
                     // TODO: Finish the alternate num literal parsing
 
                     // dec | bin | oct | hex | zero
                     if c == '0' {
-                        if let Some((_idx, next_ch)) = chars.peek() {
-                            lit_kind = match next_ch {
-                                'b' | 'B' => NumLitKind::Bin,
-                                'o' | 'O' => NumLitKind::Oct,
-                                'x' | 'X' => NumLitKind::Hex,
-                                _ => NumLitKind::Dec,
+                        if let Some(next_ch) = chars.peek() {
+                            lit_kind = match next_ch.1 {
+                                'b' | 'B' => NumLit::Bin,
+                                'o' | 'O' => NumLit::Oct,
+                                'x' | 'X' => NumLit::Hex,
+                                '_' => {
+                                    chars.next();
+                                    end_idx += 1;
+                                    let mut zero_ok = false;
+                                    if let Some((_idx, next_char2)) = chars.peek() {
+                                        if next_char2 == &'0' {
+                                            zero_ok = true;
+                                        }
+                                    }
+
+                                    if !zero_ok {
+                                        return Err(ParserError::new_dyn(
+                                            "Only can have a \'_\' after a \'0\' when followed by a 0. Eg: 0_0 not 0_x5.".into(),
+                                            Token{
+                                                data: &line[start_idx..end_idx+1],
+                                                file: file_data.clone(),
+                                                line: line_no,
+                                                col: start_idx,
+                                                kind: TokenKind::Number(lit_kind)
+                                            }
+                                        ));
+                                    } else {
+                                        NumLit::Zero
+                                    }
+                                }
+                                _ => NumLit::Dec,
                             }
                         }
-                        if lit_kind != NumLitKind::Dec {
+                        if lit_kind != NumLit::Dec {
                             chars.next();
                             end_idx += 1;
                         }
@@ -364,11 +392,11 @@ impl Parser {
                                         file: file_data.clone(),
                                         line: line_no,
                                         col: end_idx + 1,
-                                        kind: TokenKind::Number,
+                                        kind: TokenKind::Number(lit_kind),
                                     };
                                     return Err(ParserError::new_dyn(
                                         "Underscores can only occur inbetween digits".into(),
-                                        &tok,
+                                        tok,
                                     ));
                                 }
                             }
@@ -384,11 +412,11 @@ impl Parser {
                             file: file_data.clone(),
                             line: line_no,
                             col: end_idx + 1,
-                            kind: TokenKind::Number,
+                            kind: TokenKind::Number(lit_kind),
                         };
                         return Err(ParserError::new_dyn(
                             "Underscores can only occur inbetween digits".into(),
-                            &tok,
+                            tok,
                         ));
                     }
 
@@ -397,7 +425,7 @@ impl Parser {
                         file: file_data.clone(),
                         line: line_no,
                         col: start_idx,
-                        kind: TokenKind::Number,
+                        kind: TokenKind::Number(lit_kind),
                     });
                 }
 
@@ -464,7 +492,7 @@ impl Parser {
                         if !next_ch.is_whitespace() {
                             return Err(ParserError::new_dyn(
                                 "Must have '\\' as last character".into(),
-                                &Token {
+                                Token {
                                     data: &line[start_idx..start_idx + 1],
                                     file: file_data.clone(),
                                     line: line_no,
@@ -547,9 +575,14 @@ impl Parser {
         (fd.clone(), Parser::parse(raw_str, fd.clone()))
     }
 
-    pub fn _parse_test<'a>(raw_str: &'a str, file_data: &Arc<FileData>) -> Vec<Token<'a>> {
-        let mut tks = Parser::parse(raw_str, file_data.clone()).expect("Failed");
+    pub fn _parse_test<'a>(raw_str: &'a str) -> Vec<Token<'a>> {
+        let fd = Arc::new(FileData::new(
+            "NOFILE".into(),
+            "NOFILE".into(),
+            raw_str.into(),
+        ));
+        let mut tks = Parser::parse(raw_str, fd).expect("Failed");
         tks.pop();
-        tks
+        tks.to_owned()
     }
 }

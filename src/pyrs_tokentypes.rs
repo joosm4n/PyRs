@@ -3,7 +3,7 @@ pub enum TokenKind {
     #[default]
     Unknown, // Phase out at some point
     Name,
-    Number,
+    Number(NumLit),
     String,
     Op(Op),
     Commment,
@@ -314,26 +314,24 @@ impl Keyword {
     }
 }
 
-pub struct NumLit {}
-
-impl NumLit {
-    pub fn is_valid_kind(num: char, kind: NumLitKind) -> bool {
-        match kind {
-            NumLitKind::Dec => num.is_ascii_digit(),
-            NumLitKind::Bin => num == '0' || num == '1',
-            NumLitKind::Oct => num >= '0' && num < '8',
-            NumLitKind::Hex => num.is_ascii_hexdigit(),
-            NumLitKind::Zero => num == '0',
-        }
-    }
-}
-
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord)]
-pub enum NumLitKind {
+pub enum NumLit {
     #[default]
     Dec,
     Bin,
     Oct,
     Hex,
     Zero,
+}
+
+impl NumLit {
+    pub fn is_valid_kind(num: char, kind: NumLit) -> bool {
+        match kind {
+            NumLit::Dec => num.is_ascii_digit(),
+            NumLit::Bin => num == '0' || num == '1',
+            NumLit::Oct => ('0'..'8').contains(&num),
+            NumLit::Hex => num.is_ascii_hexdigit(),
+            NumLit::Zero => num == '0',
+        }
+    }
 }

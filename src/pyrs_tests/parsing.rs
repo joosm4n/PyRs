@@ -7,7 +7,7 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn item_list() -> Result<(), DynError> {
+    fn parsing_core() -> Result<(), DynError> {
         let contents = String::from(
             r#"i = 0
 n1 = 0
@@ -51,23 +51,23 @@ while i < 20:
     fn basic_tokens() -> Result<(), DynError> {
         let fd = Arc::new(FileData::new("NOFILE".into(), "NOFILE".into(), "".into()));
         assert_eq!(
-            Parser::_parse_test("x", &fd),
+            Parser::_parse_test("x"),
             vec![Token::basic("x", &fd, TokenKind::Name)]
         );
         assert_eq!(
-            Parser::_parse_test("{", &fd),
+            Parser::_parse_test("{"),
             vec![Token::basic("{", &fd, TokenKind::Op(Op::LBRACE))]
         );
         assert_eq!(
-            Parser::_parse_test("1", &fd),
-            vec![Token::basic("1", &fd, TokenKind::Number)]
+            Parser::_parse_test("1"),
+            vec![Token::basic("1", &fd, TokenKind::Number(NumLit::Dec))]
         );
         assert_eq!(
-            Parser::_parse_test("x = 2", &fd),
+            Parser::_parse_test("x = 2"),
             vec![
                 Token::basic("x", &fd, TokenKind::Name),
                 Token::basic("=", &fd, TokenKind::Op(Op::EQUAL)),
-                Token::basic("2", &fd, TokenKind::Number),
+                Token::basic("2", &fd, TokenKind::Number(NumLit::Dec)),
             ]
         );
         Ok(())
@@ -77,39 +77,43 @@ while i < 20:
     #[test]
     fn parsing_number_literals() -> Result<(), DynError> {
         let fd = Arc::new(FileData::new("NOFILE".into(), "NOFILE".into(), "".into()));
-        assert_eq!(
-            Parser::_parse_test("1", &fd),
-            vec![Token::basic("1", &fd, TokenKind::Number)]
-        );
-        assert_eq!(
-            Parser::_parse_test("1_0", &fd),
-            vec![Token::basic("1_0", &fd, TokenKind::Number)]
-        );
-        assert_eq!(
-            Parser::_parse_test("1.0", &fd),
-            vec![Token::basic("1.0", &fd, TokenKind::Number)]
-        );
-        assert_eq!(
-            Parser::_parse_test("10.0_0", &fd),
-            vec![Token::basic("10.0_0", &fd, TokenKind::Number),]
-        );
-        assert_eq!(
-            Parser::_parse_test("0b1", &fd),
-            vec![Token::basic("0b1", &fd, TokenKind::Number)]
-        );
-        assert_eq!(
-            Parser::_parse_test("0xa", &fd),
-            vec![Token::basic("0xa", &fd, TokenKind::Number)]
-        );
-        assert_eq!(
-            Parser::_parse_test("0o7", &fd),
-            vec![Token::basic("0o7", &fd, TokenKind::Number)]
-        );
-        assert_eq!(
-            Parser::_parse_test("0_0", &fd),
-            vec![Token::basic("0_0", &fd, TokenKind::Number),]
-        );
 
+        assert_eq!(
+            Parser::_parse_test("1"),
+            vec![Token::basic("1", &fd, TokenKind::Number(NumLit::Dec))]
+        );
+        assert_eq!(
+            Parser::_parse_test("1_0"),
+            vec![Token::basic("1_0", &fd, TokenKind::Number(NumLit::Dec))]
+        );
+        assert_eq!(
+            Parser::_parse_test("1.0"),
+            vec![Token::basic("1.0", &fd, TokenKind::Number(NumLit::Dec))]
+        );
+        assert_eq!(
+            Parser::_parse_test("10.0_0"),
+            vec![Token::basic("10.0_0", &fd, TokenKind::Number(NumLit::Dec)),]
+        );
+        assert_eq!(
+            Parser::_parse_test("0b1"),
+            vec![Token::basic("0b1", &fd, TokenKind::Number(NumLit::Bin))]
+        );
+        assert_eq!(
+            Parser::_parse_test("0xa"),
+            vec![Token::basic("0xa", &fd, TokenKind::Number(NumLit::Hex))]
+        );
+        assert_eq!(
+            Parser::_parse_test("0o7"),
+            vec![Token::basic("0o7", &fd, TokenKind::Number(NumLit::Oct))]
+        );
+        assert_eq!(
+            Parser::_parse_test("0_0"),
+            vec![Token::basic("0_0", &fd, TokenKind::Number(NumLit::Zero)),]
+        );
+        assert_eq!(
+            Parser::_parse_test("0_x"),
+            vec![Token::basic("0_x", &fd, TokenKind::Number(NumLit::Zero)),]
+        );
         Ok(())
     }
 }
