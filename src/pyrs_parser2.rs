@@ -2,7 +2,7 @@
 // ouput: item tree
 
 use crate::pyrs_tokentypes::{NumLit, Op, TokenKind};
-use std::{iter::Peekable, os::raw, str::CharIndices, sync::Arc};
+use std::{iter::Peekable, str::CharIndices, sync::Arc};
 
 pub type DynError = Box<dyn std::error::Error>;
 
@@ -23,7 +23,15 @@ impl FileData {
     }
 
     pub fn get_contents(&self) -> &str {
-        self.contents.as_str()
+        &self.contents
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            file_path: "".into(),
+            file_name: "".into(),
+            contents: "".into(),
+        }
     }
 
     pub fn get_contents_fmt(&self) -> String {
@@ -57,6 +65,7 @@ impl FileData {
     }
 }
 
+#[repr(C)]
 #[derive(Clone)]
 pub struct Token<'a> {
     pub data: &'a str,
@@ -66,7 +75,7 @@ pub struct Token<'a> {
     pub kind: TokenKind,
 }
 
-pub trait TokenData {
+pub trait TokenData: std::fmt::Debug {
     fn get_line_fmt(&self) -> String;
     fn dbg_str(&self) -> String;
 }
@@ -100,6 +109,15 @@ impl<'a> Token<'a> {
             kind,
         }
     }
+    pub fn to_owned(&self) -> TokenOwned {
+        TokenOwned {
+            data: self.data.to_owned(),
+            file: self.file.clone(),
+            line: self.line,
+            col: self.col,
+            kind: self.kind,
+        }
+    }
 }
 
 impl<'a> std::fmt::Debug for Token<'a> {
@@ -108,6 +126,40 @@ impl<'a> std::fmt::Debug for Token<'a> {
     }
 }
 impl<'a> PartialEq for Token<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind && self.data == other.data
+    }
+}
+
+#[repr(C)]
+#[derive(Clone)]
+pub struct TokenOwned {
+    pub data: String,
+    pub file: Arc<FileData>,
+    pub line: usize,
+    pub col: usize,
+    pub kind: TokenKind,
+}
+
+impl TokenData for TokenOwned {
+    fn get_line_fmt(&self) -> String {
+        self.file.get_line_fmt(self.line, true).unwrap()
+    }
+
+    fn dbg_str(&self) -> String {
+        match self.data.as_str() {
+            "\n" => format!("Token[\'\\n\', {:?}]", self.kind),
+            "\t" => format!("Token[\'\\t\', {:?}]", self.kind),
+            _ => format!("Token[\'{}\', {:?}]", self.data, self.kind),
+        }
+    }
+}
+impl std::fmt::Debug for TokenOwned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.dbg_str())
+    }
+}
+impl PartialEq for TokenOwned {
     fn eq(&self, other: &Self) -> bool {
         self.kind == other.kind && self.data == other.data
     }
@@ -122,6 +174,7 @@ pub struct ParserError {
     col: usize,
     kind: TokenKind,
 }
+
 impl TokenData for ParserError {
     fn get_line_fmt(&self) -> String {
         let mut line_fmt = format!(
@@ -150,7 +203,7 @@ impl TokenData for ParserError {
 
 impl ParserError {
     pub fn new_dyn<'a>(msg: String, token: Token<'a>) -> DynError {
-        Box::new(ParserError {
+        Box::new(Self {
             msg,
             data: token.data.into(),
             file: token.file.clone(),
@@ -158,6 +211,16 @@ impl ParserError {
             col: token.col,
             kind: token.kind,
         })
+    }
+    pub fn empty() -> ParserError {
+        Self {
+            msg: "".into(),
+            data: "".into(),
+            file: Arc::new(FileData::empty()),
+            line: 0,
+            col: 0,
+            kind: TokenKind::ErrorToken,
+        }
     }
 }
 
@@ -171,6 +234,11 @@ impl std::fmt::Debug for ParserError {
         writeln!(f, "\n{}", self.get_line_fmt())?;
         writeln!(f, "  = {}", self)
         // writeln!(f, "  = ParseError: {} for: {:?}", self.msg, self.dbg_str())
+    }
+}
+impl PartialEq for ParserError {
+    fn eq(&self, _other: &Self) -> bool {
+        true
     }
 }
 
@@ -575,14 +643,14 @@ impl Parser {
         (fd.clone(), Parser::parse(raw_str, fd.clone()))
     }
 
-    pub fn _parse_test<'a>(raw_str: &'a str) -> Vec<Token<'a>> {
+    pub fn _parse_test<'a>(raw_str: &'a str) -> Result<Vec<Token<'a>>, DynError> {
         let fd = Arc::new(FileData::new(
             "NOFILE".into(),
             "NOFILE".into(),
             raw_str.into(),
         ));
-        let mut tks = Parser::parse(raw_str, fd).expect("Failed");
+        let mut tks = Parser::parse(raw_str, fd)?;
         tks.pop();
-        tks.to_owned()
+        Ok(tks.to_owned())
     }
 }

@@ -1,15 +1,24 @@
-#[allow(unused_imports, unreachable_code)]
-#[cfg(test)]
-mod tests {
+#![allow(unused_imports, unreachable_code)]
 
-    use crate::{pyrs_parser2::*, pyrs_tokentypes::*, pyrs_utils::*};
-    use pretty_assertions::assert_eq;
-    use std::sync::Arc;
+macro_rules! __function__ {
+    () => {{
+        fn f() {}
+        fn type_name_of<T>(_: T) -> &'static str {
+            std::any::type_name::<T>()
+        }
+        let name = type_name_of(f);
+        name.strip_suffix("::f").unwrap()
+    }};
+}
 
-    #[test]
-    fn parsing_core() -> Result<(), DynError> {
-        let contents = String::from(
-            r#"i = 0
+use crate::{pyrs_parser2::*, pyrs_tokentypes::*, pyrs_utils::*};
+use pretty_assertions::assert_eq;
+use std::sync::Arc;
+
+#[test]
+fn parsing_core() -> Result<(), DynError> {
+    let contents = String::from(
+        r#"i = 0
 n1 = 0
 n2 = 1
 n3 = 0
@@ -26,94 +35,96 @@ while i < 20:
 
     if x { print(7) };
 "#,
-        );
+    );
 
-        let file_data = Arc::new(FileData::new(
-            "/this/is/the/file-path".into(),
-            "da-test-file".into(),
-            contents,
-        ));
-        let tokens = Parser::parse(file_data.get_contents(), file_data.clone())?;
+    let file_data = Arc::new(FileData::new(
+        "/this/is/the/file-path".into(),
+        "da-test-file".into(),
+        contents,
+    ));
+    let tokens = Parser::parse(file_data.get_contents(), file_data.clone())?;
 
-        for t in &tokens {
-            println!("{t:?}");
-        }
-        println!("\n{}", file_data.get_contents_fmt());
-        println!("\n{}", file_data.get_line_fmt(4, true).unwrap_or_default());
-        println!("\n{}\n", tokens.get(3).as_ref().unwrap().get_line_fmt());
-        println!("\n{}\n", tokens.last().as_ref().unwrap().get_line_fmt());
-
-        panic!("This should fail, so i can see output.");
-        Ok(())
+    for t in &tokens {
+        println!("{t:?}");
     }
+    println!("\n{}", file_data.get_contents_fmt());
+    println!("\n{}", file_data.get_line_fmt(4, true).unwrap_or_default());
+    println!("\n{}\n", tokens.get(3).as_ref().unwrap().get_line_fmt());
+    println!("\n{}\n", tokens.last().as_ref().unwrap().get_line_fmt());
 
-    #[test]
-    fn basic_tokens() -> Result<(), DynError> {
-        let fd = Arc::new(FileData::new("NOFILE".into(), "NOFILE".into(), "".into()));
-        assert_eq!(
-            Parser::_parse_test("x"),
-            vec![Token::basic("x", &fd, TokenKind::Name)]
-        );
-        assert_eq!(
-            Parser::_parse_test("{"),
-            vec![Token::basic("{", &fd, TokenKind::Op(Op::LBRACE))]
-        );
-        assert_eq!(
-            Parser::_parse_test("1"),
-            vec![Token::basic("1", &fd, TokenKind::Number(NumLit::Dec))]
-        );
-        assert_eq!(
-            Parser::_parse_test("x = 2"),
-            vec![
-                Token::basic("x", &fd, TokenKind::Name),
-                Token::basic("=", &fd, TokenKind::Op(Op::EQUAL)),
-                Token::basic("2", &fd, TokenKind::Number(NumLit::Dec)),
-            ]
-        );
-        Ok(())
-    }
+    panic!("--- PYRS: INTENTIONAL_FAIL {} ---", __function__!());
+    Ok(())
+}
 
-    // TODO: Finish
-    #[test]
-    fn parsing_number_literals() -> Result<(), DynError> {
-        let fd = Arc::new(FileData::new("NOFILE".into(), "NOFILE".into(), "".into()));
+#[test]
+fn parsing_basic_tokens() -> Result<(), DynError> {
+    let fd = Arc::new(FileData::new("NOFILE".into(), "NOFILE".into(), "".into()));
+    assert_eq!(
+        Parser::_parse_test("x")?,
+        vec![Token::basic("x", &fd, TokenKind::Name)]
+    );
+    assert_eq!(
+        Parser::_parse_test("{")?,
+        vec![Token::basic("{", &fd, TokenKind::Op(Op::LBRACE))]
+    );
+    assert_eq!(
+        Parser::_parse_test("1")?,
+        vec![Token::basic("1", &fd, TokenKind::Number(NumLit::Dec))]
+    );
+    assert_eq!(
+        Parser::_parse_test("x = 2")?,
+        vec![
+            Token::basic("x", &fd, TokenKind::Name),
+            Token::basic("=", &fd, TokenKind::Op(Op::EQUAL)),
+            Token::basic("2", &fd, TokenKind::Number(NumLit::Dec)),
+        ]
+    );
+    Ok(())
+}
 
-        assert_eq!(
-            Parser::_parse_test("1"),
-            vec![Token::basic("1", &fd, TokenKind::Number(NumLit::Dec))]
-        );
-        assert_eq!(
-            Parser::_parse_test("1_0"),
-            vec![Token::basic("1_0", &fd, TokenKind::Number(NumLit::Dec))]
-        );
-        assert_eq!(
-            Parser::_parse_test("1.0"),
-            vec![Token::basic("1.0", &fd, TokenKind::Number(NumLit::Dec))]
-        );
-        assert_eq!(
-            Parser::_parse_test("10.0_0"),
-            vec![Token::basic("10.0_0", &fd, TokenKind::Number(NumLit::Dec)),]
-        );
-        assert_eq!(
-            Parser::_parse_test("0b1"),
-            vec![Token::basic("0b1", &fd, TokenKind::Number(NumLit::Bin))]
-        );
-        assert_eq!(
-            Parser::_parse_test("0xa"),
-            vec![Token::basic("0xa", &fd, TokenKind::Number(NumLit::Hex))]
-        );
-        assert_eq!(
-            Parser::_parse_test("0o7"),
-            vec![Token::basic("0o7", &fd, TokenKind::Number(NumLit::Oct))]
-        );
-        assert_eq!(
-            Parser::_parse_test("0_0"),
-            vec![Token::basic("0_0", &fd, TokenKind::Number(NumLit::Zero)),]
-        );
-        assert_eq!(
-            Parser::_parse_test("0_x"),
-            vec![Token::basic("0_x", &fd, TokenKind::Number(NumLit::Zero)),]
-        );
-        Ok(())
-    }
+// TODO: Finish
+#[test]
+fn parsing_number_literals() -> Result<(), DynError> {
+    let fd = Arc::new(FileData::new("NOFILE".into(), "NOFILE".into(), "".into()));
+
+    assert_eq!(
+        Parser::_parse_test("1")?,
+        vec![Token::basic("1", &fd, TokenKind::Number(NumLit::Dec))]
+    );
+    assert_eq!(
+        Parser::_parse_test("1_0")?,
+        vec![Token::basic("1_0", &fd, TokenKind::Number(NumLit::Dec))]
+    );
+    assert_eq!(
+        Parser::_parse_test("1.0")?,
+        vec![Token::basic("1.0", &fd, TokenKind::Number(NumLit::Dec))]
+    );
+    assert_eq!(
+        Parser::_parse_test("10.0_0")?,
+        vec![Token::basic("10.0_0", &fd, TokenKind::Number(NumLit::Dec)),]
+    );
+    assert_eq!(
+        Parser::_parse_test("0b1")?,
+        vec![Token::basic("0b1", &fd, TokenKind::Number(NumLit::Bin))]
+    );
+    assert_eq!(
+        Parser::_parse_test("0xa")?,
+        vec![Token::basic("0xa", &fd, TokenKind::Number(NumLit::Hex))]
+    );
+    assert_eq!(
+        Parser::_parse_test("0o7")?,
+        vec![Token::basic("0o7", &fd, TokenKind::Number(NumLit::Oct))]
+    );
+    assert_eq!(
+        Parser::_parse_test("0_0")?,
+        vec![Token::basic("0_0", &fd, TokenKind::Number(NumLit::Zero)),]
+    );
+    assert_eq!(
+        Parser::_parse_test("0_x")
+            .unwrap_err()
+            .downcast_ref::<ParserError>()
+            .unwrap(),
+        &ParserError::empty(),
+    );
+    Ok(())
 }
