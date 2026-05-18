@@ -168,70 +168,42 @@ impl PartialEq for TokenOwned {
 #[derive(Clone)]
 pub struct ParserError {
     pub msg: String,
-    data: String,
-    file: Arc<FileData>,
-    line: usize,
-    col: usize,
-    kind: TokenKind,
-}
-
-impl TokenData for ParserError {
-    fn get_line_fmt(&self) -> String {
-        let mut line_fmt = format!(
-            "{}\n  \t|  ",
-            match self.file.get_line_fmt(self.line, false) {
-                Some(s) => s,
-                None => format!("<Invalid Line Number: {}>", self.line),
-            }
-        );
-        for _ in 0..self.col {
-            line_fmt.push(' ');
-        }
-        for _ in 0..self.data.len() {
-            line_fmt.push('^');
-        }
-        line_fmt
-    }
-    fn dbg_str(&self) -> String {
-        match self.data.as_str() {
-            "\n" => format!("Token[\'\\n\', {:?}]", self.kind),
-            "\t" => format!("Token[\'\\t\', {:?}]", self.kind),
-            _ => format!("Token[\'{}\', {:?}]", self.data, self.kind),
-        }
-    }
+    pub token: TokenOwned,
 }
 
 impl ParserError {
     pub fn new_dyn<'a>(msg: String, token: Token<'a>) -> DynError {
-        Box::new(Self {
-            msg,
-            data: token.data.into(),
-            file: token.file.clone(),
-            line: token.line,
-            col: token.col,
-            kind: token.kind,
-        })
+        let mut owned = token.to_owned();
+        owned.kind = TokenKind::ErrorToken;
+        Box::new(Self { msg, token: owned })
     }
     pub fn empty() -> ParserError {
         Self {
             msg: "".into(),
-            data: "".into(),
-            file: Arc::new(FileData::empty()),
-            line: 0,
-            col: 0,
-            kind: TokenKind::ErrorToken,
+            token: TokenOwned {
+                data: "".into(),
+                file: Arc::new(FileData::empty()),
+                line: 0,
+                col: 0,
+                kind: TokenKind::ErrorToken,
+            },
         }
     }
 }
 
 impl std::fmt::Display for ParserError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "ParseError: {} for: {:?}", self.dbg_str(), self.msg)
+        writeln!(
+            f,
+            "ParseError: {} for: {:?}",
+            self.token.dbg_str(),
+            self.msg
+        )
     }
 }
 impl std::fmt::Debug for ParserError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "\n{}", self.get_line_fmt())?;
+        writeln!(f, "\n{}", self.token.get_line_fmt())?;
         writeln!(f, "  = {}", self)
         // writeln!(f, "  = ParseError: {} for: {:?}", self.msg, self.dbg_str())
     }
