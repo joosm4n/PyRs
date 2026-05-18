@@ -169,13 +169,18 @@ impl PartialEq for TokenOwned {
 pub struct ParserError {
     pub msg: String,
     pub token: TokenOwned,
+    pub token_tree: Vec<TokenOwned>,
 }
 
 impl ParserError {
-    pub fn new_dyn<'a>(msg: String, token: Token<'a>) -> DynError {
+    pub fn new_dyn<'a>(msg: String, token: Token<'a>, token_list: Vec<Token<'a>>) -> DynError {
         let mut owned = token.to_owned();
         owned.kind = TokenKind::ErrorToken;
-        Box::new(Self { msg, token: owned })
+        Box::new(Self {
+            msg,
+            token: owned,
+            token_tree: token_list.iter().map(|t| t.to_owned()).collect(),
+        })
     }
     pub fn empty() -> ParserError {
         Self {
@@ -187,6 +192,7 @@ impl ParserError {
                 col: 0,
                 kind: TokenKind::ErrorToken,
             },
+            token_tree: vec![],
         }
     }
 }
@@ -378,7 +384,8 @@ impl Parser {
                                                 line: line_no,
                                                 col: start_idx,
                                                 kind: TokenKind::Number(lit_kind)
-                                            }
+                                            },
+                                            words,
                                         ));
                                     } else {
                                         NumLit::Zero
@@ -401,6 +408,7 @@ impl Parser {
                                 end_idx = idx + next_ch.len_utf8();
                                 last_was_underscore = false;
                             }
+
                             nc if nc == '.' && !has_dot => {
                                 // Look ahead to see if there's a digit after the dot
                                 let mut temp_chars = chars.clone();
@@ -421,6 +429,7 @@ impl Parser {
                                 }
                                 last_was_underscore = false;
                             }
+
                             '_' => {
                                 if !last_was_underscore {
                                     chars.next();
@@ -437,6 +446,7 @@ impl Parser {
                                     return Err(ParserError::new_dyn(
                                         "Underscores can only occur inbetween digits".into(),
                                         tok,
+                                        words,
                                     ));
                                 }
                             }
@@ -457,6 +467,7 @@ impl Parser {
                         return Err(ParserError::new_dyn(
                             "Underscores can only occur inbetween digits".into(),
                             tok,
+                            words,
                         ));
                     }
 
@@ -539,6 +550,7 @@ impl Parser {
                                     col: start_idx,
                                     kind: TokenKind::NL,
                                 },
+                                words,
                             ));
                             // break;
                         }

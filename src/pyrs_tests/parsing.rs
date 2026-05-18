@@ -126,5 +126,9 @@ fn parsing_number_literals() -> Result<(), DynError> {
             .unwrap(),
         &ParserError::empty(),
     );
+    assert_eq!(
+        Parser::_parse_test("0_02")?,
+        vec![Token::basic("0_02", &fd, TokenKind::Number(NumLit::Dec))],
+    );
     Ok(())
 }
