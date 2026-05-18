@@ -44,6 +44,105 @@ while i < 20:
     ));
     let tokens = Parser::parse(file_data.get_contents(), file_data.clone())?;
 
+    let expected_tokens = vec![
+        Token::basic("i", &file_data, TokenKind::Name),
+        Token::basic("=", &file_data, TokenKind::Op(Op::EQUAL)),
+        Token::basic("0", &file_data, TokenKind::Number(NumLit::Dec)),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("n1", &file_data, TokenKind::Name),
+        Token::basic("=", &file_data, TokenKind::Op(Op::EQUAL)),
+        Token::basic("0", &file_data, TokenKind::Number(NumLit::Dec)),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("n2", &file_data, TokenKind::Name),
+        Token::basic("=", &file_data, TokenKind::Op(Op::EQUAL)),
+        Token::basic("1", &file_data, TokenKind::Number(NumLit::Dec)),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("n3", &file_data, TokenKind::Name),
+        Token::basic("=", &file_data, TokenKind::Op(Op::EQUAL)),
+        Token::basic("0", &file_data, TokenKind::Number(NumLit::Dec)),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("big", &file_data, TokenKind::Name),
+        Token::basic("=", &file_data, TokenKind::Op(Op::EQUAL)),
+        Token::basic("(", &file_data, TokenKind::Op(Op::LPAR)),
+        Token::basic("n1", &file_data, TokenKind::Name),
+        Token::basic("!=", &file_data, TokenKind::Op(Op::NOTEQUAL)),
+        Token::basic("1", &file_data, TokenKind::Number(NumLit::Dec)),
+        Token::basic(")", &file_data, TokenKind::Op(Op::RPAR)),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("v", &file_data, TokenKind::Name),
+        Token::basic("=", &file_data, TokenKind::Op(Op::EQUAL)),
+        Token::basic("big", &file_data, TokenKind::Name),
+        Token::basic(".", &file_data, TokenKind::Op(Op::DOT)),
+        Token::basic("x", &file_data, TokenKind::Name),
+        Token::basic("+", &file_data, TokenKind::Op(Op::PLUS)),
+        Token::basic("\\", &file_data, TokenKind::NL),
+        Token::basic("    ", &file_data, TokenKind::Indent),
+        Token::basic("2", &file_data, TokenKind::Number(NumLit::Dec)),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("print", &file_data, TokenKind::Name),
+        Token::basic("(", &file_data, TokenKind::Op(Op::LPAR)),
+        Token::basic("\"Fibbonacci: \"", &file_data, TokenKind::String),
+        Token::basic(")", &file_data, TokenKind::Op(Op::RPAR)),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("while", &file_data, TokenKind::Name),
+        Token::basic("i", &file_data, TokenKind::Name),
+        Token::basic("<", &file_data, TokenKind::Op(Op::LESS)),
+        Token::basic("20", &file_data, TokenKind::Number(NumLit::Dec)),
+        Token::basic(":", &file_data, TokenKind::Op(Op::COLON)),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("    ", &file_data, TokenKind::Indent),
+        Token::basic("n3", &file_data, TokenKind::Name),
+        Token::basic("=", &file_data, TokenKind::Op(Op::EQUAL)),
+        Token::basic("n1", &file_data, TokenKind::Name),
+        Token::basic("+", &file_data, TokenKind::Op(Op::PLUS)),
+        Token::basic("n2", &file_data, TokenKind::Name),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("    ", &file_data, TokenKind::Indent),
+        Token::basic("print", &file_data, TokenKind::Name),
+        Token::basic("(", &file_data, TokenKind::Op(Op::LPAR)),
+        Token::basic("\"(\"", &file_data, TokenKind::String),
+        Token::basic(",", &file_data, TokenKind::Op(Op::COMMA)),
+        Token::basic("i", &file_data, TokenKind::Name),
+        Token::basic(",", &file_data, TokenKind::Op(Op::COMMA)),
+        Token::basic("\") \"", &file_data, TokenKind::String),
+        Token::basic(",", &file_data, TokenKind::Op(Op::COMMA)),
+        Token::basic("n3", &file_data, TokenKind::Name),
+        Token::basic(")", &file_data, TokenKind::Op(Op::RPAR)),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("    ", &file_data, TokenKind::Indent),
+        Token::basic("n1", &file_data, TokenKind::Name),
+        Token::basic("=", &file_data, TokenKind::Op(Op::EQUAL)),
+        Token::basic("n2", &file_data, TokenKind::Name),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("    ", &file_data, TokenKind::Indent),
+        Token::basic("n2", &file_data, TokenKind::Name),
+        Token::basic("=", &file_data, TokenKind::Op(Op::EQUAL)),
+        Token::basic("n3", &file_data, TokenKind::Name),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("    ", &file_data, TokenKind::Indent),
+        Token::basic("i", &file_data, TokenKind::Name),
+        Token::basic("=", &file_data, TokenKind::Op(Op::EQUAL)),
+        Token::basic("i", &file_data, TokenKind::Name),
+        Token::basic("+", &file_data, TokenKind::Op(Op::PLUS)),
+        Token::basic("1", &file_data, TokenKind::Number(NumLit::Dec)),
+        Token::basic("# test comment", &file_data, TokenKind::Commment),
+        Token::basic("# test comment", &file_data, TokenKind::NewLine),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("    ", &file_data, TokenKind::Indent),
+        Token::basic("if", &file_data, TokenKind::Name),
+        Token::basic("x", &file_data, TokenKind::Name),
+        Token::basic("{", &file_data, TokenKind::Op(Op::LBRACE)),
+        Token::basic("print", &file_data, TokenKind::Name),
+        Token::basic("(", &file_data, TokenKind::Op(Op::LPAR)),
+        Token::basic("7", &file_data, TokenKind::Number(NumLit::Dec)),
+        Token::basic(")", &file_data, TokenKind::Op(Op::RPAR)),
+        Token::basic("}", &file_data, TokenKind::Op(Op::RBRACE)),
+        Token::basic(";", &file_data, TokenKind::Op(Op::SEMI)),
+        Token::basic("\n", &file_data, TokenKind::NewLine),
+        Token::basic("\n", &file_data, TokenKind::EndMarker),
+    ];
+    assert_eq!(tokens, expected_tokens);
+
     for t in &tokens {
         println!("{t:?}");
     }
@@ -52,7 +151,7 @@ while i < 20:
     println!("\n{}\n", tokens.get(3).as_ref().unwrap().get_line_fmt());
     println!("\n{}\n", tokens.last().as_ref().unwrap().get_line_fmt());
 
-    panic!("--- PYRS: INTENTIONAL_FAIL {} ---", __function__!());
+    // panic!("--- PYRS: INTENTIONAL_FAIL {} ---", __function__!());
     Ok(())
 }
 
@@ -82,43 +181,25 @@ fn parsing_basic_tokens() -> Result<(), DynError> {
     Ok(())
 }
 
-// TODO: Finish
 #[test]
 fn parsing_number_literals() -> Result<(), DynError> {
     let fd = Arc::new(FileData::new("NOFILE".into(), "NOFILE".into(), "".into()));
 
     assert_eq!(
-        Parser::_parse_test("1")?,
-        vec![Token::basic("1", &fd, TokenKind::Number(NumLit::Dec))]
+        Parser::_parse_test("1 1_0 1.0 10.0_0 0b1 0xa 0o7 0_0:")?,
+        vec![
+            Token::basic("1", &fd, TokenKind::Number(NumLit::Dec)),
+            Token::basic("1_0", &fd, TokenKind::Number(NumLit::Dec)),
+            Token::basic("1.0", &fd, TokenKind::Number(NumLit::Dec)),
+            Token::basic("10.0_0", &fd, TokenKind::Number(NumLit::Dec)),
+            Token::basic("0b1", &fd, TokenKind::Number(NumLit::Bin)),
+            Token::basic("0xa", &fd, TokenKind::Number(NumLit::Hex)),
+            Token::basic("0o7", &fd, TokenKind::Number(NumLit::Oct)),
+            Token::basic("0_0", &fd, TokenKind::Number(NumLit::Zero)),
+            Token::basic(":", &fd, TokenKind::Op(Op::COLON)),
+        ]
     );
-    assert_eq!(
-        Parser::_parse_test("1_0")?,
-        vec![Token::basic("1_0", &fd, TokenKind::Number(NumLit::Dec))]
-    );
-    assert_eq!(
-        Parser::_parse_test("1.0")?,
-        vec![Token::basic("1.0", &fd, TokenKind::Number(NumLit::Dec))]
-    );
-    assert_eq!(
-        Parser::_parse_test("10.0_0")?,
-        vec![Token::basic("10.0_0", &fd, TokenKind::Number(NumLit::Dec)),]
-    );
-    assert_eq!(
-        Parser::_parse_test("0b1")?,
-        vec![Token::basic("0b1", &fd, TokenKind::Number(NumLit::Bin))]
-    );
-    assert_eq!(
-        Parser::_parse_test("0xa")?,
-        vec![Token::basic("0xa", &fd, TokenKind::Number(NumLit::Hex))]
-    );
-    assert_eq!(
-        Parser::_parse_test("0o7")?,
-        vec![Token::basic("0o7", &fd, TokenKind::Number(NumLit::Oct))]
-    );
-    assert_eq!(
-        Parser::_parse_test("0_0")?,
-        vec![Token::basic("0_0", &fd, TokenKind::Number(NumLit::Zero)),]
-    );
+
     assert_eq!(
         Parser::_parse_test("0_x")
             .unwrap_err()
@@ -127,8 +208,12 @@ fn parsing_number_literals() -> Result<(), DynError> {
         &ParserError::empty(),
     );
     assert_eq!(
-        Parser::_parse_test("0_02")?,
-        vec![Token::basic("0_02", &fd, TokenKind::Number(NumLit::Dec))],
+        Parser::_parse_test("0_02")
+            .unwrap_err()
+            .downcast_ref::<ParserError>()
+            .unwrap(),
+        &ParserError::empty(),
     );
+
     Ok(())
 }

@@ -1,3 +1,107 @@
+use crate::pyrs_parser2::FileData;
+use std::sync::Arc;
+
+#[repr(C)]
+#[derive(Clone)]
+pub struct Token<'a> {
+    pub data: &'a str,
+    pub file: Arc<FileData>,
+    pub line: usize,
+    pub col: usize,
+    pub kind: TokenKind,
+}
+
+#[repr(C)]
+#[derive(Clone)]
+pub struct TokenOwned {
+    pub data: String,
+    pub file: Arc<FileData>,
+    pub line: usize,
+    pub col: usize,
+    pub kind: TokenKind,
+}
+
+pub trait TokenData: std::fmt::Debug {
+    fn get_line_fmt(&self) -> String;
+    fn dbg_str(&self) -> String;
+}
+
+impl<'a> TokenData for Token<'a> {
+    fn get_line_fmt(&self) -> String {
+        self.file.get_line_fmt(self.line, true).unwrap()
+    }
+
+    fn dbg_str(&self) -> String {
+        let data = fmt_whitespace(self.data.into());
+        format!("Token[\'{}\', {:?}]", data, self.kind)
+    }
+}
+
+impl<'a> Token<'a> {
+    pub fn get_line(&self) -> &str {
+        self.file
+            .get_line(self.line)
+            .expect("Should never get here, as should have valid ref to file_data")
+    }
+    pub fn basic(data: &'a str, file: &Arc<FileData>, kind: TokenKind) -> Self {
+        Token {
+            data,
+            file: file.clone(),
+            line: 0,
+            col: 0,
+            kind,
+        }
+    }
+    pub fn to_owned(&self) -> TokenOwned {
+        TokenOwned {
+            data: self.data.to_owned(),
+            file: self.file.clone(),
+            line: self.line,
+            col: self.col,
+            kind: self.kind,
+        }
+    }
+}
+
+impl<'a> std::fmt::Debug for Token<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.dbg_str())
+    }
+}
+impl<'a> PartialEq for Token<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind && self.data == other.data
+    }
+}
+
+impl TokenData for TokenOwned {
+    fn get_line_fmt(&self) -> String {
+        self.file.get_line_fmt(self.line, true).unwrap()
+    }
+
+    fn dbg_str(&self) -> String {
+        let fmtted = fmt_whitespace(self.data.clone());
+        format!("Token[\'{}\', {:?}]", fmtted, self.kind)
+    }
+}
+impl std::fmt::Debug for TokenOwned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.dbg_str())
+    }
+}
+impl PartialEq for TokenOwned {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind && self.data == other.data
+    }
+}
+
+// Helper
+fn fmt_whitespace(s: String) -> String {
+    s.replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Default)]
 pub enum TokenKind {
     #[default]

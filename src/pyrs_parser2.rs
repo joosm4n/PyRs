@@ -1,8 +1,8 @@
 // input: file
 // ouput: item tree
 
-use crate::pyrs_tokentypes::{NumLit, Op, TokenKind};
-use std::{iter::Peekable, str::CharIndices, sync::Arc};
+use crate::pyrs_tokentypes::*;
+use std::sync::Arc;
 
 pub type DynError = Box<dyn std::error::Error>;
 
@@ -62,106 +62,6 @@ impl FileData {
         } else {
             Some(format!(" {}\t|  {}", num, ln))
         }
-    }
-}
-
-#[repr(C)]
-#[derive(Clone)]
-pub struct Token<'a> {
-    pub data: &'a str,
-    pub file: Arc<FileData>,
-    pub line: usize,
-    pub col: usize,
-    pub kind: TokenKind,
-}
-
-pub trait TokenData: std::fmt::Debug {
-    fn get_line_fmt(&self) -> String;
-    fn dbg_str(&self) -> String;
-}
-
-impl<'a> TokenData for Token<'a> {
-    fn get_line_fmt(&self) -> String {
-        self.file.get_line_fmt(self.line, true).unwrap()
-    }
-
-    fn dbg_str(&self) -> String {
-        match self.data {
-            "\n" => format!("Token[\'\\n\', {:?}]", self.kind),
-            "\t" => format!("Token[\'\\t\', {:?}]", self.kind),
-            _ => format!("Token[\'{}\', {:?}]", self.data, self.kind),
-        }
-    }
-}
-
-impl<'a> Token<'a> {
-    pub fn get_line(&self) -> &str {
-        self.file
-            .get_line(self.line)
-            .expect("Should never get here, as should have valid ref to file_data")
-    }
-    pub fn basic(data: &'a str, file: &Arc<FileData>, kind: TokenKind) -> Self {
-        Token {
-            data,
-            file: file.clone(),
-            line: 0,
-            col: 0,
-            kind,
-        }
-    }
-    pub fn to_owned(&self) -> TokenOwned {
-        TokenOwned {
-            data: self.data.to_owned(),
-            file: self.file.clone(),
-            line: self.line,
-            col: self.col,
-            kind: self.kind,
-        }
-    }
-}
-
-impl<'a> std::fmt::Debug for Token<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.dbg_str())
-    }
-}
-impl<'a> PartialEq for Token<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        self.kind == other.kind && self.data == other.data
-    }
-}
-
-#[repr(C)]
-#[derive(Clone)]
-pub struct TokenOwned {
-    pub data: String,
-    pub file: Arc<FileData>,
-    pub line: usize,
-    pub col: usize,
-    pub kind: TokenKind,
-}
-
-impl TokenData for TokenOwned {
-    fn get_line_fmt(&self) -> String {
-        self.file.get_line_fmt(self.line, true).unwrap()
-    }
-
-    fn dbg_str(&self) -> String {
-        match self.data.as_str() {
-            "\n" => format!("Token[\'\\n\', {:?}]", self.kind),
-            "\t" => format!("Token[\'\\t\', {:?}]", self.kind),
-            _ => format!("Token[\'{}\', {:?}]", self.data, self.kind),
-        }
-    }
-}
-impl std::fmt::Debug for TokenOwned {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.dbg_str())
-    }
-}
-impl PartialEq for TokenOwned {
-    fn eq(&self, other: &Self) -> bool {
-        self.kind == other.kind && self.data == other.data
     }
 }
 
@@ -258,7 +158,7 @@ impl Parser {
         }
 
         let mut words: Vec<Token> = vec![];
-        let mut chars: Peekable<CharIndices<'_>> = line.char_indices().peekable();
+        let mut chars = line.char_indices().peekable();
         let mut hit_tokens = false;
 
         'parse_loop: while let Some((start_idx, ch)) = chars.next() {
@@ -315,7 +215,7 @@ impl Parser {
                         if next_ch == '=' {
                             let mut op_str = ch.to_string();
                             op_str.push(next_ch);
-                            let op = Op::new(&op_str).expect("Invalid op");
+                            let op = Op::new(&op_str).expect("Already checked for it");
                             chars.next();
                             let end_idx = start_idx + ch.len_utf8() + next_ch.len_utf8();
                             words.push(Token {
@@ -326,7 +226,7 @@ impl Parser {
                                 kind: TokenKind::Op(op),
                             });
                         } else {
-                            let op = Op::new(&ch.to_string()).expect("Invalid char");
+                            let op = Op::new(&ch.to_string()).expect("Already checked for ok");
                             let end_idx = start_idx + ch.len_utf8();
                             words.push(Token {
                                 data: &line[start_idx..end_idx],
@@ -337,7 +237,7 @@ impl Parser {
                             });
                         }
                     } else {
-                        let op = Op::new(&ch.to_string()).expect("Invalid char");
+                        let op = Op::new(&ch.to_string()).expect("Already checked for ok");
                         words.push(Token {
                             data: &line[start_idx..start_idx + 1],
                             file: file_data.clone(),
@@ -360,17 +260,45 @@ impl Parser {
 
                     // dec | bin | oct | hex | zero
                     if c == '0' {
-                        if let Some(next_ch) = chars.peek() {
-                            lit_kind = match next_ch.1 {
-                                'b' | 'B' => NumLit::Bin,
-                                'o' | 'O' => NumLit::Oct,
-                                'x' | 'X' => NumLit::Hex,
+                        if let Some((_idx, next_ch)) = chars.peek() {
+                            lit_kind = match *next_ch {
+                                'b' | 'B' => {
+                                    chars.next();
+                                    end_idx += 1;
+                                    NumLit::Bin
+                                }
+                                'o' | 'O' => {
+                                    chars.next();
+                                    end_idx += 1;
+                                    NumLit::Oct
+                                }
+                                'x' | 'X' => {
+                                    chars.next();
+                                    end_idx += 1;
+                                    NumLit::Hex
+                                }
+                                c if c.is_whitespace() => NumLit::Dec,
                                 '_' => {
                                     chars.next();
                                     end_idx += 1;
                                     let mut zero_ok = false;
-                                    if let Some((_idx, next_char2)) = chars.peek() {
-                                        if next_char2 == &'0' {
+
+                                    if chars
+                                        .peek()
+                                        .is_some_and(|(_idx, next_ch2)| *next_ch2 == '0')
+                                    {
+                                        chars.next();
+                                        end_idx += 1;
+                                        if let Some((_idx, next_ch3)) = chars.peek().copied() {
+                                            if !NumLit::is_valid_kind(next_ch3, NumLit::Hex)
+                                                || next_ch3.is_whitespace()
+                                            {
+                                                if next_ch3.is_whitespace() {
+                                                    end_idx -= 1;
+                                                }
+                                                zero_ok = true;
+                                            }
+                                        } else {
                                             zero_ok = true;
                                         }
                                     }
@@ -379,7 +307,7 @@ impl Parser {
                                         return Err(ParserError::new_dyn(
                                             "Only can have a \'_\' after a \'0\' when followed by a 0. Eg: 0_0 not 0_x5.".into(),
                                             Token{
-                                                data: &line[start_idx..end_idx+1],
+                                                data: &line[start_idx..end_idx],
                                                 file: file_data.clone(),
                                                 line: line_no,
                                                 col: start_idx,
@@ -391,12 +319,25 @@ impl Parser {
                                         NumLit::Zero
                                     }
                                 }
-                                _ => NumLit::Dec,
+                                c if NumLit::is_valid_kind(c, NumLit::Dec) => {
+                                    chars.next();
+                                    end_idx += 1;
+                                    NumLit::Dec
+                                }
+                                _ => {
+                                    return Err(ParserError::new_dyn(
+                                        "Invalid Number Literal".into(),
+                                        Token {
+                                            data: &line[start_idx..end_idx + 1],
+                                            file: file_data.clone(),
+                                            line: line_no,
+                                            col: start_idx,
+                                            kind: TokenKind::Number(lit_kind),
+                                        },
+                                        words,
+                                    ));
+                                }
                             }
-                        }
-                        if lit_kind != NumLit::Dec {
-                            chars.next();
-                            end_idx += 1;
                         }
                     }
 
@@ -413,18 +354,16 @@ impl Parser {
                                 // Look ahead to see if there's a digit after the dot
                                 let mut temp_chars = chars.clone();
                                 temp_chars.next(); // consume the dot
-                                if let Some(&(_, char_after_dot)) = temp_chars.peek() {
-                                    if char_after_dot.is_numeric() {
-                                        // It's a float like 3.14
-                                        chars.next();
-                                        end_idx = idx + next_ch.len_utf8();
-                                        has_dot = true;
-                                    } else {
-                                        // If dot is not followed by a number, stop here
-                                        break;
-                                    }
+                                if temp_chars
+                                    .peek()
+                                    .is_some_and(|&(_, char_after_dot)| char_after_dot.is_numeric())
+                                {
+                                    // It's a float like 3.14
+                                    chars.next();
+                                    end_idx = idx + next_ch.len_utf8();
+                                    has_dot = true;
                                 } else {
-                                    // Dot at end of input, stop here
+                                    // If dot is not followed by a number, stop here
                                     break;
                                 }
                                 last_was_underscore = false;
@@ -565,7 +504,7 @@ impl Parser {
                     });
                 }
 
-                // ??
+                // Honestly can't remember what this does...
                 c if !c.is_alphanumeric() && c != '.' => {
                     let tk = match Op::new(&c.to_string()) {
                         Some(o) => TokenKind::Op(o),
