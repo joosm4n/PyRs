@@ -1,3 +1,4 @@
 /target
 *.pyc
 .vscode
+flamegraph.html
