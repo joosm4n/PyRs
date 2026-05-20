@@ -24,6 +24,7 @@ pub struct TokenOwned {
 pub trait TokenData: std::fmt::Debug {
     fn get_line_fmt(&self) -> String;
     fn dbg_str(&self) -> String;
+    fn to_owned_token(&self) -> TokenOwned;
 }
 
 impl<'a> TokenData for Token<'a> {
@@ -34,6 +35,15 @@ impl<'a> TokenData for Token<'a> {
     fn dbg_str(&self) -> String {
         let data = fmt_whitespace(self.data.into());
         format!("Token[\'{}\', {:?}]", data, self.kind)
+    }
+    fn to_owned_token(&self) -> TokenOwned {
+        TokenOwned {
+            data: self.data.to_owned(),
+            file: self.file.clone(),
+            line: self.line,
+            col: self.col,
+            kind: self.kind,
+        }
     }
 }
 
@@ -50,15 +60,6 @@ impl<'a> Token<'a> {
             line: 0,
             col: 0,
             kind,
-        }
-    }
-    pub fn to_owned(&self) -> TokenOwned {
-        TokenOwned {
-            data: self.data.to_owned(),
-            file: self.file.clone(),
-            line: self.line,
-            col: self.col,
-            kind: self.kind,
         }
     }
 }
@@ -82,6 +83,9 @@ impl TokenData for TokenOwned {
     fn dbg_str(&self) -> String {
         let fmtted = fmt_whitespace(self.data.clone());
         format!("Token[\'{}\', {:?}]", fmtted, self.kind)
+    }
+    fn to_owned_token(&self) -> TokenOwned {
+        self.clone()
     }
 }
 impl std::fmt::Debug for TokenOwned {

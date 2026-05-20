@@ -1,6 +1,6 @@
 #![allow(unused_imports, unreachable_code)]
 
-macro_rules! __function__ {
+macro_rules! __func_name__ {
     () => {{
         fn f() {}
         fn type_name_of<T>(_: T) -> &'static str {
@@ -33,7 +33,8 @@ while i < 20:
     n2 = n3
     i = i + 1 # test comment
 
-    if x { print(7) };
+    if x:
+        print(7)
 "#,
     );
 

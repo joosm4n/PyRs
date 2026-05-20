@@ -74,12 +74,12 @@ pub struct ParserError {
 
 impl ParserError {
     pub fn new_dyn<'a>(msg: String, token: Token<'a>, token_list: Vec<Token<'a>>) -> DynError {
-        let mut owned = token.to_owned();
+        let mut owned = token.to_owned_token();
         owned.kind = TokenKind::ErrorToken;
         Box::new(Self {
             msg,
             token: owned,
-            token_tree: token_list.iter().map(|t| t.to_owned()).collect(),
+            token_tree: token_list.iter().map(|t| t.to_owned_token()).collect(),
         })
     }
     pub fn empty() -> ParserError {
