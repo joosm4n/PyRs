@@ -137,167 +137,265 @@ pub enum TokenKind {
 impl TokenKind {
     const NUM_TOKENS: usize = 22;
 }
+//
+// #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord)]
+// pub enum Op {
+//     LPAR,
+//     RPAR,
+//     LSQB,
+//     RSQB,
+//     COLON,
+//     COMMA,
+//     SEMI,
+//     PLUS,
+//     MINUS,
+//     STAR,
+//     SLASH,
+//     VBAR,
+//     AMPER,
+//     LESS,
+//     GREATER,
+//     EQUAL,
+//     DOT,
+//     PERCENT,
+//     LBRACE,
+//     RBRACE,
+//     EQEQUAL,
+//     NOTEQUAL,
+//     LESSEQUAL,
+//     GREATEREQUAL,
+//     TILDE,
+//     CIRCUMFLEX,
+//     LEFTSHIFT,
+//     RIGHTSHIFT,
+//     DOUBLESTAR,
+//     PLUSEQUAL,
+//     MINEQUAL,
+//     STAREQUAL,
+//     SLASHEQUAL,
+//     PERCENTEQUAL,
+//     AMPEREQUAL,
+//     VBAREQUAL,
+//     CIRCUMFLEXEQUAL,
+//     LEFTSHIFTEQUAL,
+//     RIGHTSHIFTEQUAL,
+//     DOUBLESTAREQUAL,
+//     DOUBLESLASH,
+//     DOUBLESLASHEQUAL,
+//     AT,
+//     ATEQUAL,
+//     RARROW,
+//     ELLIPSIS,
+//     COLONEQUAL,
+//     EXCLAMATION,
+// }
+//
+// impl Op {
+//     pub fn new(op: &str) -> Option<Self> {
+//         let o = match op {
+//             "(" => Op::LPAR,
+//             ")" => Op::RPAR,
+//             "[" => Op::LSQB,
+//             "]" => Op::RSQB,
+//             ":" => Op::COLON,
+//             "," => Op::COMMA,
+//             ";" => Op::SEMI,
+//             "+" => Op::PLUS,
+//             "-" => Op::MINUS,
+//             "*" => Op::STAR,
+//             "/" => Op::SLASH,
+//             "|" => Op::VBAR,
+//             "&" => Op::AMPER,
+//             "<" => Op::LESS,
+//             ">" => Op::GREATER,
+//             "=" => Op::EQUAL,
+//             "." => Op::DOT,
+//             "%" => Op::PERCENT,
+//             "{" => Op::LBRACE,
+//             "}" => Op::RBRACE,
+//             "==" => Op::EQEQUAL,
+//             "!=" => Op::NOTEQUAL,
+//             "<=" => Op::LESSEQUAL,
+//             ">=" => Op::GREATEREQUAL,
+//             "~" => Op::TILDE,
+//             "^" => Op::CIRCUMFLEX,
+//             "<<" => Op::LEFTSHIFT,
+//             ">>" => Op::RIGHTSHIFT,
+//             "**" => Op::DOUBLESTAR,
+//             "+=" => Op::PLUSEQUAL,
+//             "-=" => Op::MINEQUAL,
+//             "*=" => Op::STAREQUAL,
+//             "/=" => Op::SLASHEQUAL,
+//             "%=" => Op::PERCENTEQUAL,
+//             "&=" => Op::AMPEREQUAL,
+//             "|=" => Op::VBAREQUAL,
+//             "^=" => Op::CIRCUMFLEXEQUAL,
+//             "<<=" => Op::LEFTSHIFTEQUAL,
+//             ">>=" => Op::RIGHTSHIFTEQUAL,
+//             "**=" => Op::DOUBLESTAREQUAL,
+//             "//" => Op::DOUBLESLASH,
+//             "//=" => Op::DOUBLESLASHEQUAL,
+//             "@" => Op::AT,
+//             "@=" => Op::ATEQUAL,
+//             "->" => Op::RARROW,
+//             "..." => Op::ELLIPSIS,
+//             ":=" => Op::COLONEQUAL,
+//             "!" => Op::EXCLAMATION,
+//             _ => return None,
+//         };
+//         Some(o)
+//     }
+//
+//     pub fn value(self) -> &'static str {
+//         match self {
+//             Op::LPAR => "(",
+//             Op::RPAR => ")",
+//             Op::LSQB => "[",
+//             Op::RSQB => "]",
+//             Op::COLON => ":",
+//             Op::COMMA => ",",
+//             Op::SEMI => ";",
+//             Op::PLUS => "+",
+//             Op::MINUS => "-",
+//             Op::STAR => "*",
+//             Op::SLASH => "/",
+//             Op::VBAR => "|",
+//             Op::AMPER => "&",
+//             Op::LESS => "<",
+//             Op::GREATER => ">",
+//             Op::EQUAL => "=",
+//             Op::DOT => ".",
+//             Op::PERCENT => "%",
+//             Op::LBRACE => "{",
+//             Op::RBRACE => "}",
+//             Op::EQEQUAL => "==",
+//             Op::NOTEQUAL => "!=",
+//             Op::LESSEQUAL => "<=",
+//             Op::GREATEREQUAL => ">=",
+//             Op::TILDE => "~",
+//             Op::CIRCUMFLEX => "^",
+//             Op::LEFTSHIFT => "<<",
+//             Op::RIGHTSHIFT => ">>",
+//             Op::DOUBLESTAR => "**",
+//             Op::PLUSEQUAL => "+=",
+//             Op::MINEQUAL => "-=",
+//             Op::STAREQUAL => "*=",
+//             Op::SLASHEQUAL => "/=",
+//             Op::PERCENTEQUAL => "%=",
+//             Op::AMPEREQUAL => "&=",
+//             Op::VBAREQUAL => "|=",
+//             Op::CIRCUMFLEXEQUAL => "^=",
+//             Op::LEFTSHIFTEQUAL => "<<=",
+//             Op::RIGHTSHIFTEQUAL => ">>=",
+//             Op::DOUBLESTAREQUAL => "**=",
+//             Op::DOUBLESLASH => "//",
+//             Op::DOUBLESLASHEQUAL => "//=",
+//             Op::AT => "@",
+//             Op::ATEQUAL => "@=",
+//             Op::RARROW => "->",
+//             Op::ELLIPSIS => "...",
+//             Op::COLONEQUAL => ":=",
+//             Op::EXCLAMATION => "!",
+//         }
+//     }
+// }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord)]
-pub enum Op {
-    LPAR,
-    RPAR,
-    LSQB,
-    RSQB,
-    COLON,
-    COMMA,
-    SEMI,
-    PLUS,
-    MINUS,
-    STAR,
-    SLASH,
-    VBAR,
-    AMPER,
-    LESS,
-    GREATER,
-    EQUAL,
-    DOT,
-    PERCENT,
-    LBRACE,
-    RBRACE,
-    EQEQUAL,
-    NOTEQUAL,
-    LESSEQUAL,
-    GREATEREQUAL,
-    TILDE,
-    CIRCUMFLEX,
-    LEFTSHIFT,
-    RIGHTSHIFT,
-    DOUBLESTAR,
-    PLUSEQUAL,
-    MINEQUAL,
-    STAREQUAL,
-    SLASHEQUAL,
-    PERCENTEQUAL,
-    AMPEREQUAL,
-    VBAREQUAL,
-    CIRCUMFLEXEQUAL,
-    LEFTSHIFTEQUAL,
-    RIGHTSHIFTEQUAL,
-    DOUBLESTAREQUAL,
-    DOUBLESLASH,
-    DOUBLESLASHEQUAL,
-    AT,
-    ATEQUAL,
-    RARROW,
-    ELLIPSIS,
-    COLONEQUAL,
-    EXCLAMATION,
+// Cargo.toml: paste = "1.0"
+use paste::paste;
+
+macro_rules! make_ops {
+    ( $( $name:ident => $sym:expr ),* $(,)? ) => {
+        paste! {
+            $(
+                #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+                pub struct [<$name Op>];
+                impl [<$name Op>] {
+                    pub const fn as_str(&self) -> &'static str { $sym }
+                }
+            )*
+
+            #[derive(Debug, Clone,Copy, PartialEq, Eq)]
+            pub enum Op {
+                $(
+                    [<$name>]([<$name Op>]),
+                )*
+            }
+
+            impl Op {
+                $(
+                    pub const [<$name _>]: Op = Op::[<$name>]([<$name Op>]);
+                )*
+
+                pub fn symbol(&self) -> &'static str {
+                    match self {
+                        $(
+                            Op::[<$name>](x) => x.as_str(),
+                        )*
+                    }
+                }
+                pub fn new<S: Into<String>>(symbol: S) -> Option<Self>{
+                    let s: String = symbol.into();
+                    match s.as_str() {
+                        $(
+                            $sym => Some(Op::[<$name>]([<$name Op>])),
+                        )*
+                        _ => None,
+                    }
+                }
+            }
+        }
+    };
 }
 
-impl Op {
-    pub fn new(op: &str) -> Option<Self> {
-        let o = match op {
-            "(" => Op::LPAR,
-            ")" => Op::RPAR,
-            "[" => Op::LSQB,
-            "]" => Op::RSQB,
-            ":" => Op::COLON,
-            "," => Op::COMMA,
-            ";" => Op::SEMI,
-            "+" => Op::PLUS,
-            "-" => Op::MINUS,
-            "*" => Op::STAR,
-            "/" => Op::SLASH,
-            "|" => Op::VBAR,
-            "&" => Op::AMPER,
-            "<" => Op::LESS,
-            ">" => Op::GREATER,
-            "=" => Op::EQUAL,
-            "." => Op::DOT,
-            "%" => Op::PERCENT,
-            "{" => Op::LBRACE,
-            "}" => Op::RBRACE,
-            "==" => Op::EQEQUAL,
-            "!=" => Op::NOTEQUAL,
-            "<=" => Op::LESSEQUAL,
-            ">=" => Op::GREATEREQUAL,
-            "~" => Op::TILDE,
-            "^" => Op::CIRCUMFLEX,
-            "<<" => Op::LEFTSHIFT,
-            ">>" => Op::RIGHTSHIFT,
-            "**" => Op::DOUBLESTAR,
-            "+=" => Op::PLUSEQUAL,
-            "-=" => Op::MINEQUAL,
-            "*=" => Op::STAREQUAL,
-            "/=" => Op::SLASHEQUAL,
-            "%=" => Op::PERCENTEQUAL,
-            "&=" => Op::AMPEREQUAL,
-            "|=" => Op::VBAREQUAL,
-            "^=" => Op::CIRCUMFLEXEQUAL,
-            "<<=" => Op::LEFTSHIFTEQUAL,
-            ">>=" => Op::RIGHTSHIFTEQUAL,
-            "**=" => Op::DOUBLESTAREQUAL,
-            "//" => Op::DOUBLESLASH,
-            "//=" => Op::DOUBLESLASHEQUAL,
-            "@" => Op::AT,
-            "@=" => Op::ATEQUAL,
-            "->" => Op::RARROW,
-            "..." => Op::ELLIPSIS,
-            ":=" => Op::COLONEQUAL,
-            "!" => Op::EXCLAMATION,
-            _ => return None,
-        };
-        Some(o)
-    }
-
-    pub fn value(self) -> &'static str {
-        match self {
-            Op::LPAR => "(",
-            Op::RPAR => ")",
-            Op::LSQB => "[",
-            Op::RSQB => "]",
-            Op::COLON => ":",
-            Op::COMMA => ",",
-            Op::SEMI => ";",
-            Op::PLUS => "+",
-            Op::MINUS => "-",
-            Op::STAR => "*",
-            Op::SLASH => "/",
-            Op::VBAR => "|",
-            Op::AMPER => "&",
-            Op::LESS => "<",
-            Op::GREATER => ">",
-            Op::EQUAL => "=",
-            Op::DOT => ".",
-            Op::PERCENT => "%",
-            Op::LBRACE => "{",
-            Op::RBRACE => "}",
-            Op::EQEQUAL => "==",
-            Op::NOTEQUAL => "!=",
-            Op::LESSEQUAL => "<=",
-            Op::GREATEREQUAL => ">=",
-            Op::TILDE => "~",
-            Op::CIRCUMFLEX => "^",
-            Op::LEFTSHIFT => "<<",
-            Op::RIGHTSHIFT => ">>",
-            Op::DOUBLESTAR => "**",
-            Op::PLUSEQUAL => "+=",
-            Op::MINEQUAL => "-=",
-            Op::STAREQUAL => "*=",
-            Op::SLASHEQUAL => "/=",
-            Op::PERCENTEQUAL => "%=",
-            Op::AMPEREQUAL => "&=",
-            Op::VBAREQUAL => "|=",
-            Op::CIRCUMFLEXEQUAL => "^=",
-            Op::LEFTSHIFTEQUAL => "<<=",
-            Op::RIGHTSHIFTEQUAL => ">>=",
-            Op::DOUBLESTAREQUAL => "**=",
-            Op::DOUBLESLASH => "//",
-            Op::DOUBLESLASHEQUAL => "//=",
-            Op::AT => "@",
-            Op::ATEQUAL => "@=",
-            Op::RARROW => "->",
-            Op::ELLIPSIS => "...",
-            Op::COLONEQUAL => ":=",
-            Op::EXCLAMATION => "!",
-        }
-    }
+make_ops! {
+    LPAR => "(",
+    RPAR => ")",
+    LSQB => "[",
+    RSQB => "]",
+    COLON => ":",
+    COMMA => ",",
+    SEMI => ";",
+    PLUS => "+",
+    MINUS => "-",
+    STAR => "*",
+    SLASH => "/",
+    VBAR => "|",
+    AMPER => "&",
+    LESS => "<",
+    GREATER => ">",
+    EQUAL => "=",
+    DOT => ".",
+    PERCENT => "%",
+    LBRACE => "{",
+    RBRACE => "}",
+    EQEQUAL => "==",
+    NOTEQUAL => "!=",
+    LESSEQUAL => "<=",
+    GREATEREQUAL => ">=",
+    TILDE => "~",
+    CIRCUMFLEX => "^",
+    LEFTSHIFT => "<<",
+    RIGHTSHIFT => ">>",
+    DOUBLESTAR => "**",
+    PLUSEQUAL => "+=",
+    MINEQUAL => "-=",
+    STAREQUAL => "*=",
+    SLASHEQUAL => "/=",
+    PERCENTEQUAL => "%=",
+    AMPEREQUAL => "&=",
+    VBAREQUAL => "|=",
+    CIRCUMFLEXEQUAL => "^=",
+    LEFTSHIFTEQUAL => "<<=",
+    RIGHTSHIFTEQUAL => ">>=",
+    DOUBLESTAREQUAL => "**=",
+    DOUBLESLASH => "//",
+    DOUBLESLASHEQUAL => "//=",
+    AT => "@",
+    ATEQUAL => "@=",
+    RARROW => "->",
+    ELLIPSIS => "...",
+    COLONEQUAL => ":=",
+    EXCLAMATION => "!",
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -307,128 +405,207 @@ pub enum NameKind {
     SoftKeyword,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Keyword {
-    FALSE,
-    AWAIT,
-    ELSE,
-    IMPORT,
-    PASS,
-    NONE,
-    BREAK,
-    EXCEPT,
-    IN,
-    RAISE,
-    TRUE,
-    CLASS,
-    FINALLY,
-    IS,
-    RETURN,
-    AND,
-    CONTINUE,
-    FOR,
-    LAMBDA,
-    TRY,
-    AS,
-    DEF,
-    FROM,
-    NONLOCAL,
-    WHILE,
-    ASSERT,
-    DEL,
-    GLOBAL,
-    NOT,
-    WITH,
-    ASYNC,
-    ELIF,
-    IF,
-    OR,
-    YIELD,
-}
+macro_rules! make_keywords {
+    ( $( $name:ident => $sym:expr ),* $(,)? ) => {
+        paste! {
+            $(
+                #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+                pub struct [<$name KW>];
+                impl [<$name KW>] {
+                    pub const fn as_str(&self) -> &'static str { $sym }
+                }
+            )*
 
-impl Keyword {
-    pub fn new(keyword: &str) -> Option<Keyword> {
-        let kw = match keyword {
-            "False" => Keyword::FALSE,
-            "await" => Keyword::AWAIT,
-            "else" => Keyword::ELSE,
-            "import" => Keyword::IMPORT,
-            "pass" => Keyword::PASS,
-            "None" => Keyword::NONE,
-            "break" => Keyword::BREAK,
-            "except" => Keyword::EXCEPT,
-            "in" => Keyword::IN,
-            "raise" => Keyword::RAISE,
-            "True" => Keyword::TRUE,
-            "class" => Keyword::CLASS,
-            "finally" => Keyword::FINALLY,
-            "is" => Keyword::IS,
-            "return" => Keyword::RETURN,
-            "and" => Keyword::AND,
-            "continue" => Keyword::CONTINUE,
-            "for" => Keyword::FOR,
-            "lambda" => Keyword::LAMBDA,
-            "try" => Keyword::TRY,
-            "as" => Keyword::AS,
-            "def" => Keyword::DEF,
-            "from" => Keyword::FROM,
-            "nonlocal" => Keyword::NONLOCAL,
-            "while" => Keyword::WHILE,
-            "assert" => Keyword::ASSERT,
-            "del" => Keyword::DEL,
-            "global" => Keyword::GLOBAL,
-            "not" => Keyword::NOT,
-            "with" => Keyword::WITH,
-            "async" => Keyword::ASYNC,
-            "elif" => Keyword::ELIF,
-            "if" => Keyword::IF,
-            "or" => Keyword::OR,
-            "yield" => Keyword::YIELD,
-            _ => return None,
-        };
-        Some(kw)
-    }
-    pub fn value(&self) -> &'static str {
-        match self {
-            Keyword::FALSE => "False",
-            Keyword::AWAIT => "await",
-            Keyword::ELSE => "else",
-            Keyword::IMPORT => "import",
-            Keyword::PASS => "pass",
-            Keyword::NONE => "None",
-            Keyword::BREAK => "break",
-            Keyword::EXCEPT => "except",
-            Keyword::IN => "in",
-            Keyword::RAISE => "raise",
-            Keyword::TRUE => "True",
-            Keyword::CLASS => "class",
-            Keyword::FINALLY => "finally",
-            Keyword::IS => "is",
-            Keyword::RETURN => "return",
-            Keyword::AND => "and",
-            Keyword::CONTINUE => "continue",
-            Keyword::FOR => "for",
-            Keyword::LAMBDA => "lambda",
-            Keyword::TRY => "try",
-            Keyword::AS => "as",
-            Keyword::DEF => "def",
-            Keyword::FROM => "from",
-            Keyword::NONLOCAL => "nonlocal",
-            Keyword::WHILE => "while",
-            Keyword::ASSERT => "assert",
-            Keyword::DEL => "del",
-            Keyword::GLOBAL => "global",
-            Keyword::NOT => "not",
-            Keyword::WITH => "with",
-            Keyword::ASYNC => "async",
-            Keyword::ELIF => "elif",
-            Keyword::IF => "if",
-            Keyword::OR => "or",
-            Keyword::YIELD => "yield",
+            #[derive(Debug, Clone,Copy, PartialEq, Eq)]
+            pub enum Keyword {
+                $(
+                    [<$name>]([<$name KW>]),
+                )*
+            }
+
+            impl Keyword {
+
+                pub fn symbol(&self) -> &'static str {
+                    match self {
+                        $(
+                            Keyword::[<$name>](x) => x.as_str(),
+                        )*
+                    }
+                }
+                pub fn new<S: Into<String>>(symbol: S) -> Option<Self>{
+                    let s: String = symbol.into();
+                    match s.as_str() {
+                        $(
+                            $sym => Some(Keyword::[<$name>]([<$name KW>])),
+                        )*
+                        _ => None,
+                    }
+                }
+            }
         }
-    }
+    };
 }
 
+make_keywords!(
+    FALSE => "False",
+    AWAIT => "await",
+    ELSE => "else",
+    IMPORT => "import",
+    PASS => "pass",
+    NONE => "None",
+    BREAK => "break",
+    EXCEPT => "except",
+    IN => "in",
+    RAISE => "raise",
+    TRUE => "True",
+    CLASS => "class",
+    FINALLY => "finally",
+    IS => "is",
+    RETURN => "return",
+    AND => "and",
+    CONTINUE => "continue",
+    FOR => "for",
+    LAMBDA => "lambda",
+    TRY => "try",
+    AS => "as",
+    DEF => "def",
+    FROM => "from",
+    NONLOCAL => "nonlocal",
+    WHILE => "while",
+    ASSERT => "assert",
+    DEL => "del",
+    GLOBAL => "global",
+    NOT => "not",
+    WITH => "with",
+    ASYNC => "async",
+    ELIF => "elif",
+    IF => "if",
+    OR => "or",
+    YIELD => "yield",
+);
+
+// #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+// pub enum Keyword {
+//     FALSE,
+//     AWAIT,
+//     ELSE,
+//     IMPORT,
+//     PASS,
+//     NONE,
+//     BREAK,
+//     EXCEPT,
+//     IN,
+//     RAISE,
+//     TRUE,
+//     CLASS,
+//     FINALLY,
+//     IS,
+//     RETURN,
+//     AND,
+//     CONTINUE,
+//     FOR,
+//     LAMBDA,
+//     TRY,
+//     AS,
+//     DEF,
+//     FROM,
+//     NONLOCAL,
+//     WHILE,
+//     ASSERT,
+//     DEL,
+//     GLOBAL,
+//     NOT,
+//     WITH,
+//     ASYNC,
+//     ELIF,
+//     IF,
+//     OR,
+//     YIELD,
+// }
+//
+// impl Keyword {
+//     pub fn new(keyword: &str) -> Option<Keyword> {
+//         let kw = match keyword {
+//             "False" => Keyword::FALSE,
+//             "await" => Keyword::AWAIT,
+//             "else" => Keyword::ELSE,
+//             "import" => Keyword::IMPORT,
+//             "pass" => Keyword::PASS,
+//             "None" => Keyword::NONE,
+//             "break" => Keyword::BREAK,
+//             "except" => Keyword::EXCEPT,
+//             "in" => Keyword::IN,
+//             "raise" => Keyword::RAISE,
+//             "True" => Keyword::TRUE,
+//             "class" => Keyword::CLASS,
+//             "finally" => Keyword::FINALLY,
+//             "is" => Keyword::IS,
+//             "return" => Keyword::RETURN,
+//             "and" => Keyword::AND,
+//             "continue" => Keyword::CONTINUE,
+//             "for" => Keyword::FOR,
+//             "lambda" => Keyword::LAMBDA,
+//             "try" => Keyword::TRY,
+//             "as" => Keyword::AS,
+//             "def" => Keyword::DEF,
+//             "from" => Keyword::FROM,
+//             "nonlocal" => Keyword::NONLOCAL,
+//             "while" => Keyword::WHILE,
+//             "assert" => Keyword::ASSERT,
+//             "del" => Keyword::DEL,
+//             "global" => Keyword::GLOBAL,
+//             "not" => Keyword::NOT,
+//             "with" => Keyword::WITH,
+//             "async" => Keyword::ASYNC,
+//             "elif" => Keyword::ELIF,
+//             "if" => Keyword::IF,
+//             "or" => Keyword::OR,
+//             "yield" => Keyword::YIELD,
+//             _ => return None,
+//         };
+//         Some(kw)
+//     }
+//     pub fn value(&self) -> &'static str {
+//         match self {
+//             Keyword::FALSE => "False",
+//             Keyword::AWAIT => "await",
+//             Keyword::ELSE => "else",
+//             Keyword::IMPORT => "import",
+//             Keyword::PASS => "pass",
+//             Keyword::NONE => "None",
+//             Keyword::BREAK => "break",
+//             Keyword::EXCEPT => "except",
+//             Keyword::IN => "in",
+//             Keyword::RAISE => "raise",
+//             Keyword::TRUE => "True",
+//             Keyword::CLASS => "class",
+//             Keyword::FINALLY => "finally",
+//             Keyword::IS => "is",
+//             Keyword::RETURN => "return",
+//             Keyword::AND => "and",
+//             Keyword::CONTINUE => "continue",
+//             Keyword::FOR => "for",
+//             Keyword::LAMBDA => "lambda",
+//             Keyword::TRY => "try",
+//             Keyword::AS => "as",
+//             Keyword::DEF => "def",
+//             Keyword::FROM => "from",
+//             Keyword::NONLOCAL => "nonlocal",
+//             Keyword::WHILE => "while",
+//             Keyword::ASSERT => "assert",
+//             Keyword::DEL => "del",
+//             Keyword::GLOBAL => "global",
+//             Keyword::NOT => "not",
+//             Keyword::WITH => "with",
+//             Keyword::ASYNC => "async",
+//             Keyword::ELIF => "elif",
+//             Keyword::IF => "if",
+//             Keyword::OR => "or",
+//             Keyword::YIELD => "yield",
+//         }
+//     }
+// }
+//
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub enum NumLit {
     #[default]

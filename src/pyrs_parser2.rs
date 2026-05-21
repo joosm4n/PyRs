@@ -531,7 +531,7 @@ impl Parser {
                         file: file_data.clone(),
                         line: line_no,
                         col: start_idx,
-                        kind: TokenKind::Op(Op::DOT),
+                        kind: TokenKind::Op(Op::DOT_),
                     });
                 }
 

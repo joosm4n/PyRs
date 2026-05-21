@@ -13,8 +13,9 @@ pub mod pyrs_utils;
 pub mod pyrs_vm;
 
 // Rewritten parts
+#[allow(unused)]
+pub mod pyrs_exprtypes;
 pub mod pyrs_parser2;
-pub mod pyrs_tokeneval;
 pub mod pyrs_tokentypes;
 
 // tests
