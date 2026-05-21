@@ -46,13 +46,16 @@ fn main() -> std::io::Result<()> {
 
 mod _test {
 
-    use pyrs_macros::HelloMacro;
+    use pyrs_macros::Builder;
 
-    #[derive(HelloMacro)]
-    struct PyrsStruct;
+    #[derive(Builder)]
+    struct PyrsStruct {
+        f1: String,
+        f2: u32,
+    }
 
     #[test]
     fn pyrs_macros_test() {
-        PyrsStruct::hello();
+        let my_struct = PyrsStruct::builder().f1("Hello".to_string()).f2(42).build();
     }
 }
