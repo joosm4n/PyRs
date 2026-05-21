@@ -1,4 +1,6 @@
 #[cfg(test)]
 pub mod core_tests;
 #[cfg(test)]
+pub mod exprs;
+#[cfg(test)]
 pub mod parsing;

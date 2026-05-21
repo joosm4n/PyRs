@@ -43,3 +43,16 @@ fn main() -> std::io::Result<()> {
     }
     Ok(())
 }
+
+mod _test {
+
+    use pyrs_macros::HelloMacro;
+
+    #[derive(HelloMacro)]
+    struct PyrsStruct;
+
+    #[test]
+    fn pyrs_macros_test() {
+        PyrsStruct::hello();
+    }
+}

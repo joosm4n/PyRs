@@ -1,10 +1,6 @@
-use crate::{pyrs_parser2::DynError, pyrs_tokentypes::*};
+use crate::pyrs_parser2::DynError;
 
-// #[derive(Debug, Clone, PartialEq)]
-// pub struct Expr {
-//     data: String,
-//     kind: ExprKin
-mod expressions {
+pub mod exprs {
 
     use crate::pyrs_tokentypes::*;
 
@@ -26,8 +22,8 @@ mod expressions {
         B(Box<T2>),
         C(Box<T3>),
     }
-    type VecNE<T> = Vec<T>;
-    type CommaThen<T> = (COMMAOp, T);
+    pub type VecNE<T> = Vec<T>;
+    // pub type CommaThen<T> = (COMMAOp, T);
 
     pub enum Atom {
         True(TrueKW),
@@ -229,7 +225,8 @@ mod expressions {
     pub struct TargetList(Vec<Target>);
 }
 
-use expressions::*;
+use crate::pyrs_tokentypes::{Op, Token, TokenData, TokenKind, TokenOwned};
+use exprs::*;
 
 #[derive(Debug, Clone)]
 pub struct ExprError {

@@ -16,6 +16,7 @@ pub mod pyrs_vm;
 #[allow(unused)]
 pub mod pyrs_exprtypes;
 pub mod pyrs_parser2;
+pub mod pyrs_stmts;
 pub mod pyrs_tokentypes;
 
 // tests

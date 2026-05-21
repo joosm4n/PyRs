@@ -339,8 +339,17 @@ dependencies = [
  "int-enum",
  "paste",
  "pretty_assertions",
+ "pyrs_macros",
  "rug",
  "uuid",
+]
+
+[[package]]
+name = "pyrs_macros"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]
