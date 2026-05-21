@@ -4,223 +4,232 @@ use crate::{pyrs_parser2::DynError, pyrs_tokentypes::*};
 // pub struct Expr {
 //     data: String,
 //     kind: ExprKin
+mod expressions {
 
-enum VecOr<T1, T2> {
-    A(Vec<T1>),
-    B(Vec<T2>),
+    use crate::pyrs_tokentypes::*;
+
+    pub enum VecOr<T1, T2> {
+        A(Vec<T1>),
+        B(Vec<T2>),
+    }
+    pub enum Or<T1, T2> {
+        A(Box<T1>),
+        B(Box<T2>),
+    }
+    pub enum VecOr3<T1, T2, T3> {
+        A(Vec<T1>),
+        B(Vec<T2>),
+        C(Vec<T3>),
+    }
+    pub enum Or3<T1, T2, T3> {
+        A(Box<T1>),
+        B(Box<T2>),
+        C(Box<T3>),
+    }
+    type VecNE<T> = Vec<T>;
+    type CommaThen<T> = (COMMAOp, T);
+
+    pub enum Atom {
+        True(TrueKW),
+        False(FalseKW),
+        None(NoneKW),
+        Elipsis(ELLIPSISOp),
+        Identifier(Identifier),
+        Literal(Literal),
+        Enclosure(Enclosure),
+    }
+    pub enum Enclosure {
+        ParenthForm(ParenthForm),
+        ListDisplay(ListDisplay),
+        DictDisplay(DictDisplay),
+        SetDisplay(SetDisplay),
+        GeneratorExpr(GeneratorExpr),
+        YieldAtom(YieldAtom),
+    }
+
+    pub enum Literal {
+        Strings(Strings),
+        Number(Number),
+    }
+
+    pub struct Identifier {
+        name: String,
+    }
+
+    pub struct StringNorm {}
+    pub struct FString {}
+    pub struct TString {}
+
+    pub enum Strings {
+        Strs(VecOr<StringNorm, FString>),
+        TString(Vec<TString>),
+    }
+
+    pub struct ParenthForm(LPAROp, Option<StarredExpr>, RPAROp);
+
+    pub struct Comprehension(AssignmentExpr, CompFor);
+    pub struct CompFor(
+        Option<AsyncKW>,
+        ForKW,
+        TargetList,
+        InKW,
+        OrTest,
+        Option<CompIter>,
+    );
+    pub enum CompIter {
+        CompFor(Box<CompFor>),
+        CompIf(Box<CompIf>),
+    }
+    pub struct CompIf(IfKW, OrTest, Option<CompIter>);
+
+    pub struct ListDisplay(LSQBOp, Option<Or<FlexibleExprList, Comprehension>>, RSQBOp);
+
+    pub struct SetDisplay(
+        LBRACEOp,
+        Option<Or<FlexibleExprList, Comprehension>>,
+        RBRACEOp,
+    );
+
+    pub struct DictDisplay(LBRACEOp, Or<DictItem, DictComprehension>, RBRACEOp);
+    pub struct DictItemList(DictItem, Vec<(COMMAOp, DictItem)>, Option<COMMAOp>);
+    pub struct DictItem(Or<(Expr, COLONOp, Expr), (DOUBLESTAROp, OrExpr)>);
+    pub struct DictComprehension(Expr, COLONOp, Expr, CompFor);
+
+    pub struct GeneratorExpr(LPAROp, Expr, CompFor, RPAROp);
+
+    pub struct YieldAtom(LPAROp, YieldExpr, RPAROp);
+    pub struct YieldFrom(YieldKW, FromKW, Expr);
+    pub struct YieldExpr(Or<(YieldKW, YieldList), YieldFrom>);
+
+    pub enum Primary {
+        Atom(Box<Atom>),
+        AttributeRef(Box<AttributeRef>),
+        Subscription(Box<Subscription>),
+        Call(Box<Call>),
+    }
+
+    pub struct AttributeRef(Primary, DOTOp, Expr);
+
+    pub struct Subscription(Primary, LSQBOp, Subscript, RSQBOp);
+    pub struct Subscript(Or<SingleSubscript, TupleSubscript>);
+    pub struct SingleSubscript(Or<ProperSlice, AssignmentExpr>);
+    pub struct ProperSlice(
+        Option<Expr>,
+        COLONOp,
+        Option<Expr>,
+        Option<(COLONOp, Option<Expr>)>,
+    );
+    pub struct TupleSubscript(
+        COMMAOp,
+        Or<VecNE<SingleSubscript>, Vec<StarredExpr>>,
+        Option<COMMAOp>,
+    );
+
+    pub struct Call(
+        Primary,
+        LBRACEOp,
+        Option<Or<(ArgumentList, Option<COMMAOp>), Comprehension>>,
+        RBRACEOp,
+    );
+
+    pub struct ArgListA(
+        PositionalArguments,
+        Option<(COMMAOp, StarredAndKeywords)>,
+        Option<(COMMAOp, KeywordsArguments)>,
+    );
+    pub struct ArgListB(StarredAndKeywords, Option<(COMMAOp, KeywordsArguments)>);
+    pub struct ArgumentList(Or3<ArgListA, ArgListB, KeywordsArguments>);
+
+    pub struct PositionalArguments(PositionalItem, Vec<(COMMAOp, PositionalItem)>);
+    pub struct PositionalItem(Or<AssignmentExpr, (COMMAOp, PositionalItem)>);
+
+    pub struct StarredAndKeywords(
+        Or<(STAROp, Expr), KeywordItem>,
+        VecOr<(COMMAOp, KeywordItem), (COMMAOp, DOUBLESTAROp, Expr)>,
+    );
+
+    pub struct KeywordsArguments(VecOr<(COMMAOp, KeywordItem), (COMMAOp, DOUBLESTAROp, Expr)>);
+    pub struct KeywordItem(Identifier, EQUALOp, Expr);
+
+    pub struct AwaitExpr(AwaitKW, Primary);
+
+    pub struct Power(Or<AwaitExpr, Primary>, Option<(DOUBLESTAROp, UExpr)>);
+
+    // Unary and Binary Exprs v
+    pub enum UExpr {
+        A((), Box<Power>),
+        B(MINUSOp, Box<UExpr>),
+        C(PLUSOp, Box<UExpr>),
+        D(TILDEOp, Box<UExpr>),
+    }
+
+    pub enum MExpr {
+        A(Box<UExpr>),
+        B(Box<MExpr>, STAROp, Box<MExpr>),
+        C(Box<MExpr>, ATOp, Box<MExpr>),
+        D(Box<MExpr>, DOUBLESLASHOp, Box<UExpr>),
+        E(Box<MExpr>, SLASHOp, Box<UExpr>),
+        F(Box<MExpr>, PERCENTOp, Box<UExpr>),
+    }
+    pub enum AExpr {
+        A(Box<MExpr>),
+        B(Box<AExpr>, PLUSOp, Box<MExpr>),
+        C(Box<AExpr>, MINUSOp, Box<MExpr>),
+    }
+
+    pub struct ShiftExpr(Or<AExpr, (ShiftExpr, Or<LEFTSHIFTOp, RIGHTSHIFTOp>, AExpr)>);
+    pub struct AndExpr(Or<ShiftExpr, (AndExpr, AMPEROp, ShiftExpr)>);
+    pub struct XorExpr(Or<AndExpr, (XorExpr, CIRCUMFLEXOp, AndExpr)>);
+    pub struct OrExpr(Or<XorExpr, (OrExpr, VBAROp, XorExpr)>);
+    // Unary and Binary Exprs ^
+
+    // Comparison v
+    pub struct Comparison(OrExpr, Vec<(CompOperator, OrExpr)>);
+    pub enum CompOperator {
+        LessThan(LESSOp),
+        GreaterThan(GREATEROp),
+        Equals(EQEQUALOp),
+        LessEq(LESSEQUALOp),
+        GreaterEq(GREATEREQUALOp),
+        NotEq(NOTEQUALOp),
+        Is(IsKW, Option<NotKW>),
+        In(Option<NotKW>, InKW),
+    }
+
+    pub struct OrTest(Or<AndTest, (OrTest, OrKW, AndTest)>);
+    pub struct AndTest(Or<NotTest, (AndTest, AndKW, NotTest)>);
+    pub struct NotTest(Or<Comparison, (NotKW, NotTest)>);
+    // Comparison ^
+
+    // Exprs v
+    pub struct AssignmentExpr(Option<(Identifier, COLONEQUALOp)>, Expr);
+    pub struct ConditionalExpr(OrTest, Option<(IfKW, OrTest, ElseKW, Expr)>);
+    pub struct Expr(Or<ConditionalExpr, LambdaExpr>);
+
+    pub struct LambdaExpr(LambdaKW, Option<ParameterList>, COLONOp, Expr);
+
+    pub struct StarredExpr(Or<(STAROp, OrExpr), Expr>);
+    pub struct FlexibleExpr(Or<AssignmentExpr, StarredExpr>);
+    pub struct FlexibleExprList(FlexibleExpr, Vec<(COMMAOp, FlexibleExpr)>, Option<COMMAOp>);
+    pub struct StarredExprList(StarredExpr, Vec<(COMMAOp, StarredExpr)>, Option<COMMAOp>);
+    pub struct ExprList(Expr, Vec<(COMMAOp, Expr)>, Option<COMMAOp>);
+    pub struct YieldList(Or<ExprList, (StarredExpr, COMMAOp, Option<StarredExprList>)>);
+
+    // TODO: BELOW HERE ------------
+
+    pub struct ParameterList {}
+
+    pub enum Target {
+        Identifier(Identifier),
+        List(Option<TargetList>),
+        AttributeRef(AttributeRef),
+        Subscription(Subscription),
+        Target(Box<Target>),
+    }
+    pub struct TargetList(Vec<Target>);
 }
-enum OrTypes<T1, T2> {
-    A(T1),
-    B(T2),
-}
-type Or<T1, T2> = Box<OrTypes<T1, T2>>;
 
-enum SimpleStmt {
-    ExprStmt(ExprStmt),
-}
-
-struct Identifier {
-    name: String,
-}
-
-struct StringNorm {}
-struct FString {}
-struct TString {}
-
-enum VecStrOrFStr {
-    String(Vec<StringNorm>),
-    FString(Vec<FString>),
-}
-
-enum Strings {
-    Strs(VecStrOrFStr),
-    TString(Vec<TString>),
-}
-
-struct Number {
-    // TODO:
-}
-
-enum Literal {
-    Strings(Strings),
-    Number(Number),
-}
-
-enum CompOperator {
-    LessThan(LESSOp),
-    GreaterThan(GREATEROp),
-    Equals(EQEQUALOp),
-    LessEq(LESSEQUALOp),
-    GreaterEq(GREATEREQUALOp),
-    NotEq(NOTEQUALOp),
-    Is(bool),
-    In(bool),
-}
-
-enum Expr {
-    ConditionalExpr(ConditionalExpr),
-    LambdaExpr(LambdaExpr),
-}
-struct ExprList(Vec<Expr>);
-
-struct AttributeRef(Primary, Expr);
-
-struct ConditionalExpr {
-    // TODO:
-}
-struct LambdaExpr {
-    // TODO:
-}
-
-struct AwaitExpr {}
-struct Power(Or<AwaitExpr, Primary>, Option<(DOUBLESTAROp, UExpr)>);
-struct UExpr(
-    Or<Power, MINUSOp>,
-    Or<UExpr, PLUSOp>,
-    Or<UExpr, TILDEOp>,
-    Box<UExpr>,
-);
-struct MExpr(
-    Or<UExpr, MExpr>,
-    STAROp,
-    Or<UExpr, MExpr>,
-    ATOp,
-    Or<MExpr, MExpr>,
-    DOUBLESLASHOp,
-    Or<UExpr, MExpr>,
-    SLASHOp,
-    Or<UExpr, MExpr>,
-    PERCENTOp,
-    UExpr,
-);
-struct AExpr(Or<MExpr, AExpr>, PLUSOp, Or<MExpr, AExpr>, MINUSOp, MExpr);
-
-struct ShiftExpr(Or<AExpr, ShiftExpr>, Or<LEFTSHIFTOp, RIGHTSHIFTOp>, AExpr);
-struct AndExpr(Or<ShiftExpr, AndExpr>, AMPEROp, ShiftExpr);
-struct XorExpr(Or<AndExpr, XorExpr>, CIRCUMFLEXOp, AndExpr);
-struct OrExpr(Or<XorExpr, OrExpr>, VBAROp, XorExpr);
-enum StarredExpr {
-    OrExpr(OrExpr),
-    Expr(Expr),
-}
-
-struct StarredExprList(Vec<StarredExpr>);
-struct AssignmentExpr(Identifier, Expr);
-struct ProperSlice(Option<Expr>, Option<Expr>, Option<Expr>);
-struct Subscription(Primary, Subscript);
-struct Comparison(OrExpr, Vec<(CompOperator, OrExpr)>);
-
-enum TupleSubscript {
-    SingleSubscript(Vec<SingleSubscript>),
-    StarredExpr(Vec<StarredExpr>),
-}
-
-enum SingleSubscript {
-    ProperSlice(ProperSlice),
-    AssignmentExpr(AssignmentExpr),
-}
-
-enum Subscript {
-    Single(SingleSubscript),
-    Tuple(TupleSubscript),
-}
-
-enum Target {
-    Identifier(Identifier),
-    TargetList(Option<TargetList>),
-    AttributeRef(AttributeRef),
-    Subscription(Subscription),
-    Target(Box<Target>),
-}
-struct TargetList(Vec<Target>);
-
-struct Comprehension(AssignmentExpr, CompFor);
-struct CompFor {
-    async_: bool,
-    target_list: TargetList,
-    or_test: OrTest,
-    comp_iter: Option<CompIter>,
-}
-enum CompIter {
-    CompFor(Box<CompFor>),
-    CompIf(Box<CompIf>),
-}
-struct CompIf {
-    or_test: OrTest,
-    comp_iter: Option<CompIter>,
-}
-
-struct OrTest(OrTestEnum, Box<AndTest>);
-enum OrTestEnum {
-    AndTest(Box<AndTest>),
-    OrTest(Box<OrTest>),
-}
-
-struct AndTest(AndTestEnum, Box<NotTest>);
-enum AndTestEnum {
-    NotTest(Box<NotTest>),
-    AndTest(Box<AndTest>),
-}
-
-struct NotTest(NotTestEnum, Box<NotTest>);
-enum NotTestEnum {
-    Comparison(Comparison),
-    NotStr,
-}
-
-struct ParenthForm(Option<StarredExpr>);
-
-enum FlexibleExpr {
-    AssignmentExpr(AssignmentExpr),
-    StarredExpr(StarredExpr),
-}
-struct FlexibleExprList(FlexibleExpr, Vec<FlexibleExpr>);
-
-struct ListDisplay(Option<VecOr<FlexibleExprList, Comprehension>>);
-struct SetDisplay(Option<VecOr<FlexibleExprList, Comprehension>>);
-
-struct DictDisplay(LBRACEOp, Or<DictItem, DictComprehension>, RBRACEOp);
-struct DictItemList(DictItem, Vec<(COMMAOp, DictItem)>, Option<COMMAOp>);
-struct DictItem(Expr, COLONOp, Or<Expr, DOUBLESTAROp>, OrExpr);
-struct DictComprehension(Expr, COLONOp, Expr, CompFor);
-
-struct GeneratorExpr(LPAROp, Expr, CompFor, RPAROp);
-
-struct YieldAtom(LPAROp, YieldExpr, RPAROp);
-struct YieldFrom(Expr);
-enum YieldExpr {
-    YieldList(YieldList),
-    YieldFrom(YieldFrom),
-}
-enum YieldListEnum {
-    ExprList(ExprList),
-    StarredExpr(StarredExpr),
-}
-struct YieldList(YieldListEnum, Option<StarredExprList>);
-
-enum Enclosure {
-    ParenthForm(ParenthForm),
-    ListDisplay(ListDisplay),
-    DictDisplay(DictDisplay),
-    SetDisplay(SetDisplay),
-    GeneratorExpr(GeneratorExpr),
-    YieldAtom(YieldAtom),
-}
-
-enum Atom {
-    True,
-    False,
-    None,
-    Elipsis,
-    Identifier(Identifier),
-    Literal(Literal),
-    Enclosure(Enclosure),
-}
-
-enum Primary {
-    Atom(Box<Atom>),
-    AttributeRef(Box<AttributeRef>),
-}
+use expressions::*;
 
 #[derive(Debug, Clone)]
 pub struct ExprError {
@@ -244,7 +253,7 @@ impl std::fmt::Display for ExprError {
 impl std::error::Error for ExprError {}
 
 pub struct ExprBuilder {
-    exprs: Vec<Box<Expr>>,
+    exprs: Vec<Expr>,
     block: Option<Expr>,
 }
 

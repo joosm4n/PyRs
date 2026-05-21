@@ -395,6 +395,10 @@ impl Parser {
                         }
                     }
 
+                    if lit_kind == NumLit::Dec && has_dot {
+                        lit_kind = NumLit::Float;
+                    }
+
                     if last_was_underscore {
                         let tok = Token {
                             data: &line[start_idx..end_idx + 1],
