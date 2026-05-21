@@ -47,6 +47,8 @@ enum Expr {
 }
 struct ExprList(Vec<Expr>);
 
+struct AttributeRef((Primary, Expr));
+
 struct ConditionalExpr {
     // TODO:
 }
@@ -67,8 +69,34 @@ struct AssignmentExpr {
     expr: Expr,
 }
 
+enum TupleSubscript {
+    SingleSubscript(Vec<SingleSubscript>),
+    StarredExpr(Vec<StarredExpr>),
+}
+
+struct ProperSlice((Option<Expr>, Option<Expr>, Option<Expr>));
+
+enum SingleSubscript {
+    ProperSlice(ProperSlice),
+    AssignmentExpr(AssignmentExpr),
+}
+
+enum Subscript {
+    Single(SingleSubscript),
+    Tuple(TupleSubscript),
+}
+struct Subscription((Primary, Subscript));
+
+enum Target {
+    Identifier(Identifier),
+    TargetList(Option<TargetList>),
+    AttributeRef(AttributeRef),
+    Subscription(Subscription),
+    Target(Box<Target>),
+}
+struct TargetList(Vec<Target>);
+
 struct Comprehension {
-    // TODO:
     assign: AssignmentExpr,
     comp_for: CompFor,
 }
@@ -193,8 +221,8 @@ enum Atom {
 }
 
 enum Primary {
-    Atom(Atom),
-    AttributeRef(AttributeRef),
+    Atom(Box<Atom>),
+    AttributeRef(Box<AttributeRef>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
