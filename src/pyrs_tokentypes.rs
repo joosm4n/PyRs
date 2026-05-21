@@ -106,7 +106,7 @@ fn fmt_whitespace(s: String) -> String {
         .replace('\t', "\\t")
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum TokenKind {
     #[default]
     Unknown, // Phase out at some point
@@ -300,7 +300,14 @@ impl Op {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameKind {
+    Identifier,
+    Keyword,
+    SoftKeyword,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Keyword {
     FALSE,
     AWAIT,
@@ -422,7 +429,7 @@ impl Keyword {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub enum NumLit {
     #[default]
     Dec,
